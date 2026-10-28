@@ -344,15 +344,19 @@ extension Comparable {
 /// from no store get a plain grey case named Other.
 @MainActor func casePlatform(_ item: LibraryItem, clients: [GameProfile], stores: [GameProfile], manager: BottleManager) -> CasePlatform {
     guard let name = platformName(item, clients: clients, manager: manager) else {
-        // Finder's darker blue.
-        return CasePlatform(name: BuiltInCategory.other.name, color: Color(red: 0.0, green: 0.33, blue: 0.80), logo: nil,
+        // A soft peach.
+        return CasePlatform(name: BuiltInCategory.other.name, color: Color(red: 0.85, green: 0.52, blue: 0.40), logo: nil,
                             symbol: BuiltInCategory.other.symbol)
+    }
+    if item.bottle.isMac {
+        // Finder's darker blue.
+        return CasePlatform(name: name, color: Color(red: 0.0, green: 0.33, blue: 0.80), logo: nil,
+                            symbol: BuiltInCategory.mac.symbol)
     }
     let profile = clients.first { manager.bottle(for: $0)?.path == item.bottle.path && $0.name.localizedCaseInsensitiveContains(name) }
         ?? stores.first { $0.name.localizedCaseInsensitiveContains(name) }
     return CasePlatform(name: name, color: profile.map(StoreIcon.color(for:)) ?? Color(white: 0.42),
-                        logo: profile.flatMap { StoreIcon.logo(for: $0.id) },
-                        symbol: item.bottle.isMac ? BuiltInCategory.mac.symbol : nil)
+                        logo: profile.flatMap { StoreIcon.logo(for: $0.id) })
 }
 
 /// A store's case, for its games that aren't installed yet.

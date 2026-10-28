@@ -303,8 +303,7 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     CoverTile(item: item, width: coverSize, selected: selection == item.id, playButton: store != nil,
                               select: { selection = item.id },
-                              platform: builtIn == .mac
-                                  ? nil : casePlatform(item, clients: clients, stores: stores, manager: manager)) {
+                              platform: casePlatform(item, clients: clients, stores: stores, manager: manager)) {
                         launch(item)
                     }
                 }

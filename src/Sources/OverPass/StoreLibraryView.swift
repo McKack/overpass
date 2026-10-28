@@ -424,6 +424,16 @@ final class SignInSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         if webView === popup { closePopup() }
     }
 
+    // A redirect to localhost carries the code and never loads (nothing listens there), so take it on the way.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        guard let url = navigationAction.request.url, url.host == "localhost" else { return .allow }
+        if !finished, let code = await code(webView, url) {
+            finished = true
+            done?(code)
+        }
+        return .cancel
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if webView === popup { popupHost = webView.url?.host ?? popupHost }
         guard !finished, let url = webView.url else { return }

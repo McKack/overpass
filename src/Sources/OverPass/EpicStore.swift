@@ -48,18 +48,15 @@ final class EpicStore: StoreLibrary {
 
     // MARK: Account
 
-    /// Epic's login page; after sign-in it ends on a JSON page holding a one-time `authorizationCode`.
     nonisolated static let clientID = "34a02cf8f4414e29b15921876da36f9a"
     static let userAgent: String? = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) EpicGamesLauncher"
 
-    nonisolated static var loginURL: URL {
-        let redirect = "https://www.epicgames.com/id/api/redirect?clientId=\(clientID)&responseType=code"
-        var url = URLComponents(string: "https://www.epicgames.com/id/login")!
-        url.queryItems = [URLQueryItem(name: "redirectUrl", value: redirect)]
-        return url.url!
-    }
+    /// Epic's login page as the Epic Games Launcher opens it (as Heroic does): with the launcher's user agent it
+    /// ends on localhost?code=…. With a redirectUrl added (Legendary's browser login) Epic now answers
+    /// "Redirect URL is not known to the client" for that user agent.
+    nonisolated static let loginURL = URL(string: "https://www.epicgames.com/id/login?responseType=code")!
 
-    /// The redirect page shows JSON holding the code; some flows end on localhost?code=… instead.
+    /// The code from localhost?code=…, or from the JSON page Legendary's browser login ends on.
     static func code(in webView: WKWebView, at url: URL) async -> String? {
         if url.host == "localhost" {
             return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value

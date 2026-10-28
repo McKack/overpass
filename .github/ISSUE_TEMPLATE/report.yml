@@ -1,0 +1,31 @@
+name: Problem report
+description: Report a problem with a game or app. Start it from OverPass with Report Issue…, which fills in the details.
+labels: ["report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start reports from OverPass: right-click the app and choose **Report Issue…**. OverPass saves a zip with the log on your Desktop and opens this form with the details below filled in. Reports without the zip, or with a changed details block, are closed automatically; editing the issue to fix it reopens it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Explain the issue you encountered. Are you able to make it happen again, and if so, how?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Drag the "OverPass Logs – … .zip" from your Desktop into this box. It has your name taken out. Leave it empty only for a report OverPass made without a log.
+      placeholder: Drop the zip here.
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: Details
+      description: Filled in by OverPass. Don't change it; it carries a checksum.
+      render: text
+    validations:
+      required: true

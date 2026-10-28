@@ -73,8 +73,8 @@ enum LogCollector {
         lastRunURL("x", in: bottle).deletingLastPathComponent()
     }
 
-    /// The public repository that takes reports, until the app's own repository is public.
-    static let reportRepo = "McKack/overpass-releases"
+    /// The repository that takes reports.
+    static let reportRepo = "McKack/overpass"
 
     /// How much of each last-run log goes in a report: the end, where the problem usually is.
     nonisolated static let lastRunTail = 20 << 20

@@ -22,6 +22,8 @@ Or download `overpass-<version>.zip` from [Releases](https://github.com/McKack/o
 
 Needs macOS 15 or later on a Mac with Apple silicon. Updates install from inside OverPass.
 
+Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Report Issue in OverPass.
+
 ## Features
 
 **Install and play**

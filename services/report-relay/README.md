@@ -1,7 +1,7 @@
 # OverPass report relay
 
 A Cloudflare Worker that files problem reports from OverPass's Report Issue… as GitHub issues in
-`McKack/overpass-releases`, so reporting needs no GitHub account. The log zip is kept in Workers KV for 180 days
+`McKack/overpass`, so reporting needs no GitHub account. The log zip is kept in Workers KV for 180 days
 and linked from the issue; the issue has the same sections as the repository's report form, so its check workflow
 treats it like any other report.
 

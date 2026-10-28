@@ -275,7 +275,7 @@ struct LibraryView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: gridSize + 56), spacing: 20)], spacing: 20) {
                 ForEach(items) { item in
-                    AppTile(item: item, iconSize: gridSize, selected: selection == item.id,
+                    AppTile(item: item, iconSize: gridSize, selected: selection == item.id, playButton: store != nil,
                             select: { selection = item.id }) { launch(item) }
                 }
                 if let store {
@@ -298,7 +298,7 @@ struct LibraryView: View {
         return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: coverSize), spacing: 20)], spacing: 24) {
                 ForEach(items) { item in
-                    CoverTile(item: item, width: coverSize, selected: selection == item.id,
+                    CoverTile(item: item, width: coverSize, selected: selection == item.id, playButton: store != nil,
                               select: { selection = item.id },
                               platform: builtIn == .mac
                                   ? nil : casePlatform(item, clients: clients, stores: stores, manager: manager)) {
@@ -536,6 +536,8 @@ struct AppTile: View {
     let item: LibraryItem
     var iconSize: CGFloat = 64
     var selected = false
+    /// A Play button under the name, where a store's games that aren't installed show Install.
+    var playButton = false
     var select: () -> Void = {}
     let launch: () -> Void
 
@@ -546,10 +548,11 @@ struct AppTile: View {
                 .overlay(alignment: .topTrailing) { AntiCheatBadge(item: item, size: iconSize * 0.3) }
             Text(item.app.name)
                 .font(.callout)
-                .lineLimit(2)
+                .lineLimit(playButton ? 1 : 2)
                 .multilineTextAlignment(.center)
+            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch).controlSize(.small) }
         }
-        .frame(width: iconSize + 56, height: iconSize + 56)
+        .frame(width: iconSize + 56, height: iconSize + (playButton ? 84 : 56))
         .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         // A click selects, a double click opens, as in Finder.

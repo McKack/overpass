@@ -8,6 +8,8 @@ struct CoverTile: View {
     let item: LibraryItem
     let width: CGFloat
     var selected = false
+    /// A Play button under the caption, where a store's games that aren't installed show Install.
+    var playButton = false
     var select: () -> Void = {}
     /// The store a title comes from, shown as the cover style says (a label or a game case).
     var platform: CasePlatform? = nil
@@ -23,6 +25,7 @@ struct CoverTile: View {
             }
             .overlay { if opening { ProgressView() } }
             CoverCaption(title: item.app.name, platform: platform, width: width)
+            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch).controlSize(.small) }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: select)

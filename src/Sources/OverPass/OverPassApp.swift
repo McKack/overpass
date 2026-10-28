@@ -895,9 +895,10 @@ private struct ContainerLocationList: View {
     }
 }
 
-/// "Run", or a spinner with "Starting…" (and disabled) while the program starts.
+/// "Run" ("Play" for a store game), or a spinner with "Starting…" (and disabled) while the program starts.
 struct OpenButton: View {
     let opening: Bool
+    var label = "Run"
     let action: () -> Void
 
     var body: some View {
@@ -908,7 +909,7 @@ struct OpenButton: View {
                     Text("Starting…")
                 }
             } else {
-                Text("Run")
+                Text(label)
             }
         }
         .disabled(opening)

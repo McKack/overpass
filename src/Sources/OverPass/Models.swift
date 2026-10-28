@@ -45,6 +45,8 @@ struct WineApp: Identifiable, Hashable {
     var launcher: String? = nil
     /// The game's ID in that store (Steam app ID, GOG product ID).
     var storeID: String? = nil
+    /// "Play" for a game from a store, "Run" for other programs.
+    var runLabel: String { launcher == nil || launcher == "Mac" ? "Run" : "Play" }
     /// Windows path of the program a shortcut starts, or of the program itself; nil when unknown.
     var target: String? = nil
     /// Host path of a Start-menu shortcut to a launcher's game, kept for its icon.

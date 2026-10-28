@@ -154,9 +154,9 @@ struct LibraryView: View {
                     .disabled(game.unavailable != nil || store.progress[game.id] != nil || store.queue.contains(game.id))
                 } else {
                     Button { if let item { launch(item) } } label: {
-                        Label(item.map { "Run \($0.app.name)" } ?? "Run", systemImage: "play.fill")
+                        Label(item.map { "\($0.app.runLabel) \($0.app.name)" } ?? "Run", systemImage: "play.fill")
                     }
-                    .help(item.map { "Run \($0.app.name)" } ?? "Select an app to run it")
+                    .help(item.map { "\($0.app.runLabel) \($0.app.name)" } ?? "Select an app to run it")
                     .disabled(item == nil || opening)
                 }
                 Button {
@@ -202,8 +202,8 @@ struct LibraryView: View {
         }
         .alert("This Game Uses an Anti-Cheat", isPresented: Binding(get: { antiCheatItem != nil }, set: { if !$0 { antiCheatItem = nil } }),
                presenting: antiCheatItem) { item in
-            Button("Run") { start(item) }
-            Button("Run, and Don't Ask Again for It") {
+            Button(item.app.runLabel) { start(item) }
+            Button("\(item.app.runLabel), and Don't Ask Again for It") {
                 AntiCheat.acknowledge(item)
                 start(item)
             }
@@ -487,7 +487,7 @@ struct LibraryItemMenu: View {
 
     var body: some View {
         let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
-        Button(opening ? "Starting…" : "Run") { launch() }.disabled(opening)
+        Button(opening ? "Starting…" : item.app.runLabel) { launch() }.disabled(opening)
         Button(Favorites.ids(favorites).contains(item.id) ? "Remove from Favorites" : "Add to Favorites") {
             favorites = Favorites.toggled(item.id, in: favorites)
         }
@@ -583,7 +583,7 @@ struct AppRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button(opening ? "Starting…" : "Run", action: launch)
+            Button(opening ? "Starting…" : item.app.runLabel, action: launch)
                 .disabled(opening)
         }
         .padding(.horizontal, 20)

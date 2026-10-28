@@ -201,7 +201,7 @@ struct InstallSheet: View {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                             Text(app.name)
                             Spacer()
-                            OpenButton(opening: manager.isOpening(in: bottle, program: app.executable)) {
+                            OpenButton(opening: manager.isOpening(in: bottle, program: app.executable), label: app.runLabel) {
                                 try? manager.launchApp(app, in: bottle)
                             }
                         }

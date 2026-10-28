@@ -4,7 +4,7 @@
 
 Run Windows games on your Mac without managing Wine yourself. Pick a game or launcher, click Install, and OverPass downloads Wine, makes a container for it, installs the runtimes it needs and adds it to your library.
 
-Version 0.3.0. Made by [Arctic Imaginarium](https://arctim.no). Landing page: [overpass.arctim.no](https://overpass.arctim.no).
+Version 0.5.0. Made by [Arctic Imaginarium](https://arctim.no). Landing page: [overpass.arctim.no](https://overpass.arctim.no).
 
 OverPass is built on Wine, DXMT and many other open-source projects: see [CREDITS](CREDITS.md), and please support them too.
 
@@ -35,6 +35,7 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 **Library**
 - Home and library views as icons, list, rows or covers, with a status bar and sort menu.
 - Cover art from the stores, with game-case and 3D-case styles, or your own cover and icon.
+- The list view shows each game's container, its game engine (Unity, Unreal Engine, Godot and more, found from its files) and graphics backend.
 - Sidebar categories for each store, Favorites, your own categories, Mac apps and other titles.
 - Uninstall from the library, the sidebar or the File menu.
 
@@ -61,7 +62,7 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 
 **Stores**
 - Steam, Epic Games, GOG, EA, Battle.net, Ubisoft and Rockstar install in one click.
-- GOG library inside OverPass: sign in, see what you own, then install and launch without GOG Galaxy. Epic works the same way (Beta).
+- GOG library inside OverPass: sign in, see what you own, then install and launch without GOG Galaxy. Epic works the same way (Beta). Installed Only hides the games you haven't installed.
 - Xbox (Beta, opt-in): off by default, enabled from Home after you accept the risks.
 
 **Updates and reports**
@@ -71,17 +72,17 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 
 ## Screenshots
 
-Home lists featured games and launchers. Pick one and click Install:
+Home lists the game stores and featured apps. Pick one and click Install, or Run once it's there:
 
-![Home: featured games and launchers, each with an Install button](docs/screenshots/home.png)
+![Home: game stores and featured apps](docs/screenshots/home.png)
 
-The library holds everything you have installed, grouped by category:
+Everything you have installed, from every store, as covers in cases named after where each game comes from:
 
-![Library: installed games and apps](docs/screenshots/library.png)
+![All Titles: games from Epic Games, GOG and Steam, a Windows app and a Mac game](docs/screenshots/library.jpg)
 
-The profile editor changes a program's Windows version, runtimes, environment, DLL overrides and graphics backend:
+Sign in to GOG or Epic Games and your whole library shows up. Install games straight from OverPass, no launcher needed:
 
-![Profile editor](docs/screenshots/editor.png)
+![The GOG library: installed games with Play, the rest with Install](docs/screenshots/gog.jpg)
 
 [More screenshots…](docs/SCREENSHOTS.md)
 

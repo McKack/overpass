@@ -13,6 +13,8 @@ struct CoverTile: View {
     var select: () -> Void = {}
     /// The store a title comes from, shown as the cover style says (a label or a game case).
     var platform: CasePlatform? = nil
+    /// The store's logo before the name; not needed in the store's own category.
+    var captionIcon = true
     let launch: () -> Void
     @State private var cover: NSImage?
     @State private var background: NSImage?
@@ -24,7 +26,7 @@ struct CoverTile: View {
                 art(width: width, corner: corner)
             }
             .overlay { if opening { ProgressView() } }
-            CoverCaption(title: item.app.name, platform: platform, width: width)
+            CoverCaption(title: item.app.name, platform: platform, width: width, icon: captionIcon)
             if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch)
                 .buttonStyle(.borderedProminent).controlSize(.small) }
         }
@@ -519,16 +521,17 @@ struct StyledCover<Art: View>: View {
     }
 }
 
-/// A cover's name, after the logo of the store it comes from.
+/// A cover's name, after the logo of the store it comes from (left out in that store's own category).
 struct CoverCaption: View {
     let title: String
     let platform: CasePlatform?
     let width: CGFloat
     var dimmed = false
+    var icon = true
 
     var body: some View {
         HStack(spacing: 4) {
-            if let platform { PlatformIcon(platform: platform) }
+            if icon, let platform { PlatformIcon(platform: platform) }
             Text(title)
                 .lineLimit(1)
                 .foregroundStyle(dimmed ? .secondary : .primary)

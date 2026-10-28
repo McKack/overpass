@@ -7,6 +7,7 @@ enum ViewOptions {
     static let showClientInCategoryKey = "showClientInCategory"
     static let layoutKey = "libraryLayout"
     static let coverStyleKey = "coverStyle"
+    static let installedOnlyKey = "storeInstalledOnly"
     static let favoritesKey = "favorites"
     static let categoriesKey = "userCategories"
 }

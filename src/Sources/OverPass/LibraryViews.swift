@@ -29,6 +29,8 @@ struct LibraryView: View {
     @State private var antiCheatItem: LibraryItem?
     @AppStorage(LibrarySort.key) private var sortKey: LibrarySort = .name
     @AppStorage(LibrarySort.ascendingKey) private var sortAscending = true
+    /// GOG and Epic: only the installed games, without the rest of the account's library.
+    @AppStorage(ViewOptions.installedOnlyKey) private var installedOnly = false
     /// The selected app in any layout; its actions show in the middle of the toolbar.
     @State private var selection: LibraryEntry.ID?
     @State private var itemSheet: ItemSheet?
@@ -69,7 +71,7 @@ struct LibraryView: View {
 
     /// The store's owned games that aren't installed, after the installed titles.
     private var storeGames: [LibraryGame] {
-        guard let store, store.account != nil else { return [] }
+        guard let store, store.account != nil, !installedOnly else { return [] }
         let search = searchText.trimmingCharacters(in: .whitespaces)
         return store.games.filter { game in
             !store.isInstalled(game) && (search.isEmpty || game.title.localizedStandardContains(search))
@@ -183,6 +185,14 @@ struct LibraryView: View {
             ToolbarItemGroup(placement: .principal) {
                 LayoutMenu(layout: $layout, coverStyles: true)
                 SortMenu(key: $sortKey, ascending: $sortAscending)
+            }
+            if store != nil {
+                ToolbarItem(placement: .principal) {
+                    Toggle(isOn: $installedOnly) {
+                        Label("Installed Only", systemImage: "line.3.horizontal.decrease")
+                    }
+                    .help(installedOnly ? "Show the whole library" : "Show only installed games")
+                }
             }
             if let store, let account = store.account {
                 ToolbarItem(placement: .principal) {
@@ -303,7 +313,8 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     CoverTile(item: item, width: coverSize, selected: selection == item.id, playButton: store != nil,
                               select: { selection = item.id },
-                              platform: casePlatform(item, clients: clients, stores: stores, manager: manager)) {
+                              platform: casePlatform(item, clients: clients, stores: stores, manager: manager),
+                              captionIcon: launcher == nil && builtIn == nil) {
                         launch(item)
                     }
                 }

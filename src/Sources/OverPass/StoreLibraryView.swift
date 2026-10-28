@@ -269,7 +269,7 @@ struct StoreGameCover: View {
                     .frame(width: width, height: width * 1.5)
                     .clipShape(RoundedRectangle(cornerRadius: corner))
             }
-            CoverCaption(title: game.title, platform: platform, width: width, dimmed: true)
+            CoverCaption(title: game.title, platform: platform, width: width, dimmed: true, icon: false)
             StoreGameAction(game: game, store: store, compact: true)
         }
         .storeGameItem(game, store: store, manager: manager, selected: selected, select: select)

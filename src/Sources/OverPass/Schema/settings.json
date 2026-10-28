@@ -1,0 +1,1364 @@
+{
+ "format": 1,
+ "about": "Settings OverPass can set per title, for the profile editor's Simple view: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
+ "settings": [
+  {
+   "id": "OVERPASS_X87",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (Rosetta's own x87 translation)",
+   "title": "Faster x87 math",
+   "summary": "Runs this game's 32-bit programs under x87sidecar, which can make old games that use x87 floating-point math much faster.",
+   "technical": "Compared to exactly \"1\" (strcmp). When ROSETTA_X87_PATH is unset or empty, OVERPASS_X87=1 makes the loader re-exec an i386 program as `x87sidecar --cooperative`, using the path in OVERPASS_X87SIDECAR (set by OverPass when the component is installed). Only for i386 executables, and skipped when the separate 32-bit loader doesn't exist (WoW64). Results can differ in the last bits of floating-point values.",
+   "group": "Performance",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:801-804; overpass/PATCHES.md #13"
+  },
+  {
+   "id": "ROSETTA_X87_PATH",
+   "kind": "env",
+   "type": "path",
+   "default": "unset",
+   "title": "x87sidecar location",
+   "summary": "Uses a specific copy of x87sidecar for this game's 32-bit programs, for testing another build.",
+   "technical": "Unix path to an executable x87sidecar. When set and non-empty it takes priority over OVERPASS_X87/OVERPASS_X87SIDECAR and turns the sidecar on by itself; the file must pass access(X_OK). Same i386-only and WoW64 limits as OVERPASS_X87.",
+   "group": "Debugging",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:801-806"
+  },
+  {
+   "id": "OVERPASS_MAX_RESOLUTION",
+   "kind": "env",
+   "type": "size",
+   "values": [
+    {
+     "value": "desktop",
+     "title": "Desktop size"
+    },
+    {
+     "value": "display",
+     "title": "Everything the display supports"
+    }
+   ],
+   "default": "desktop",
+   "title": "Largest game resolution",
+   "summary": "Sets the largest resolution the game is offered: the Mac's desktop size, everything the display can do, or a size you choose (also above what the display lists, for supersampling).",
+   "technical": "Read per process when the mode list is read. \"display\" (any case) offers every mode the display reports; \"<width>x<height>\" (lowercase x, two positive integers, nothing after) caps the list there and adds that size if missing; \"desktop\" (any case), empty or unset caps at the current desktop size; anything else logs a warning and behaves like desktop. The desktop size always stays in the list. Only matters with EmulateModeset, an OverPass bottle default. OverPass sets a global value for every launch; a profile overrides it.",
+   "group": "Display",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/win32u/sysparams.c:643-665; OverPass/src/Sources/OverPass/MaxResolution.swift:4"
+  },
+  {
+   "id": "OVERPASS_NO_MAC_FRAME",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (Mac title bar shown)",
+   "title": "Hide Mac title bar",
+   "summary": "Removes the Mac title bar from the program's windows, for programs that draw their own frame and title bar.",
+   "technical": "On when set, non-empty and the first character is not '0' (so \"1\", \"yes\" and \"true\" all turn it on). Read once per process in winemac.drv; windows stay resizable and keep their shadow. Made for GOG Galaxy.",
+   "group": "Display",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/winemac.drv/window.c:114-123; overpass/PATCHES.md #6"
+  },
+  {
+   "id": "OVERPASS_NO_APP_BUNDLE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (each program gets a small app bundle, so macOS can use Game Mode)",
+   "title": "Turn off Game Mode bundle",
+   "summary": "Stops wrapping each program in a small Mac app bundle. Without the bundle macOS does not recognise the program as a game, so Game Mode does not turn on.",
+   "technical": "On when set, non-empty and the first character is not '0'. The loader's re-exec link (CW HACK 22144) is then a plain link in $TMPDIR/winetemp-* instead of <name>.app/Contents/MacOS/<name> with LSSupportsGameMode. Programs started directly from the command line never use the link.",
+   "group": "Performance",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:729-730; overpass/PATCHES.md #11"
+  },
+  {
+   "id": "OVERPASS_NO_ROSETTA_CODE_REGIONS",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (code regions registered with Rosetta)",
+   "title": "Don't register code with Rosetta",
+   "summary": "Stops telling Rosetta where the program's Windows code is. Meant for comparing performance; leave it off normally.",
+   "technical": "On when set, non-empty and the first character is not '0'. Disables ntdll's own registration of native PE code regions (Rosetta syscall 0x7000009), which otherwise runs under Rosetta build >= 304 when D3DMetal's libd3dshared is not loaded.",
+   "group": "Debugging",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:1530-1532; overpass/PATCHES.md #4"
+  },
+  {
+   "id": "OVERPASS_WINHTTP_HTTP2",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (HTTP/2 only when the program asks for it)",
+   "title": "HTTP/2 for online services",
+   "summary": "Lets the program's web requests use HTTP/2 even when it doesn't ask for it. Some launchers and online games need this.",
+   "technical": "The value must be exactly \"1\" (GetEnvironmentVariableW length 1 and value '1'); read from the Windows environment when a WinHTTP session is opened, which then offers h2 through ALPN by default.",
+   "group": "Network",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/winhttp/session.c:362-363; overpass/PATCHES.md #15"
+  },
+  {
+   "id": "WINE_FORCE_NX",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (DEP follows the main executable, as on Windows)",
+   "title": "Always keep DEP on",
+   "summary": "Keeps data execution prevention on even when the game's executable asks for it to be off. Can make some games faster under Rosetta, but breaks old programs that run code from data memory.",
+   "technical": "On when set, non-empty and not exactly \"0\" (strcmp). Adds MEM_EXECUTE_OPTION_PERMANENT, like Windows' AlwaysOn policy. By default a main executable without IMAGE_DLLCHARACTERISTICS_NX_COMPAT turns no-execute off, which makes every readable mapping executable.",
+   "group": "Performance",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/process.c:95-107; overpass/PATCHES.md #12"
+  },
+  {
+   "id": "WINE_LARGE_ADDRESS_AWARE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (follows the executable's large-address-aware flag, or HKCU\\Software\\Wine\\AppDefaults\\<exe>\\LargeAddressAware)",
+   "title": "Use 4 GB memory (32-bit)",
+   "summary": "Lets a 32-bit game use up to 4 GB of memory instead of 2 GB, which can stop out-of-memory crashes in heavily modded or large games.",
+   "technical": "On when set, non-empty and the first character is not '0'. Treated as if the main image had IMAGE_FILE_LARGE_ADDRESS_AWARE. Only affects 32-bit programs. CodeWeavers hack (bug 17634), open source in this tree.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/virtual.c:5050-5066,5108"
+  },
+  {
+   "id": "WINE_SIMULATE_WRITECOPY",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (0)",
+   "title": "Windows-style copy-on-write pages",
+   "summary": "Makes memory protection changes on copy-on-write pages look the way they do on Windows. Some copy protection and anti-tamper code checks this.",
+   "technical": "Parsed with atoi(): any non-zero number turns it on, \"0\" or text turns it off. After VirtualProtect succeeds on a PAGE_WRITECOPY/PAGE_EXECUTE_WRITECOPY page, the page is marked as already copied (CW Hack 22996).",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:1625-1626; dlls/ntdll/unix/virtual.c:5608"
+  },
+  {
+   "id": "WINE_HEAP_ZERO_MEMORY",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "Zero new heap memory",
+   "summary": "Fills newly allocated memory with zeros. Helps games that accidentally rely on fresh memory being empty, at a small speed cost.",
+   "technical": "On when the first character of the Windows environment value is '1'. Creates the process heap with HEAP_ZERO_MEMORY (CW Hack 23394/23427); logs an ERR line when active. Only WINE_HEAP_ZERO_MEMORY exists among WINE_HEAP_* in this tree.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/loader.c:5111"
+  },
+  {
+   "id": "WINENCPU",
+   "kind": "env",
+   "type": "int",
+   "min": 1,
+   "step": 1,
+   "unit": "cores",
+   "default": "unset (all cores)",
+   "title": "Limit CPU cores",
+   "summary": "Tells the game the Mac has fewer processor cores. Some older games crash or stutter when they see many cores.",
+   "technical": "Parsed with atoi(); used only when the number is greater than 0 and smaller than the real core count, otherwise ignored. macOS only (CW HACK 24711). The upper bound is the machine's core count, so no fixed max.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/system.c:1632-1644"
+  },
+  {
+   "id": "WINEDEBUG",
+   "kind": "env",
+   "type": "string",
+   "default": "-all (OverPass sets it for every launch; the log collector sets its own channels)",
+   "title": "Wine log channels",
+   "summary": "Chooses what Wine writes to the log. Only useful when collecting a log for a bug report; more channels make the game slower.",
+   "technical": "Syntax [[process:]class]+channel,[[process:]class]-channel,... e.g. +relay,warn-heap or +seh,+loaddll. WINEDEBUG=help prints the syntax. Read once at process start.",
+   "group": "Debugging",
+   "applies": "any-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/debug.c:191-203; OverPass/src/Sources/OverPass/BottleManager.swift:646"
+  },
+  {
+   "id": "WINE_D3D_CONFIG",
+   "kind": "env",
+   "type": "string",
+   "default": "unset (registry HKCU\\Software\\Wine\\Direct3D, then AppDefaults)",
+   "title": "WineD3D options",
+   "summary": "Advanced options for Wine's own Direct3D (WineD3D), for example the renderer or reported video memory.",
+   "technical": "Comma-separated key=value list that overrides the registry, e.g. csmt=0x1,renderer=gl. Keys read: csmt, MaxVersionGL, shader_backend (glsl, glsl-vkd3d), VideoPciDeviceID, VideoPciVendorID (<= 0xffff), VideoMemorySize (MiB, > 0), WineLogo, MultisampleTextures, SampleCount, CheckFloatConstants, strict_shader_math, multiply_special, MaxShaderModelVS/HS/DS/GS/PS/CS, renderer (vulkan, gl, gdi/no3d), cb_access_map_w, ffp_hlsl. Only applies when WineD3D is the backend.",
+   "group": "Graphics",
+   "applies": "any-wine",
+   "source": "OverPass-wine/main/dlls/wined3d/wined3d_main.c:343-480"
+  },
+  {
+   "id": "CX_HACK_REMOTE_DRIVES",
+   "kind": "env",
+   "type": "string",
+   "default": "unset",
+   "title": "Drives reported as network drives",
+   "summary": "Makes the listed drive letters look like network drives to the program. Some installers and DRM behave differently on network drives.",
+   "technical": "A string of drive letters, e.g. \"de\". GetDriveType returns DRIVE_REMOTE when the variable is set (non-empty) and contains the lowercased drive letter, so letters must be written in lowercase. Read through the Windows environment.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/volume.c:597-609"
+  },
+  {
+   "id": "CX_HACK_FILESYSTEM_TYPE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (drives report NTFS)",
+   "title": "Report the real file system",
+   "summary": "Stops drives from claiming to be NTFS. For programs that assume NTFS features (such as case-insensitive names or hard links) that the Mac file system handles differently.",
+   "technical": "Checked for presence only: any non-empty value turns it on. GetVolumeInformation then reports \"UNIXFS\" instead of \"NTFS\" with only FILE_CASE_PRESERVED_NAMES as flags (CrossOver hack 5870).",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/volume.c:191-202"
+  },
+  {
+   "id": "CX_TURN_OFF_FONT_REPLACEMENTS",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (font replacements active)",
+   "title": "No font substitutes",
+   "summary": "Stops Wine from substituting Mac fonts for missing Windows fonts. Try it when text looks wrong or a program picks an odd font.",
+   "technical": "Checked for presence only (getenv non-NULL): any value, even empty or \"0\", turns it on. Skips Wine's built-in and registry font replacement tables (HKCU\\Software\\Wine\\Fonts\\Replacements).",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/win32u/font.c:1018"
+  },
+  {
+   "id": "CX_FWD_COMPAT_GL_CTX",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "Forward-compatible OpenGL",
+   "summary": "Gives OpenGL games that ask for OpenGL 3.2 to 4.1 a modern core context. Can fix OpenGL games that fail to start or render nothing.",
+   "technical": "On when the first character is '1'. In winemac.drv's wglCreateContextAttribsARB, adds WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB for requested versions 3.2, 3.3, 4.0 and 4.1 (CW Hack 24834).",
+   "group": "Graphics",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/winemac.drv/opengl.c:2164-2172"
+  },
+  {
+   "id": "CX_HIDE_BUILTIN_VERSION_RESOURCES",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "Hide Wine DLL version info",
+   "summary": "Hides version information in Wine's own DLLs from the program. For installers that refuse to run when they see Wine's version numbers.",
+   "technical": "On when the first character of the Windows environment value is '1'. GetFileVersionInfo on a Wine builtin module then fails with ERROR_RESOURCE_NAME_NOT_FOUND.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/version.c:788-795"
+  },
+  {
+   "id": "CX_REPORT_REAL_USERNAME",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (Windows user name is \"overpass\")",
+   "title": "Use your Mac user name",
+   "summary": "Reports your Mac user name to the program instead of the shared name \"overpass\".",
+   "technical": "Checked for presence only (getenv non-NULL): any value turns it on. Affects GetUserName in advapi32; the bottle's profile folder stays C:\\users\\overpass.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/advapi32/advapi.c:52,77; overpass/PATCHES.md #2"
+  },
+  {
+   "id": "WINEDLLOVERRIDES",
+   "kind": "dll-override",
+   "type": "enum",
+   "values": [
+    {
+     "value": "n",
+     "title": "Native (the game's own DLL)"
+    },
+    {
+     "value": "b",
+     "title": "Builtin (Wine's DLL)"
+    },
+    {
+     "value": "n,b",
+     "title": "Native, then builtin"
+    },
+    {
+     "value": "b,n",
+     "title": "Builtin, then native"
+    },
+    {
+     "value": "d",
+     "title": "Disabled (don't load)"
+    }
+   ],
+   "default": "Wine's default load order for that DLL (registry HKCU\\Software\\Wine\\DllOverrides, then Wine's own rules)",
+   "title": "DLL override",
+   "summary": "Chooses whether a DLL comes from the game, from Wine, or is not loaded at all.",
+   "technical": "One entry per DLL, written name=mode (in profiles as a `dll` line, e.g. xaudio2_7=n,b). Several names can share a mode with commas; entries are joined with ';' in WINEDLLOVERRIDES and later entries win. Only the first letter of each word counts (native/builtin work too); any value without n or b, including empty, means disabled. A .dll extension on the name is dropped.",
+   "group": "Compatibility",
+   "applies": "any-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/unix/env.c:854-863; dlls/ntdll/unix/loadorder.c:130-160,190-250"
+  },
+  {
+   "id": "ROSETTA_ADVERTISE_AVX",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": "0",
+   "default": "1 (OverPass sets it for every launch)",
+   "title": "AVX under Rosetta",
+   "summary": "Tells the game the processor supports AVX, which Rosetta can translate. Many newer games need it; turn it off for a game that crashes with it.",
+   "technical": "Read by Rosetta 2 itself, not by Wine. OverPass sets \"1\" for every launch; a profile value of \"0\" turns it off (only \"1\" enables AVX on macOS 26.6 per a CPUID probe noted in ROADMAP.md). Documented in Apple's Game Porting Toolkit read-me.",
+   "group": "Compatibility",
+   "applies": "macos",
+   "source": "OverPass/src/Sources/OverPass/BottleManager.swift:647; OverPass/ROADMAP.md:170"
+  },
+  {
+   "id": "MTL_HUD_ENABLED",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (HUD hidden)",
+   "title": "Metal performance HUD",
+   "summary": "Shows Apple's Metal performance overlay with frame rate, frame time and memory use.",
+   "technical": "Apple's Metal HUD, read by Metal in the game process for Metal-based backends (DXMT, mtld3d, D3DMetal, MoltenVK). DXMT adds its own lines to this HUD; mtld3d logs the value at start.",
+   "group": "Debugging",
+   "applies": "macos",
+   "source": "https://developer.apple.com/documentation/xcode/monitoring-your-metal-apps-graphics-performance; OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:181; mtld3d unix/unix/src/metal/capture.rs:96"
+  },
+  {
+   "id": "DXMT_CONFIG",
+   "kind": "env",
+   "type": "string",
+   "separator": ";",
+   "default": "unset",
+   "title": "OverPass Runtime options",
+   "summary": "Holds the OverPass Runtime (DXMT) options listed as dxmt-config settings.",
+   "technical": "key=value entries separated by ';', parsed like dxmt.conf lines and applied after it. Read on the Windows side with a MAX_PATH buffer, so a value longer than 259 characters is lost. Built-in per-game profiles (Genshin, Sonic X Shadow Generations, OMORI, Outcast, SotTR, Helldivers 2) apply only to keys the user did not set.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/util/config/config.cpp:351-391; src/util/util_env.cpp:27-36"
+  },
+  {
+   "id": "DXMT_CONFIG_FILE",
+   "kind": "env",
+   "type": "path",
+   "default": "dxmt.conf in the program's current directory",
+   "title": "OverPass Runtime config file",
+   "summary": "Reads OverPass Runtime options from a file of your choice.",
+   "technical": "Path to a dxmt.conf-format file (key = value lines, [exe name] sections). Read through the Windows environment, so a Windows path. DXMT_CONFIG entries are applied on top.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/util/config/config.cpp:353-375; dxmt/docs/CUSTOMIZATION.md"
+  },
+  {
+   "id": "DXMT_METALFX_SPATIAL_SWAPCHAIN",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "MetalFX upscaling (D3D11)",
+   "summary": "Upscales a Direct3D 11 game's picture with MetalFX, so it can render at a lower resolution and still look sharp.",
+   "technical": "Compared to exactly \"1\". Creates the D3D11 swap chain with MetalFX spatial scaling when the GPU supports it; the factor comes from d3d11.metalSpatialUpscaleFactor (default 2). D3D11 only.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:1124"
+  },
+  {
+   "id": "DXMT_ENABLE_NVEXT",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "NVIDIA extensions (DLSS)",
+   "summary": "Lets games use NVIDIA features such as DLSS, which OverPass Runtime provides with MetalFX.",
+   "technical": "Compared to exactly \"1\". Writes the NVIDIA/NGX registry values games look for and enables the vendor extension (nvapi, NGX DLSS Super Resolution through MetalFX's temporal scaler, patches 0001/0003); any other value deletes those values.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi.cpp:35-46; repo/overpass/PATCHES.md"
+  },
+  {
+   "id": "DXMT_SHADER_CACHE",
+   "kind": "env",
+   "type": "bool",
+   "on": "0",
+   "off": null,
+   "default": "unset (shader cache on)",
+   "title": "Turn off shader cache",
+   "summary": "Stops OverPass Runtime from saving converted shaders between runs. Only useful for testing; the game will stutter more.",
+   "technical": "Compared to exactly \"0\" (\"0\" disables the cache, any other value leaves it on). The cache is shaders_<metal version>.db under DXMT_SHADER_CACHE_PATH or dxmt/<exe>/.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxmt/dxmt_shader_cache.cpp:22"
+  },
+  {
+   "id": "DXMT_SHADER_CACHE_PATH",
+   "kind": "env",
+   "type": "path",
+   "default": "dxmt/<exe name>/ (relative)",
+   "title": "Shader cache folder",
+   "summary": "Keeps OverPass Runtime's shader cache in a folder you choose.",
+   "technical": "Used only when it starts with '/' (an absolute Unix path); a trailing '/' is added. Otherwise the relative default is used.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxmt/dxmt_shader_cache.cpp:25-31"
+  },
+  {
+   "id": "DXMT_USE_DEFAULT_METAL_CACHE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (Metal's pipeline cache kept in dxmt/<exe>/com.apple.metal)",
+   "title": "Use the system Metal cache",
+   "summary": "Leaves Metal's compiled-pipeline cache in the system's default place instead of a per-game folder.",
+   "technical": "Compared to exactly \"1\". Skips WMTSetMetalShaderCachePath, so Metal uses its default framework cache location.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi.cpp:54-60"
+  },
+  {
+   "id": "DXMT_LOG_LEVEL",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "trace",
+     "title": "Trace"
+    },
+    {
+     "value": "debug",
+     "title": "Debug"
+    },
+    {
+     "value": "info",
+     "title": "Info"
+    },
+    {
+     "value": "warn",
+     "title": "Warnings"
+    },
+    {
+     "value": "error",
+     "title": "Errors"
+    },
+    {
+     "value": "none",
+     "title": "None"
+    }
+   ],
+   "default": "info",
+   "title": "OverPass Runtime log level",
+   "summary": "How much OverPass Runtime writes to its log.",
+   "technical": "Exact, case-sensitive match against the lowercase names; anything else means info.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/util/log/log.cpp:114-133"
+  },
+  {
+   "id": "DXMT_LOG_PATH",
+   "kind": "env",
+   "type": "path",
+   "default": "unset (no log file when output goes to Wine's console; otherwise the current directory)",
+   "title": "OverPass Runtime log folder",
+   "summary": "Writes OverPass Runtime's log files to this folder.",
+   "technical": "\"none\" disables log files. Files are named <exe>_<component>.log; a trailing '/' is added.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/util/log/log.cpp:95-111"
+  },
+  {
+   "id": "d3d11.preferredMaxFrameRate",
+   "kind": "dxmt-config",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "unit": "fps",
+   "default": "0",
+   "title": "Frame rate limit (D3D11)",
+   "summary": "Caps a Direct3D 11 game's frame rate with Metal's own frame pacing, for even frame times. 0 means no limit.",
+   "technical": "Integer; 0 disables. Metal may give a lower rate than asked when it is not a factor of the display refresh rate (e.g. 40 on 60 Hz gives 30). Parser has no upper bound; negative values parse but are meaningless.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:169-170,765-773; dxmt/dxmt.conf"
+  },
+  {
+   "id": "d3d12.preferredMaxFrameRate",
+   "kind": "dxmt-config",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "unit": "fps",
+   "default": "0",
+   "title": "Frame rate limit (D3D12)",
+   "summary": "Caps a Direct3D 12 game's frame rate with Metal's own frame pacing. 0 means no limit.",
+   "technical": "Same behaviour as d3d11.preferredMaxFrameRate, read by the D3D12 swap chain. Not mentioned in dxmt.conf or the docs.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_swapchain.cpp:202,713-714"
+  },
+  {
+   "id": "d3d11.metalSpatialUpscaleFactor",
+   "kind": "dxmt-config",
+   "type": "float",
+   "min": 1.0,
+   "step": 0.01,
+   "default": "2.0",
+   "title": "MetalFX upscale factor",
+   "summary": "How much MetalFX enlarges the picture when MetalFX upscaling is on (2.0 doubles width and height).",
+   "technical": "Float, clamped to at least 1.0 in code; no upper clamp. CUSTOMIZATION.md says 1.0-2.0. Only used when DXMT_METALFX_SPATIAL_SWAPCHAIN=1 (D3D11).",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:143; dxmt/docs/CUSTOMIZATION.md"
+  },
+  {
+   "id": "d3d11.maxTessFactor",
+   "kind": "dxmt-config",
+   "type": "int",
+   "min": 4,
+   "max": 64,
+   "step": 1,
+   "default": "0 (the shader's own maximum)",
+   "title": "Tessellation limit",
+   "summary": "Lowers how finely surfaces are tessellated. Can speed up games that overuse tessellation.",
+   "technical": "Used only when between 4 and 64; other values are ignored. Further limited by the GPU (8 on GPUs below Apple9).",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_pipeline_ts.cpp:60-64"
+  },
+  {
+   "id": "d3d11.maxFeatureLevel",
+   "kind": "dxmt-config",
+   "type": "enum",
+   "values": [
+    {
+     "value": "9_1",
+     "title": "9.1"
+    },
+    {
+     "value": "9_2",
+     "title": "9.2"
+    },
+    {
+     "value": "9_3",
+     "title": "9.3"
+    },
+    {
+     "value": "10_0",
+     "title": "10.0"
+    },
+    {
+     "value": "10_1",
+     "title": "10.1"
+    },
+    {
+     "value": "11_0",
+     "title": "11.0"
+    },
+    {
+     "value": "11_1",
+     "title": "11.1"
+    },
+    {
+     "value": "12_0",
+     "title": "12.0"
+    },
+    {
+     "value": "12_1",
+     "title": "12.1"
+    }
+   ],
+   "default": "11_1 on Apple7 GPUs and later, otherwise 11_0",
+   "title": "Highest Direct3D 11 feature level",
+   "summary": "Sets the highest Direct3D feature level the game is told it can use. Some games pick a broken or better path depending on it.",
+   "technical": "Exact string match; unknown values are ignored. Helldivers 2 has 12_1 built in.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11.cpp:59-77"
+  },
+  {
+   "id": "d3d11.ignoreMapFlagNoWait",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Ignore no-wait buffer maps",
+   "summary": "Fixes games that ask the GPU not to wait for a buffer but don't handle the 'still drawing' answer.",
+   "technical": "Bool (true/false, any case). Ignores D3D11_MAP_FLAG_DO_NOT_WAIT in Map(). Built in for Sonic X Shadow Generations.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_context_imm.cpp:81"
+  },
+  {
+   "id": "d3d11.sampleNaNToZero",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Fix invalid texture coordinates",
+   "summary": "Treats invalid (NaN) texture coordinates as zero. Can fix black or flickering spots in some games.",
+   "technical": "Bool (true/false, any case). Applied when shaders are converted. Built in for Outcast: A New Beginning.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_shader.cpp:17"
+  },
+  {
+   "id": "d3d11.defuseFma",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Split fused multiply-add",
+   "summary": "Calculates some shader math in two steps, as some Windows GPUs do. Can fix small rendering glitches.",
+   "technical": "Bool (true/false, any case). Splits fma() into a multiply and an add during shader conversion. Built in for Shadow of the Tomb Raider.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_shader.cpp:19"
+  },
+  {
+   "id": "dxgi.handleAltTab",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Handle Cmd-Tab in fullscreen",
+   "summary": "Lets OverPass Runtime leave fullscreen when you switch away with Cmd-Tab, for games that don't handle it themselves.",
+   "technical": "Bool (true/false, any case). Read only by the D3D11 swap chain.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:179"
+  },
+  {
+   "id": "dxgi.forceSDR",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Report SDR display",
+   "summary": "Tells the game the display has no HDR. Use it if colours look wrong in HDR.",
+   "technical": "Bool (true/false, any case). Affects DXGI only, not what nvapi reports. Built in for OMORI.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:35"
+  },
+  {
+   "id": "dxgi.customVendorId",
+   "kind": "dxmt-config",
+   "type": "string",
+   "default": "unset (real GPU vendor)",
+   "title": "Reported GPU vendor ID",
+   "summary": "Makes the game see a different graphics card maker. Some games choose settings or refuse to start based on it.",
+   "technical": "Exactly four hex digits (e.g. 10de NVIDIA, 1002 AMD, 8086 Intel); anything else is ignored.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:7-31"
+  },
+  {
+   "id": "dxgi.customDeviceId",
+   "kind": "dxmt-config",
+   "type": "string",
+   "default": "unset (real GPU device)",
+   "title": "Reported GPU device ID",
+   "summary": "Makes the game see a different graphics card model.",
+   "technical": "Exactly four hex digits; anything else is ignored. Usually set together with dxgi.customVendorId.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:7-33"
+  },
+  {
+   "id": "dxgi.customDeviceDesc",
+   "kind": "dxmt-config",
+   "type": "string",
+   "default": "\"\" (real GPU name)",
+   "title": "Reported GPU name",
+   "summary": "The graphics card name the game sees.",
+   "technical": "Any string; quote it with \" when it contains spaces (the parser stops at whitespace outside quotes).",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:34; dxmt/src/util/config/config.cpp:136-147"
+  },
+  {
+   "id": "dxmt.shaderMetalVersion",
+   "kind": "dxmt-config",
+   "type": "enum",
+   "values": [
+    {
+     "value": "310",
+     "title": "Metal 3.1"
+    },
+    {
+     "value": "320",
+     "title": "Metal 3.2"
+    }
+   ],
+   "default": "unset (newest the system supports: 3.2 on macOS 15 and later, else 3.1)",
+   "title": "Shader Metal version",
+   "summary": "Which Metal shading language version converted shaders use. Only for troubleshooting.",
+   "technical": "Integer; other values mean the latest. Always capped by the macOS version.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/dxmt/dxmt_device.cpp:29-43"
+  },
+  {
+   "id": "d3d12.asyncPipelineCompile",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "False",
+   "off": null,
+   "default": "True",
+   "title": "Compile pipelines when created",
+   "summary": "Compiles a Direct3D 12 game's pipelines right when the game creates them instead of in the background. Slower loading, but can fix games that misbehave with background compiling.",
+   "technical": "Bool (true/false, any case), default true. With false, pipeline state objects compile synchronously in CreateGraphicsPipelineState. Read once per process (static). OverPass patch 0020. The profile editor's 'When the game creates them' choice.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_pipeline_graphics.cpp:1360; repo/overpass/patches/0020; OverPass/src/Sources/OverPass/ProfileEditor.swift:24-43"
+  },
+  {
+   "id": "d3d12.skipDrawsWhileCompiling",
+   "kind": "dxmt-config",
+   "type": "bool",
+   "on": "True",
+   "off": null,
+   "default": "False",
+   "title": "Skip drawing until shaders are ready",
+   "summary": "While a Direct3D 12 pipeline is still compiling, leaves that object out for a frame or so instead of making the game wait. Less stutter, brief pop-in.",
+   "technical": "Bool (true/false, any case). Only matters when d3d12.asyncPipelineCompile is on. Read once per process (static). OverPass patch 0020.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_command_list.cpp:635; repo/overpass/patches/0020"
+  },
+  {
+   "id": "MTLD3D_CONFIG",
+   "kind": "env",
+   "type": "string",
+   "separator": ";",
+   "default": "unset",
+   "title": "Direct3D 9 (mtld3d) options",
+   "summary": "Holds the mtld3d options listed as mtld3d-config settings, for Direct3D 9 games.",
+   "technical": "key=value entries separated by ';', same syntax as mtld3d.conf (next to the game's .exe), merged on top of it and of mtld3d's built-in profiles. Whitespace-only counts as unset. Read when Direct3DCreate9 is called; unknown keys and bad values log a warning and keep the previous value.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/d3d9/src/config.rs:52-66; mtld3d.conf header"
+  },
+  {
+   "id": "RUST_LOG",
+   "kind": "env",
+   "type": "string",
+   "default": "info",
+   "title": "mtld3d log filter",
+   "summary": "How much mtld3d (Direct3D 9) writes to its log. Set to off for no log file.",
+   "technical": "env_logger filter syntax, appended after \"info,\" (e.g. warn, off, mtld3d::d3d9=debug). Logs go to <exe>-<pid>.log in log.dir, never to stdout/stderr.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 unix/shared/src/log_filter.rs:12,46-51"
+  },
+  {
+   "id": "MTLD3D_NO_CRASH_HANDLER",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset",
+   "title": "Wine crash reports for mtld3d",
+   "summary": "Lets Wine report crashes inside mtld3d instead of mtld3d's own handler. For bug reports only.",
+   "technical": "Checked for presence only (var_os is_none): any value, even empty, turns it on. SIGSEGV, SIGBUS and SIGILL are then not intercepted; SIGABRT still is.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 unix/unix/src/crash.rs:207-218"
+  },
+  {
+   "id": "color.space",
+   "kind": "mtld3d-config",
+   "type": "enum",
+   "values": [
+    {
+     "value": "passthrough",
+     "title": "Display's own colours (vivid)"
+    },
+    {
+     "value": "accurate",
+     "title": "sRGB (as designed)"
+    }
+   ],
+   "default": "passthrough",
+   "title": "Colour space (D3D9)",
+   "summary": "Shows Direct3D 9 games either with the display's full colour range (more saturated) or in sRGB, closer to what the artists intended.",
+   "technical": "Case-insensitive. accurate tags the CAMetalLayer with sRGB (extended linear sRGB under HDR) so the compositor colour-manages it.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:685,777-787; mtld3d.conf 'color.space'"
+  },
+  {
+   "id": "color.hdr.enable",
+   "kind": "mtld3d-config",
+   "type": "bool",
+   "on": "true",
+   "off": "false",
+   "default": "true",
+   "title": "HDR output (D3D9)",
+   "summary": "On HDR-capable displays, shows Direct3D 9 games with brighter highlights through inverse tone mapping. No effect on other displays.",
+   "technical": "Bool, true/false case-insensitive. When the screen reports EDR headroom, the layer becomes extendedDynamicRange and presents through a BT.2446-A inverse tone mapper.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:684,910-920; mtld3d.conf 'color.hdr.enable'"
+  },
+  {
+   "id": "cursor.scale",
+   "kind": "mtld3d-config",
+   "type": "int",
+   "min": 1,
+   "max": 8,
+   "step": 1,
+   "default": "auto",
+   "title": "Cursor size (D3D9)",
+   "summary": "Enlarges the game's mouse pointer. Automatic doubles it in Retina mode, where it would otherwise be half size.",
+   "technical": "\"auto\" or a positive integer; values above 8 parse but are clamped to 8 when used. The UI needs an Automatic choice besides the number.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:686,728-741; mtld3d.conf 'cursor.scale'"
+  },
+  {
+   "id": "cursor.software",
+   "kind": "mtld3d-config",
+   "type": "enum",
+   "values": [
+    {
+     "value": "false",
+     "title": "Hardware cursor"
+    },
+    {
+     "value": "auto",
+     "title": "Software cursor with HDR"
+    },
+    {
+     "value": "true",
+     "title": "Always software cursor"
+    }
+   ],
+   "default": "false",
+   "title": "Software cursor (D3D9)",
+   "summary": "Draws the pointer in an overlay window. Stops stutter in games that hide and show the cursor while clicking, and keeps it bright over HDR, at some cost to performance.",
+   "technical": "auto/true/false, case-insensitive. An overlay window sends the game window through the compositor instead of direct-to-display. Resolved once per device.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:687,743-753; mtld3d.conf 'cursor.software'"
+  },
+  {
+   "id": "shaderCache.enable",
+   "kind": "mtld3d-config",
+   "type": "bool",
+   "on": "true",
+   "off": "false",
+   "default": "true",
+   "title": "Shader cache (D3D9)",
+   "summary": "Saves compiled shaders next to the game (mtld3d_shaders.bin) so later runs stutter less, at the cost of a longer start.",
+   "technical": "Bool, true/false case-insensitive. Prewarms recorded shader libraries and pipelines before the first frame.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:688; mtld3d.conf 'shaderCache.enable'"
+  },
+  {
+   "id": "shader.asyncCompile",
+   "kind": "mtld3d-config",
+   "type": "bool",
+   "on": "true",
+   "off": "false",
+   "default": "true",
+   "title": "Skip draws while compiling (D3D9)",
+   "summary": "Leaves an object out for a frame or two while its shader compiles, instead of pausing the game. Less stutter, brief pop-in.",
+   "technical": "Bool, true/false case-insensitive. Shaders always compile on four worker threads; this only decides whether a draw into a target that is rebuilt every frame is skipped or waited for.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:689; mtld3d.conf 'shader.asyncCompile'"
+  },
+  {
+   "id": "memory.vramBudgetMB",
+   "kind": "mtld3d-config",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "unit": "MB",
+   "default": "1024 for 32-bit games, 0 (no limit) for 64-bit",
+   "title": "Reported video memory (D3D9)",
+   "summary": "The most video memory a Direct3D 9 game is told it has. Lower it if a 32-bit game runs out of memory and loses textures; 0 means no limit.",
+   "technical": "Non-negative integer in MiB (u32); caps what GetAvailableTextureMem reports.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:704-706,789-800; mtld3d.conf 'memory.vramBudgetMB'"
+  },
+  {
+   "id": "present.maxFps",
+   "kind": "mtld3d-config",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "unit": "fps",
+   "default": "0",
+   "title": "Frame rate limit (D3D9)",
+   "summary": "Caps a Direct3D 9 game's frame rate, to save battery and heat. 0 means no limit.",
+   "technical": "Non-negative integer (u32), Hz. Independent of vsync; with both, the lower rate wins. Also holds in hidden or covered windows.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:710,815-826; mtld3d.conf 'present.maxFps'"
+  },
+  {
+   "id": "present.maxFrameLatency",
+   "kind": "mtld3d-config",
+   "type": "int",
+   "min": 1,
+   "max": 30,
+   "step": 1,
+   "unit": "frames",
+   "default": "auto",
+   "title": "Frames queued ahead (D3D9)",
+   "summary": "How many frames the GPU may lag behind the game. Fewer means less input delay; more can smooth uneven frame times.",
+   "technical": "\"auto\" (the game's SetMaximumFrameLatency for D3D9Ex, else 3) or an integer 1-30; other values are rejected. The UI needs an Automatic choice besides the number.",
+   "group": "Performance",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:711-713,828-844; windows/core/src/extended.rs:23"
+  },
+  {
+   "id": "render.scale",
+   "kind": "mtld3d-config",
+   "type": "float",
+   "min": 0.01,
+   "max": 1.0,
+   "step": 0.01,
+   "default": "1.0",
+   "title": "Render scale (D3D9)",
+   "summary": "Renders a Direct3D 9 game at a lower resolution and upscales it with MetalFX, trading detail for frame rate. 0.75 is a good first try.",
+   "technical": "Plain decimal parsed to hundredths (digits beyond are truncated), accepted from 0.01 to 1.0; values above 1.0 are refused. Ignored (held at 1.0) on GPUs without MetalFX.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:714,846-878; mtld3d.conf 'render.scale'"
+  },
+  {
+   "id": "render.lodBias",
+   "kind": "mtld3d-config",
+   "type": "bool",
+   "on": "true",
+   "off": "false",
+   "default": "true",
+   "title": "Sharp textures when scaled (D3D9)",
+   "summary": "Keeps texture detail at full resolution when render scale is below 1.0. Turn off if textures shimmer.",
+   "technical": "Bool, true/false case-insensitive. Adds a sampler LOD bias of log2(render.scale). No effect at 1.0.",
+   "group": "Graphics",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:715; mtld3d.conf 'render.lodBias'"
+  },
+  {
+   "id": "adapter.spoof",
+   "kind": "mtld3d-config",
+   "type": "enum",
+   "values": [
+    {
+     "value": "none",
+     "title": "Real GPU"
+    },
+    {
+     "value": "nvidia",
+     "title": "NVIDIA"
+    },
+    {
+     "value": "amd",
+     "title": "AMD"
+    }
+   ],
+   "default": "none",
+   "title": "Reported GPU maker (D3D9)",
+   "summary": "Makes a Direct3D 9 game see an NVIDIA or AMD card. Some older games only turn on effects such as lens flares for vendors they recognise.",
+   "technical": "Case-insensitive; \"ati\" is accepted as an alias for amd (not in mtld3d.conf). Changes vendor id, device id, description, driver name and version in GetAdapterIdentifier.",
+   "group": "Compatibility",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:716,756-766; mtld3d.conf 'adapter.spoof'"
+  },
+  {
+   "id": "display.maxResolutions",
+   "kind": "mtld3d-config",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "default": "0",
+   "title": "Resolutions in game menu (D3D9)",
+   "summary": "Limits how many resolutions a Direct3D 9 game's menu lists (the largest ones plus the desktop size). For games whose menu breaks with a long list. 0 lists all.",
+   "technical": "Non-negative integer (u32). A fullscreen request for a size left out still works.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:718-720,802-813; mtld3d.conf 'display.maxResolutions'"
+  },
+  {
+   "id": "log.dir",
+   "kind": "mtld3d-config",
+   "type": "path",
+   "default": "\"\" (mtld3d-logs next to the executable)",
+   "title": "mtld3d log folder",
+   "summary": "Where mtld3d writes its logs and GPU captures.",
+   "technical": "Directory, relative to the executable's folder or absolute; empty means the default. Keeps the ten newest logs and traces.",
+   "group": "Debugging",
+   "applies": "overpass-runtime",
+   "source": "mtld3d v0.15.1 windows/core/src/config.rs:690; mtld3d.conf 'log.dir'"
+  },
+  {
+   "id": "MVK_CONFIG_LOG_LEVEL",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "0",
+     "title": "None"
+    },
+    {
+     "value": "1",
+     "title": "Errors"
+    },
+    {
+     "value": "2",
+     "title": "Errors and warnings"
+    },
+    {
+     "value": "3",
+     "title": "Errors, warnings and info"
+    },
+    {
+     "value": "4",
+     "title": "Everything (debug)"
+    }
+   ],
+   "default": "3",
+   "title": "MoltenVK log level",
+   "summary": "How much MoltenVK (Vulkan on Metal, used by DXVK and Vulkan games) writes to the log.",
+   "technical": "Number parsed with strtod from the Unix environment (NSProcessInfo). Profile env lines reach it through OverPass Wine's Unix-side promotion.",
+   "group": "Debugging",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L236"
+  },
+  {
+   "id": "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": "0",
+   "default": "1",
+   "title": "Metal argument buffers",
+   "summary": "Lets MoltenVK bind many more textures and buffers at once, usually faster. Turn off only to test a rendering problem.",
+   "technical": "Boolean read as a number (0 = off, non-zero = on).",
+   "group": "Graphics",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L580"
+  },
+  {
+   "id": "MVK_CONFIG_FAST_MATH_ENABLED",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "0",
+     "title": "Never"
+    },
+    {
+     "value": "1",
+     "title": "Always"
+    },
+    {
+     "value": "2",
+     "title": "Unless the shader asks for exact math"
+    }
+   ],
+   "default": "2",
+   "title": "Fast shader math",
+   "summary": "Compiles shaders with faster but less exact floating-point math. Turning it off can fix rare rendering errors and costs speed.",
+   "technical": "Enumeration read as a number. 2 lets a shader limit fast math through VK_KHR_shader_float_controls2 or execution modes.",
+   "group": "Performance",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L201"
+  },
+  {
+   "id": "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": "0",
+   "default": "1",
+   "title": "Submit on the game's thread",
+   "summary": "Sends GPU work from the game's own thread. Turning it off moves submission to a background queue, which can help or hurt frame pacing.",
+   "technical": "Boolean read as a number. When off, vkQueueSubmit/vkQueuePresentKHR are dispatched to a GCD queue whose priority follows the queue priority.",
+   "group": "Performance",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L498"
+  },
+  {
+   "id": "MVK_CONFIG_RESUME_LOST_DEVICE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": "0",
+   "default": "0",
+   "title": "Recover from GPU errors",
+   "summary": "Keeps the game running after a temporary GPU error instead of failing completely. Can stop some crashes.",
+   "technical": "Boolean read as a number. On VK_ERROR_DEVICE_LOST that doesn't affect the physical device, the error is logged and the VkDevice is not marked lost.",
+   "group": "Compatibility",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L349"
+  },
+  {
+   "id": "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "0",
+     "title": "Encode at submit (fastest, most memory)"
+    },
+    {
+     "value": "1",
+     "title": "Encode at end of command buffer"
+    },
+    {
+     "value": "2",
+     "title": "Encode each command immediately (least memory)"
+    },
+    {
+     "value": "3",
+     "title": "Encode immediately, app-managed pools"
+    }
+   ],
+   "default": "0",
+   "title": "Command buffer encoding",
+   "summary": "When MoltenVK turns Vulkan commands into Metal commands. Trades speed for memory use.",
+   "technical": "Enumeration read as a number. 3 assumes the app gives each recording thread an autorelease pool, which Windows games under Wine don't, so it is risky.",
+   "group": "Performance",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L301"
+  },
+  {
+   "id": "MVK_CONFIG_USE_MTLHEAP",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "0",
+     "title": "Never"
+    },
+    {
+     "value": "1",
+     "title": "Where safe"
+    },
+    {
+     "value": "2",
+     "title": "Always"
+    }
+   ],
+   "default": "1",
+   "title": "Use Metal heaps",
+   "summary": "Whether MoltenVK allocates textures and buffers from Metal heaps. Some Vulkan features need it.",
+   "technical": "Enumeration read as a number. 1 equals 2 on Apple GPUs and 0 on AMD. Needed by VK_EXT_image_2d_view_of_3d and block-texel view compatibility.",
+   "group": "Graphics",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L606"
+  },
+  {
+   "id": "MVK_CONFIG_MAX_ACTIVE_METAL_COMMAND_BUFFERS_PER_QUEUE",
+   "kind": "env",
+   "type": "int",
+   "min": 0,
+   "step": 1,
+   "default": "64",
+   "title": "Metal command buffers per queue",
+   "summary": "How many Metal command buffers can be in flight per queue. Raise it if a game stalls waiting for command buffers.",
+   "technical": "UInt32 read as a number; the doc gives no maximum.",
+   "group": "Performance",
+   "applies": "moltenvk",
+   "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L251"
+  },
+  {
+   "id": "program",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "Program",
+   "summary": "A program the rule applies to: a file name or the end of its path.",
+   "technical": "Matched case-insensitively against the file name (GalaxyClient.exe) or path ending (GOG Galaxy\\GalaxyClient.exe). A rule applies when any program or steam-app line matches.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:28-29,358; OverPass/src/Sources/OverPass/Profiles/README.md 'Compatibility rules'"
+  },
+  {
+   "id": "steam-app",
+   "kind": "rule-key",
+   "type": "int",
+   "repeatable": true,
+   "min": 0,
+   "step": 1,
+   "default": "none",
+   "title": "Steam app ID",
+   "summary": "A Steam game the rule applies to, by its app ID.",
+   "technical": "Compared with the SteamGameId variable Steam sets for the game's processes. In [app], it also makes OverPass Wine apply that section's env, dll and graphics to the Steam game.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:31,371-373; Profiles/README.md"
+  },
+  {
+   "id": "add-arguments",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "Extra arguments",
+   "summary": "Command-line arguments added to the end of the program's command line.",
+   "technical": "Appended with a single space, as written (no quoting added). Skipped for command lines containing the rule's unless-argument.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:393-406"
+  },
+  {
+   "id": "unless-argument",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": false,
+   "default": "none",
+   "title": "Unless the command line contains",
+   "summary": "Don't add the extra arguments when the program's command line already contains this text.",
+   "technical": "Only one per rule (the last line wins). Affects add-arguments only.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:386"
+  },
+  {
+   "id": "env",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "Environment variable",
+   "summary": "A NAME=value setting for the program, such as the env settings in this list.",
+   "technical": "Split at the first '='; an empty name is ignored. Set in both the Windows and the Unix environment of the new process (Unix side through CodeWeavers' __CX_UNIX_ promotion).",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:407-411"
+  },
+  {
+   "id": "dll",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "DLL override",
+   "summary": "A name=mode DLL override for the program (see the WINEDLLOVERRIDES dll-override entry for modes).",
+   "technical": "Appended to the inherited WINEDLLOVERRIDES with ';', so it wins over earlier entries.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:412-428"
+  },
+  {
+   "id": "graphics",
+   "kind": "rule-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "auto",
+     "title": "Automatic"
+    },
+    {
+     "value": "dxmt",
+     "title": "OverPass Runtime (Metal)"
+    },
+    {
+     "value": "d3dmetal",
+     "title": "D3DMetal (Metal)"
+    },
+    {
+     "value": "wined3d",
+     "title": "WineD3D (OpenGL)"
+    },
+    {
+     "value": "dxvk",
+     "title": "DXVK (Vulkan via MoltenVK)"
+    }
+   ],
+   "default": "auto",
+   "title": "Graphics backend",
+   "summary": "Which Direct3D 10-12 implementation the program uses.",
+   "technical": "Any name works when OverPass has set OVERPASS_BACKEND_<NAME> (it does for every installed backend, dxvk included); otherwise the rule line is skipped with a warning, except wined3d and auto which need no folder. Sets OVERPASS_DLL_PATH_PREPEND and CX_ACTIVE_GRAPHICS_BACKEND (empty for auto). The README's rule table lists only dxmt, d3dmetal, wined3d and auto.",
+   "group": "Graphics",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:429-446; OverPass/src/Sources/OverPass/CompatRules.swift:100-111; Profiles.swift:321-365"
+  },
+  {
+   "id": "d3d9",
+   "kind": "rule-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "mtld3d",
+     "title": "mtld3d (Metal)"
+    },
+    {
+     "value": "wined3d",
+     "title": "WineD3D (OpenGL)"
+    }
+   ],
+   "default": "the bottle's Direct3D 9 setting",
+   "title": "Direct3D 9 backend",
+   "summary": "Whether the program's Direct3D 9 runs on mtld3d (Metal) or Wine's own WineD3D.",
+   "technical": "Case-insensitive. Moves the folder in OVERPASS_D3D9_MTLD3D to the front of OVERPASS_DLL_PATH_PREPEND, or removes it for wined3d. Must come after any graphics line in the rule. Skipped with a warning when mtld3d isn't installed. Not listed in Profiles/README.md.",
+   "group": "Graphics",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:36-37,447-475"
+  },
+  {
+   "id": "replace-path",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "Start a different program",
+   "summary": "Starts another program in place of this one, for example the game itself instead of a broken launcher. Written as from => to.",
+   "technical": "The part of the program path matching 'from' (any case) is replaced by 'to', or the whole path when 'to' is absolute (C:\\...). Arguments stay. Skipped when the replacement doesn't exist. OverPass itself only applies non-absolute replacements to programs it launches.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:40-44,392; OverPass/src/Sources/OverPass/CompatRules.swift:114-125"
+  },
+  {
+   "id": "source",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "default": "none",
+   "title": "Source",
+   "summary": "Where the fix comes from: a bug report, test or forum thread. Not used by Wine.",
+   "technical": "Ignored by OverPass Wine and OverPass; documentation only.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:45; Profiles/README.md"
+  }
+ ]
+}

@@ -1,0 +1,18 @@
+# Arctim report relay (see src/index.js), at reports.arctim.no. Deploy: npx wrangler deploy
+# The GitHub App's ID and private key are secrets, never in this file:
+#   npx wrangler secret put APP_ID
+#   npx wrangler secret put APP_PRIVATE_KEY   (PKCS#8 PEM)
+name = "reports"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "reports.arctim.no", custom_domain = true }]
+
+[vars]
+# Each app's path and the repository its reports go to.
+APPS = '{"overpass": "McKack/overpass"}'
+HOURLY_LIMIT = "5"
+
+[[kv_namespaces]]
+binding = "REPORTS"
+id = "dbc4f9b06aa8464ba81e317cb102b906"

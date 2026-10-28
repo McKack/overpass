@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<true/>
+			<key>CFBundleTypeName</key>
+			<string>Windows Program</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.microsoft.windows-executable</string>
+				<string>com.microsoft.msi-installer</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>OverPass</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>no.arctim.overpass</string>
+	<key>CFBundleName</key>
+	<string>OverPass</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3.0</string>
+	<key>CFBundleVersion</key>
+	<string>181</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_overpass._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Some Windows programs use the camera for video calls or streaming.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Windows programs use your Desktop as their own Desktop folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Windows programs use your Documents folder; many games keep their saves there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Windows programs use your Downloads folder, and installers you downloaded are opened from it.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Windows games use the local network for LAN multiplayer.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Windows games and launchers use the microphone for voice chat.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Windows programs can open files on network drives.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Windows programs can install from and onto connected drives.</string>
+</dict>
+</plist>

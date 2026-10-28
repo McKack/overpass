@@ -1,0 +1,25 @@
+# Whitelist: only OverPass's own source is tracked.
+# Everything else in this folder (CrossOver reference binaries, Perl/Python copies,
+# decompilation notes, analysis docs) is local research material and must stay out.
+/*
+!/.gitignore
+!/README.md
+!/CREDITS.md
+!/LICENSE
+!/AGENTS.md
+!/CONTRIBUTING.md
+!/.github/
+!/ROADMAP.md
+!/docs/
+!/src/
+!/services/
+!/site/
+
+/src/.build/
+/src/build/
+/src/.swiftpm/
+# Decoded CrossOver compatdb and its decoder: local reference, never committed.
+/reference/
+.DS_Store
+/services/*/node_modules/
+/services/*/.wrangler/

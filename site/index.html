@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OverPass</title>
+<meta name="description" content="Run Windows games on your Mac. OverPass sets up Wine, the runtimes and the graphics for each game, free and open source.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --text: #1d1d1f;
+    --secondary: #6e6e73;
+    --separator: rgba(0, 0, 0, 0.1);
+    --accent: #0071e3;
+    --accent-text: #ffffff;
+    --terminal: #1e1e1e;
+    --terminal-text: #f5f5f7;
+    --terminal-bar: #323232;
+    --shadow: 0 20px 50px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --surface: #1c1c1e;
+      --text: #f5f5f7;
+      --secondary: #a1a1a6;
+      --separator: rgba(255, 255, 255, 0.12);
+      --accent: #2997ff;
+      --terminal: #161617;
+      --terminal-bar: #2a2a2c;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 72px 16px 40px; }
+  header { text-align: center; }
+  .icon { width: 148px; height: 148px; filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.22)); }
+  h1 { font: 700 56px/1.07 -apple-system, "SF Pro Display", sans-serif; letter-spacing: -0.015em; margin: 20px 0 8px; }
+  .tagline { font-size: 24px; line-height: 1.3; color: var(--secondary); margin: 0 auto; max-width: 620px; }
+
+  .install { max-width: 680px; margin: 44px auto 0; }
+  .terminal { background: var(--terminal); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; text-align: left; }
+  .bar { height: 30px; background: var(--terminal-bar); display: flex; align-items: center; padding: 0 12px; gap: 8px; position: relative; }
+  .bar span { width: 12px; height: 12px; border-radius: 50%; }
+  .bar span:nth-child(1) { background: #ff5f57; }
+  .bar span:nth-child(2) { background: #febc2e; }
+  .bar span:nth-child(3) { background: #28c840; }
+  .bar .title { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: #9a9a9f; width: auto; height: auto; border-radius: 0; background: none; }
+  .command { display: flex; align-items: center; gap: 12px; padding: 18px 18px 18px 20px; }
+  code { flex: 1; min-width: 0; color: var(--terminal-text); font: 15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; overflow-x: auto; white-space: nowrap; }
+  code .prompt { color: #8e8e93; user-select: none; }
+  .copy {
+    flex: none; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.14); color: #fff; font: 600 14px -apple-system, sans-serif;
+  }
+  .copy:hover { background: rgba(255, 255, 255, 0.22); }
+  .note { text-align: center; color: var(--secondary); font-size: 14px; margin: 14px 0 0; }
+
+  .buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 30px 0 0; }
+  .button {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 980px;
+    font-weight: 500; text-decoration: none; color: var(--accent); background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--separator);
+  }
+  .button.primary { background: var(--accent); color: var(--accent-text); box-shadow: none; }
+  .button svg { width: 18px; height: 18px; fill: currentColor; }
+
+  .window { margin: 72px auto 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); background: var(--surface); }
+  .window img { display: block; width: 100%; height: auto; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 64px 0 0; }
+  .feature { background: var(--surface); border-radius: 18px; padding: 24px; box-shadow: inset 0 0 0 1px var(--separator); }
+  .feature svg { width: 28px; height: 28px; fill: var(--accent); }
+  .feature h3 { margin: 12px 0 4px; font-size: 19px; }
+  .feature p { margin: 0; color: var(--secondary); font-size: 15px; }
+
+  .requirements { text-align: center; color: var(--secondary); font-size: 15px; margin: 48px 0 0; }
+  footer {
+    border-top: 1px solid var(--separator); margin-top: 56px; padding: 24px 16px 40px; color: var(--secondary); font-size: 13px;
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px;
+  }
+  footer a { color: inherit; text-decoration: none; }
+  footer a:hover { color: var(--text); }
+  .maker { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+  .maker img { width: 20px; height: 20px; }
+  @media (max-width: 600px) {
+    main { padding-top: 48px; }
+    h1 { font-size: 40px; }
+    .tagline { font-size: 20px; }
+    .icon { width: 112px; height: 112px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="icon" src="icon.svg" alt="">
+    <h1>OverPass</h1>
+    <p class="tagline">Run Windows games on your Mac. Pick a game, click Install, and play.</p>
+  </header>
+
+  <section class="install" aria-label="Install">
+    <div class="terminal">
+      <div class="bar"><span></span><span></span><span></span><div class="title">Terminal</div></div>
+      <div class="command">
+        <code><span class="prompt">$ </span><span id="command">curl -fsSL https://overpass.arctim.no/install | bash</span></code>
+        <button class="copy" id="copy" type="button">Copy</button>
+      </div>
+    </div>
+    <p class="note">Paste it into Terminal. It puts OverPass in your Applications folder and opens it.</p>
+  </section>
+
+  <nav class="buttons">
+    <a class="button primary" href="https://github.com/McKack/overpass/releases/latest">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-8 15a1 1 0 0 1 1 1v1h14v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
+      Download
+    </a>
+    <a class="button" href="https://github.com/McKack/overpass">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+      Source on GitHub
+    </a>
+    <a class="button" href="https://ko-fi.com/arctim">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21Z"/></svg>
+      Support on Ko-fi
+    </a>
+  </nav>
+
+  <div class="window">
+    <img src="home.png" width="2754" height="1554" alt="OverPass's Home screen with game launchers and utilities to install">
+  </div>
+
+  <section class="features">
+    <div class="feature">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2Zm0 2.24 6.76 3.38L12 11 5.24 7.62 12 4.24ZM5 9.24l6 3V19l-6-3V9.24Zm8 9.76v-6.76l6-3V16l-6 3Z"/></svg>
+      <h3>One click per game</h3>
+      <p>OverPass downloads Wine, makes the game its own container and installs the runtimes it needs.</p>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-6v2h3a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h3v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 2v8h16V7H4Z"/></svg>
+      <h3>Graphics on Metal</h3>
+      <p>Direct3D 9 to 12 run on Apple's Metal through OverPass Runtime, with DXVK and WineD3D as choices.</p>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h12V5H6Zm2 2h8v2H8V7Zm0 4h8v2H8v-2Zm0 4h5v2H8v-2Z"/></svg>
+      <h3>Your stores, built in</h3>
+      <p>Steam, Epic, GOG, EA, Battle.net, Ubisoft and Rockstar install in one click, and your library shows every game.</p>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 0 1 7.75 6H15.9A4 4 0 0 0 12 7a4 4 0 0 0-3.9 3H4.25A8 8 0 0 1 12 4Zm0 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm-7.75 3H8.1a4 4 0 0 0 7.8 0h3.85A8 8 0 0 1 4.25 12Z"/></svg>
+      <h3>Free and open source</h3>
+      <p>Built on Wine, DXMT and many other open projects, and open itself. Reports go straight to the developers.</p>
+    </div>
+  </section>
+
+  <p class="requirements">Needs macOS 15 or later on a Mac with Apple silicon. Updates install from inside OverPass.</p>
+</main>
+<footer>
+  <a class="maker" href="https://arctim.no"><img src="arctic-imaginarium.svg" alt="">Made by Arctic Imaginarium</a>
+  <span aria-hidden="true">·</span> <a href="https://github.com/McKack/overpass">GitHub</a>
+  <span aria-hidden="true">·</span> <a href="https://ko-fi.com/arctim">Ko-fi</a>
+</footer>
+<script>
+  const button = document.getElementById("copy");
+  button.addEventListener("click", async () => {
+    const text = document.getElementById("command").textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById("command"));
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.execCommand("copy");
+    }
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1600);
+  });
+</script>
+</body>
+</html>

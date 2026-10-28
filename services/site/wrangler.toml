@@ -1,0 +1,10 @@
+# overpass.arctim.no: the landing page in ../../site, served by Cloudflare as static files (no code).
+# Deploy: npx wrangler deploy (from this folder). The install script is served at /install.
+name = "overpass-site"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "overpass.arctim.no", custom_domain = true }]
+
+[assets]
+directory = "../../site"
+html_handling = "auto-trailing-slash"

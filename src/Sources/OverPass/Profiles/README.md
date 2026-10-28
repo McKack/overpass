@@ -7,14 +7,14 @@ A file can hold two kinds of sections.
 
 - Recipe sections `[app]`, `[install]` and `[launch]`. All three are optional. Only the OverPass app
   reads them. They describe how to install and start the app.
-- Every other `[section]` is a compatibility rule. OverPass and OverPass Wine both read rules.
-  OverPass Wine applies them to every process, including programs a launcher starts on its own.
+- Every other `[section]` is a compatibility rule. OverPass and overpass-wine both read rules.
+  overpass-wine applies them to every process, including programs a launcher starts on its own.
 
 A file with no `[app]` section is rules only (for example `armored-core-vi.ini`). It does not appear
 in the app's store list.
 
 Recipe sections use none of the rule keys, except `steam-app`, `env`, `dll` and `graphics` in `[app]`.
-OverPass Wine ignores recipe sections unless `[app]` has `steam-app`. Then the `env`, `dll` and
+overpass-wine ignores recipe sections unless `[app]` has `steam-app`. Then the `env`, `dll` and
 `graphics` of `[app]` apply to that Steam game.
 
 Comments start with `#` or `;` at the beginning of a line. Keys are not case sensitive.
@@ -69,7 +69,7 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 
 ## Compatibility rules
 
-Per-program fixes. OverPass Wine applies a rule whenever a matching program starts. OverPass applies
+Per-program fixes. overpass-wine applies a rule whenever a matching program starts. OverPass applies
 the same rules to the program it launches itself. Each `[section]` other than the three above is one
 rule:
 
@@ -124,7 +124,7 @@ The editor writes the app's own settings to a rule section named `[My settings]`
 XAudio2 adds `dll = xaudio2_6=n,b`, `xaudio2_7=n,b`, `x3daudio1_6=n,b` and `x3daudio1_7=n,b`.
 
 OverPass copies the profiles in effect (bundled ones that yours do not replace, plus yours) to
-`~/Library/Application Support/OverPass/Rules`. OverPass Wine reads rules from that folder.
+`~/Library/Application Support/OverPass/Rules`. overpass-wine reads rules from that folder.
 
 Export writes the profile without the "Based on" line. File > Import Profile… adds one. A file with the
 same name replaces the existing profile.

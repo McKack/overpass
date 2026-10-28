@@ -1,6 +1,6 @@
 # When a Windows program has problems
 
-OverPass runs Windows programs with OverPass Wine. Most work out of the box; when one crashes, won't start or
+OverPass runs Windows programs with overpass-wine. Most work out of the box; when one crashes, won't start or
 looks wrong, these steps usually help. Each program's settings are in its profile: right-click it in the
 library and choose **Edit Profile…**.
 
@@ -9,7 +9,7 @@ library and choose **Edit Profile…**.
 1. Start it again. Launchers in particular sometimes crash once while they update themselves.
 2. Make sure your Mac has free disk space. Programs that can't write their files crash in odd ways.
 3. Try another graphics engine: **Edit Profile… → Graphics & Sound → Graphics**.
-   - **OverPass Runtime (Metal)** for DirectX 10, 11 and 12 games (install it in OverPass if you haven't yet).
+   - **overpass-runtime (Metal)** for DirectX 10, 11 and 12 games (install it in OverPass if you haven't yet).
    - **D3DMetal (Metal)** as an alternative for DirectX 11 and 12.
    - **DXVK (Vulkan via MoltenVK)** or **WineD3D (OpenGL)** for older or unusual games.
 4. Quit everything in the container and try once more: **Edit Profile… → Container → Quit Everything in Container**.

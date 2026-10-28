@@ -8,20 +8,20 @@ If you'd like to support OverPass itself too, there's [Ko-fi](https://ko-fi.com/
 ## Wine and CodeWeavers
 
 - **[Wine](https://www.winehq.org)** runs Windows programs on macOS, Linux and BSD, and is the core of
-  OverPass Wine. LGPL-2.1. [Donate to Wine](https://www.winehq.org/donate).
+  overpass-wine. LGPL-2.1. [Donate to Wine](https://www.winehq.org/donate).
 - **[macOS Wine builds by Gcenx](https://github.com/Gcenx/macOS_Wine_builds)** are the upstream Wine builds
   OverPass falls back to, and a reference for building Wine on macOS. LGPL-2.1.
-- **[CodeWeavers](https://www.codeweavers.com)**: OverPass Wine is built from Wine and from the LGPL Wine
+- **[CodeWeavers](https://www.codeweavers.com)**: overpass-wine is built from Wine and from the LGPL Wine
   source CodeWeavers publishes for CrossOver. Give their [Trial](https://www.codeweavers.com/crossover) a try
   and see if CrossOver could be for you!
 - **[Alexander Theißen's Wine fixes](https://github.com/athei/wine/tree/cx-26-patched)** (Mach9): Mac driver,
-  DEP and font fixes on the same CrossOver 26 base, included in OverPass Wine with their authorship. LGPL-2.1.
+  DEP and font fixes on the same CrossOver 26 base, included in overpass-wine with their authorship. LGPL-2.1.
 
 ## Graphics
 
 - **[DXMT](https://github.com/3Shain/dxmt)** by Feifan He (for CodeWeavers) translates Direct3D 10, 11 and 12
-  to Metal. OverPass Runtime is DXMT with our patches. LGPL-2.1.
-- **[mtld3d](https://github.com/athei/mtld3d)** by Alexander Theißen runs Direct3D 9 on Metal. OverPass Runtime
+  to Metal. overpass-runtime is DXMT with our patches. LGPL-2.1.
+- **[mtld3d](https://github.com/athei/mtld3d)** by Alexander Theißen runs Direct3D 9 on Metal. overpass-runtime
   carries its releases unchanged. zlib licence.
 - **[DXVK](https://github.com/doitsujin/dxvk)** by Philip Rebohle and contributors translates Direct3D 8-11
   to Vulkan; DXMT builds on parts of it too. zlib licence.
@@ -31,7 +31,7 @@ If you'd like to support OverPass itself too, there's [Ko-fi](https://ko-fi.com/
 - **[Apple's Game Porting Toolkit](https://developer.apple.com/games/game-porting-toolkit/)** provides
   D3DMetal, an optional graphics engine OverPass can download. Apple's licence; not part of OverPass.
 
-## Inside OverPass Wine
+## Inside overpass-wine
 
 - **[GStreamer](https://gstreamer.freedesktop.org)** and **[GLib](https://gitlab.gnome.org/GNOME/glib)**
   play game video and audio. LGPL-2.1.
@@ -47,7 +47,7 @@ If you'd like to support OverPass itself too, there's [Ko-fi](https://ko-fi.com/
   for changes. MIT.
 - ORC, PCRE2, libffi and proxy-libintl, used by GStreamer and GLib. BSD, MIT and LGPL.
 
-Each build of OverPass Wine carries these projects' licence texts in its `licenses` folder.
+Each build of overpass-wine carries these projects' licence texts in its `licenses` folder.
 
 ## Tools
 

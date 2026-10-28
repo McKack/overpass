@@ -46,7 +46,7 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 - Open Wine Settings, Registry Editor and Task Manager, and show logs, from the container page.
 
 **Graphics**
-- OverPass Runtime: Direct3D 10, 11 and 12 on Metal, built on DXMT, with DLSS translated to MetalFX, Shader Model 6.8, mesh shaders, tessellation and tiled resources.
+- overpass-runtime: Direct3D 10, 11 and 12 on Metal, built on DXMT, with DLSS translated to MetalFX, Shader Model 6.8, mesh shaders, tessellation and tiled resources.
 - Direct3D 9 on Metal, or WineD3D.
 - Max resolution setting for games, globally or per game.
 - Shader compile options for Direct3D 12 games.
@@ -65,7 +65,7 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 - Xbox (Beta, opt-in): off by default, enabled from Home after you accept the risks.
 
 **Updates and reports**
-- Daily update check for the app, OverPass Wine, OverPass Runtime and extras. Update All from Settings › Components.
+- Daily update check for the app, overpass-wine, overpass-runtime and extras. Update All from Settings › Components.
 - Report Issue: logs, your Mac's details and the game's settings, with your name scrubbed, sent to OverPass or opened as a GitHub issue. Also from an in-game hotkey, and offered after a crash.
 - OverPass notices its own crash and offers to report it at the next start.
 
@@ -87,18 +87,18 @@ The profile editor changes a program's Windows version, runtimes, environment, D
 
 ## How it works
 
-- **Wine** is downloaded during first-run setup. It isn't bundled. OverPass uses [OverPass Wine](https://github.com/McKack/overpass-wine). Gcenx's upstream builds are the fallback.
-- **Profiles** (`src/Sources/OverPass/Profiles/*.ini`) are open, per-app files: install recipe sections plus compatibility rules, documented in `src/Sources/OverPass/Profiles/README.md`. OverPass Wine reads the rules too.
-- **Components** (OverPass Wine, OverPass Runtime, winetricks and others) are managed from Settings › Components.
+- **Wine** is downloaded during first-run setup. It isn't bundled. OverPass uses [overpass-wine](https://github.com/McKack/overpass-wine). Gcenx's upstream builds are the fallback.
+- **Profiles** (`src/Sources/OverPass/Profiles/*.ini`) are open, per-app files: install recipe sections plus compatibility rules, documented in `src/Sources/OverPass/Profiles/README.md`. overpass-wine reads the rules too.
+- **Components** (overpass-wine, overpass-runtime, winetricks and others) are managed from Settings › Components.
 
 ## Open source
 
 OverPass itself is under the [GPL-3.0](LICENSE). Bug reports, test results and game profiles are welcome: see [CONTRIBUTING](CONTRIBUTING.md).
 
-[OverPass Wine](https://github.com/McKack/overpass-wine) and [OverPass Runtime](https://github.com/McKack/overpass-runtime) are free for anyone to use in their own projects and game ports. Neither needs Apple's Game Porting Toolkit or any closed part.
+[overpass-wine](https://github.com/McKack/overpass-wine) and [overpass-runtime](https://github.com/McKack/overpass-runtime) are free for anyone to use in their own projects and game ports. Neither needs Apple's Game Porting Toolkit or any closed part.
 
-- OverPass Wine is upstream Wine plus CodeWeavers' LGPL changes plus OverPass's patches. Wine is LGPL.
-- OverPass Runtime is DXMT's main branch with D3D12, NVAPI and NGX enabled, plus OverPass's additions. It is under the LGPL 2.1.
+- overpass-wine is upstream Wine plus CodeWeavers' LGPL changes plus OverPass's patches. Wine is LGPL.
+- overpass-runtime is DXMT's main branch with D3D12, NVAPI and NGX enabled, plus OverPass's additions. It is under the LGPL 2.1.
 
 ## Building
 
@@ -111,7 +111,7 @@ Requires macOS 15+ and Xcode command-line tools. Wine runs under Rosetta 2 on Ap
 
 ## Credits
 
-OverPass builds on [Wine](https://www.winehq.org), [Gcenx's macOS Wine builds](https://github.com/Gcenx/macOS_Wine_builds), [DXMT](https://github.com/3Shain/dxmt), [Winetricks](https://github.com/Winetricks/winetricks) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK). The install-and-play experience is inspired by CrossOver by CodeWeavers, one of Wine's largest contributors. OverPass Wine builds on CodeWeavers' LGPL-licensed Wine source; no proprietary CodeWeavers code or data is included. Thanks also to ProtonDB, Lutris, Bottles and Whisky.
+OverPass builds on [Wine](https://www.winehq.org), [Gcenx's macOS Wine builds](https://github.com/Gcenx/macOS_Wine_builds), [DXMT](https://github.com/3Shain/dxmt), [Winetricks](https://github.com/Winetricks/winetricks) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK). The install-and-play experience is inspired by CrossOver by CodeWeavers, one of Wine's largest contributors. overpass-wine builds on CodeWeavers' LGPL-licensed Wine source; no proprietary CodeWeavers code or data is included. Thanks also to ProtonDB, Lutris, Bottles and Whisky.
 
 ## Trademarks
 

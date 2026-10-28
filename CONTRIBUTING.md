@@ -16,8 +16,8 @@ models, or opened in bulk. Using AI for your own research is fine: share what yo
 Keep pull requests small and about one thing. Say what was wrong and how you tested the fix, and follow the
 existing code style.
 
-Changes to Wine belong in [OverPass Wine](https://github.com/McKack/overpass-wine), to Direct3D in
-[OverPass Runtime](https://github.com/McKack/overpass-runtime), and to component versions in
+Changes to Wine belong in [overpass-wine](https://github.com/McKack/overpass-wine), to Direct3D in
+[overpass-runtime](https://github.com/McKack/overpass-runtime), and to component versions in
 [overpass-components](https://github.com/McKack/overpass-components). Changes that aren't specific to OverPass
 belong upstream, following that project's contribution rules.
 

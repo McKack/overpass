@@ -132,9 +132,12 @@ class BottleManager {
 
     /// An app as its profile names and pictures it, when someone changed that in OverPass.
     private func personalized(_ item: LibraryItem) -> LibraryItem {
-        guard let profiles, let profile = profiles.profile(for: item),
-              profiles.edited.contains(profile.id) || profiles.custom.contains(profile.id) else { return item }
+        guard let profiles, let profile = profiles.profile(for: item) else { return item }
         var app = item.app
+        app.engine = profile.engine
+        guard profiles.edited.contains(profile.id) || profiles.custom.contains(profile.id) else {
+            return LibraryItem(app: app, bottle: item.bottle)
+        }
         app.name = profile.name
         if let icon = profile.icon {
             let url = UserProfiles.iconsDirectory.appendingPathComponent(icon)

@@ -96,7 +96,10 @@ struct LibraryView: View {
                 // Signed out (or not set up yet): the installed games stay, with the way back in on top.
                 if items.isEmpty { signedOut(store) } else { layouts.safeAreaInset(edge: .top) { signedOutBar(store) } }
             } else if let store, entries.isEmpty, store.loading {
-                ProgressView("Loading your games…")
+                VStack(spacing: 6) {
+                    ProgressView("Loading your games…")
+                    Text("This can take a couple of minutes for a large library.").font(.callout).foregroundStyle(.secondary)
+                }
             } else if entries.isEmpty && !(allItems.isEmpty && (store?.games.isEmpty ?? true)) {
                 ContentUnavailableView.search(text: searchText)
             } else if entries.isEmpty {
@@ -350,10 +353,10 @@ struct LibraryView: View {
                 // Rows re-made while the sort changes can miss the window's environment; hand it on.
                 nameCell(entry).environment(manager).environment(profiles)
             }
-            TableColumn("Client", value: \.clientName, comparator: .localizedStandard) { Text($0.clientName) }
-                .width(min: 70, ideal: 110)
             TableColumn("Container", value: \.bottleName, comparator: .localizedStandard) { Text($0.bottleName) }
                 .width(min: 70, ideal: 130)
+            TableColumn("Engine", value: \.engineName, comparator: .localizedStandard) { Text($0.engineName) }
+                .width(min: 70, ideal: 110)
             TableColumn("Graphics", value: \.graphicsName, comparator: .localizedStandard) { Text($0.graphicsName) }
                 .width(min: 70, ideal: 150)
         }
@@ -429,9 +432,9 @@ enum LibraryEntry: Identifiable {
         case .store(let game): game.title
         }
     }
-    var clientName: String { item?.clientName ?? "—" }
     var bottleName: String { item?.bottle.name ?? "Not installed" }
     var graphicsName: String { item?.graphicsName ?? "" }
+    var engineName: String { item?.engineName ?? "" }
 }
 
 extension LibraryItem {
@@ -440,9 +443,9 @@ extension LibraryItem {
         app.target.flatMap { WindowsIcons.hostPath($0, bottlePath: bottle.path) }?.deletingLastPathComponent()
     }
 
-    /// The store the game came through, or "—" for apps installed on their own.
-    var clientName: String { app.launcher ?? "—" }
     var graphicsName: String { bottle.isMac ? "Native" : bottle.graphics.displayName }
+    /// The engine the profile names, or the one the game's files tell; "Unknown" otherwise.
+    var engineName: String { app.engine ?? EngineLogs.name(of: installFolder) }
 }
 
 extension BottleManager {
@@ -550,7 +553,8 @@ struct AppTile: View {
                 .font(.callout)
                 .lineLimit(playButton ? 1 : 2)
                 .multilineTextAlignment(.center)
-            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch).controlSize(.small) }
+            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch)
+                .buttonStyle(.borderedProminent).controlSize(.small) }
         }
         .frame(width: iconSize + 56, height: iconSize + (playButton ? 84 : 56))
         .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 10))
@@ -580,8 +584,8 @@ struct AppRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.app.name).font(.headline)
                 Text(item.bottle.isMac ? "Mac app"
-                        : ([item.app.launcher, item.bottle.name, item.graphicsName] as [String?]).compactMap { $0 }
-                            .joined(separator: " · "))
+                        : ([item.app.launcher, item.bottle.name == item.app.launcher ? nil : item.bottle.name,
+                            item.graphicsName] as [String?]).compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

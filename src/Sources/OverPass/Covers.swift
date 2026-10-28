@@ -25,7 +25,8 @@ struct CoverTile: View {
             }
             .overlay { if opening { ProgressView() } }
             CoverCaption(title: item.app.name, platform: platform, width: width)
-            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch).controlSize(.small) }
+            if playButton { OpenButton(opening: opening, label: item.app.runLabel, action: launch)
+                .buttonStyle(.borderedProminent).controlSize(.small) }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
@@ -350,7 +351,8 @@ extension Comparable {
     let profile = clients.first { manager.bottle(for: $0)?.path == item.bottle.path && $0.name.localizedCaseInsensitiveContains(name) }
         ?? stores.first { $0.name.localizedCaseInsensitiveContains(name) }
     return CasePlatform(name: name, color: profile.map(StoreIcon.color(for:)) ?? Color(white: 0.42),
-                        logo: profile.flatMap { StoreIcon.logo(for: $0.id) })
+                        logo: profile.flatMap { StoreIcon.logo(for: $0.id) },
+                        symbol: item.bottle.isMac ? BuiltInCategory.mac.symbol : nil)
 }
 
 /// A store's case, for its games that aren't installed yet.
@@ -513,43 +515,39 @@ struct StyledCover<Art: View>: View {
     }
 }
 
-/// A cover's name, with the store under it when the Cover View is Cover with Label.
+/// A cover's name, after the logo of the store it comes from.
 struct CoverCaption: View {
     let title: String
     let platform: CasePlatform?
     let width: CGFloat
     var dimmed = false
-    @AppStorage(ViewOptions.coverStyleKey) private var style: CoverStyle = .gameCase
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(title)
-                .font(.callout)
-                .lineLimit(1)
-                .foregroundStyle(dimmed ? .secondary : .primary)
-            if let platform, style == .label {
-                PlatformLabel(platform: platform)
-            }
-        }
-        .frame(width: width)
-    }
-}
-
-/// The store a title comes from, under its name: the logo and name in small grey type.
-struct PlatformLabel: View {
-    let platform: CasePlatform
 
     var body: some View {
         HStack(spacing: 4) {
-            if let logo = platform.logo {
-                Image(nsImage: logo).renderingMode(.template).resizable().scaledToFit().frame(width: 11, height: 11)
-            } else if let symbol = platform.symbol {
-                Image(systemName: symbol).font(.system(size: 9))
-            }
-            Text(platform.name).lineLimit(1)
+            if let platform { PlatformIcon(platform: platform) }
+            Text(title)
+                .lineLimit(1)
+                .foregroundStyle(dimmed ? .secondary : .primary)
         }
-        .font(.caption)
+        .font(.callout)
+        .frame(maxWidth: width)
+    }
+}
+
+/// The store's logo in small grey, before a cover's name.
+struct PlatformIcon: View {
+    let platform: CasePlatform
+
+    var body: some View {
+        Group {
+            if let logo = platform.logo {
+                Image(nsImage: logo).renderingMode(.template).resizable().scaledToFit().frame(width: 12, height: 12)
+            } else if let symbol = platform.symbol {
+                Image(systemName: symbol).font(.system(size: 10))
+            }
+        }
         .foregroundStyle(.secondary)
+        .help(platform.name)
     }
 }
 
@@ -582,9 +580,10 @@ struct GameCase<Content: View>: View {
             }
             .foregroundStyle(text)
             .padding(.horizontal, band * 0.3)
-            .frame(height: band)
-            // The same gradient as the store's tile on Home.
-            .background(platform.color.gradient)
+            .padding(.top, 3)
+            .frame(height: band + 3)
+            // The store's colour, flat.
+            .background(platform.color)
             content
                 // A thin seam where the cover meets the band.
                 .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.3)).frame(height: 1) }

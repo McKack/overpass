@@ -119,6 +119,13 @@ final class EpicStore: StoreLibrary {
     nonisolated private static func game(_ entry: [String: Any]) -> LibraryGame? {
         guard let id = entry["app_name"] as? String, let title = entry["app_title"] as? String else { return nil }
         let metadata = entry["metadata"] as? [String: Any] ?? [:]
+        // Fab and Unreal Engine marketplace items (assets, plugins, sample projects) and engine editors and dev kits
+        // come with the account but aren't games.
+        let categories = (metadata["categories"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+        if metadata["namespace"] as? String == "ue"
+            || categories.contains(where: { $0 == "engines" || ["asset-format", "plugins", "projects"].contains($0.split(separator: "/").first.map(String.init)) }) {
+            return nil
+        }
         let attributes = metadata["customAttributes"] as? [String: Any]
         // Another store's launcher runs it ("Origin", "Uplay"); OverPass can't start those yet.
         let thirdParty = (attributes?["ThirdPartyManagedApp"] as? [String: Any])?["value"] as? String

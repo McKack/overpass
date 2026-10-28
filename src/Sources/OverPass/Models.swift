@@ -53,6 +53,8 @@ struct WineApp: Identifiable, Hashable {
     var shortcut: String? = nil
     /// The store client OverPass starts the game through, for games its built-in libraries installed.
     var backend: StoreBackend? = nil
+    /// The game engine its profile names (`engine`), when it does.
+    var engine: String? = nil
 
     /// File name of the program that runs ("notepad++.exe"), what compatibility rules match on.
     var programName: String? {

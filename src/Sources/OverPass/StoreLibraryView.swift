@@ -121,6 +121,11 @@ struct StoreConnectSheet: View {
                     if signingIn || components.busy == kind.component {
                         ProgressView().controlSize(.small)
                     }
+                    if signingIn {
+                        // Signing in also fetches the whole library, which takes a while for a large one.
+                        Text("Signing in and loading your games. Please wait, this can take a couple of minutes.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
                     if let error = components.lastError ?? store.error {
                         Text(error).font(.caption).foregroundStyle(.red)
                     }

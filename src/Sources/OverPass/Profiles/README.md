@@ -44,6 +44,7 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `controllers` | `playstation`: DualShock 4 and DualSense reach the container as PlayStation controllers (Sony's PC ports: haptics, adaptive triggers) instead of Xbox pads (default `xbox`). Applied when the container is made; changed later in the container's settings | no |
 | `icon` | File name of an image in your Profiles/Icons folder (`~/Library/Application Support/OverPass/Profiles/Icons`), shown instead of the app's Windows icon. Set by the profile editor | no |
 | `notes` | Free text shown with the app | no |
+| `engine` | Game engine shown in the library's Engine column, e.g. `Unity` or `Unreal Engine`. Without it, OverPass tells the engine from the game's files, or shows Unknown | no |
 | `source` | `title | url`: where the information comes from | yes |
 
 ## [install]

@@ -13,6 +13,17 @@ enum EngineLogs {
              cryengine = "CryEngine", gamemaker = "GameMaker", unknown = "not recognised"
     }
 
+    // Read and filled while the library draws, on the main thread.
+    nonisolated(unsafe) private static var detected: [URL: Engine] = [:]
+
+    /// The engine's name for the library, looked for once per folder; "Unknown" when the files don't tell.
+    static func name(of folder: URL?) -> String {
+        guard let folder else { return "Unknown" }
+        let engine = detected[folder] ?? detect(folder)
+        detected[folder] = engine
+        return engine == .unknown ? "Unknown" : engine.rawValue
+    }
+
     static func detect(_ folder: URL) -> Engine {
         let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { $0.lowercased() })
         if names.contains("unityplayer.dll") || names.contains(where: { $0.hasSuffix("_data") }) { return .unity }

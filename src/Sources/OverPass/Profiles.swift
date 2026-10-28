@@ -44,6 +44,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
     var coverStyle: String?
     var iconStyle: String?
     var notes: String?
+    /// The game engine ("Unity"), when the profile says; otherwise it's told from the game's files.
+    var engine: String?
     var sources: [Source] = []
 
     /// How well the app runs on OverPass, judged by actually testing it on a Mac.
@@ -271,6 +273,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto
         p.playStationControllers = first(app, "controllers")?.lowercased() == "playstation"
         p.notes = first(app, "notes")
+        p.engine = first(app, "engine")
         p.icon = first(app, "icon")
         p.cover = first(app, "cover")
         p.coverStyle = first(app, "cover-style")

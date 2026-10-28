@@ -97,16 +97,15 @@ enum UserCategories {
     }
 }
 
-/// How the Covers layout draws each title: the bare cover, the cover with its store under the name, or in a game case
-/// with the store's band on top (flat, or tilting toward the pointer).
+/// How the Covers layout draws each title: the bare cover, or in a game case with the store's band on top (flat, or
+/// tilting toward the pointer).
 enum CoverStyle: String, CaseIterable, Identifiable {
-    case clean, label, gameCase, tiltingCase
+    case clean, gameCase, tiltingCase
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .clean: "Clean Cover"
-        case .label: "Cover with Label"
         case .gameCase: "Case"
         case .tiltingCase: "3D Case"
         }
@@ -139,14 +138,14 @@ extension SortKey {
 
 /// What titles are sorted by, in every layout.
 enum LibrarySort: String, SortKey {
-    case name, client, container, graphics
+    case name, container, engine, graphics
     static let key = "librarySort", ascendingKey = "librarySortAscending"
 
     var title: String {
         switch self {
         case .name: "Name"
-        case .client: "Client"
         case .container: "Container"
+        case .engine: "Engine"
         case .graphics: "Graphics"
         }
     }
@@ -154,8 +153,8 @@ enum LibrarySort: String, SortKey {
     var keyPath: KeyPath<LibraryEntry, String> {
         switch self {
         case .name: \.name
-        case .client: \.clientName
         case .container: \.bottleName
+        case .engine: \.engineName
         case .graphics: \.graphicsName
         }
     }

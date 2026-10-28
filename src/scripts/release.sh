@@ -2,7 +2,7 @@
 # Builds OverPass, zips it and publishes it as a GitHub release, which the app's update check finds.
 #   release.sh <version> [notes file]
 # Publishes to McKack/overpass as overpass-<version>.zip. The lowercase name matters: OverPass 0.3.0 and older
-# look for "OverPass…zip" and can't take the new bundle ID, so they skip this repo and update to 0.3.1 in
+# look for "OverPass…zip" and can't take the new bundle ID, so they skip this repo and update to 0.3.2 in
 # McKack/overpass-releases instead (see AppUpdate.swift). Set OVERPASS_RELEASE_REPO to publish elsewhere.
 set -euo pipefail
 cd "$(dirname "$0")/.."

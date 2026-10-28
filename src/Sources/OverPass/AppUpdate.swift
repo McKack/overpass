@@ -2,9 +2,9 @@ import Foundation
 import AppKit
 
 // Updates for OverPass itself. Releases are GitHub releases with the zipped app attached, looked for first in
-// OverPass's own repo and then in McKack/overpass-releases, where releases up to 0.3.1 were published.
+// OverPass's own repo and then in McKack/overpass-releases, where releases up to 0.3.2 were published.
 // OverPass 0.3.0 and older look for an asset named "OverPass…zip" (case-sensitive) and accept only their old
-// bundle ID, so the own repo's assets are named "overpass-<version>.zip": those versions skip it and find 0.3.1
+// bundle ID, so the own repo's assets are named "overpass-<version>.zip": those versions skip it and find 0.3.2
 // in overpass-releases, which takes them over to the new ID. Never attach an "OverPass…zip" there.
 // The update is downloaded by the app, so macOS doesn't quarantine it and Gatekeeper doesn't ask again.
 @MainActor
@@ -21,6 +21,9 @@ enum AppUpdate {
 
     /// OverPass 0.3 and older: their updates and settings carry over to no.arctim.overpass.
     nonisolated static let oldBundleID = "com.overpass.app"
+    /// An update must be one of these. Fixed rather than taken from this copy, so a build under the old ID
+    /// (the bridge release) accepts the new one.
+    static let updateBundleIDs: Set<String> = ["no.arctim.overpass", oldBundleID]
 
     /// Brings the settings an older OverPass saved under its old bundle ID, once. Runs before anything reads them.
     nonisolated static func moveOldSettings() {
@@ -84,8 +87,7 @@ enum AppUpdate {
         try FileManager.default.moveItem(at: download, to: zip)
         try await runTool("/usr/bin/ditto", ["-x", "-k", zip.path, work.path])
         let app = work.appendingPathComponent("OverPass.app")
-        guard let bundle = Bundle(url: app),
-              [Bundle.main.bundleIdentifier, oldBundleID].contains(bundle.bundleIdentifier) else {
+        guard let id = Bundle(url: app)?.bundleIdentifier, updateBundleIDs.contains(id) else {
             throw UpdateError.notOverPass
         }
         try await runTool("/usr/bin/codesign", ["--verify", "--deep", app.path])

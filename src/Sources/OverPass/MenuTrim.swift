@@ -19,12 +19,11 @@ enum MenuTrim {
 
     static func install() {
         NSWindow.allowsAutomaticWindowTabbing = false
-        // SwiftUI rebuilds the menu bar whenever the commands change, so trim it every time.
-        NotificationCenter.default.addObserver(forName: NSMenu.didAddItemNotification, object: nil, queue: .main) { note in
-            MainActor.assumeIsolated {
-                if let menu = note.object as? NSMenu, menu == NSApp.mainMenu || menu == NSApp.mainMenu?.items.first?.submenu {
-                    trim()
-                }
+        // SwiftUI rebuilds the menu bar whenever the commands change, and can swap in a new app menu or show an
+        // item again, so trim after any menu change and once more when a menu opens.
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification, NSMenu.didBeginTrackingNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { trim() }
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main) { _ in

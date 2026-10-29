@@ -187,16 +187,9 @@ struct ContentView: View {
                 if #available(macOS 26.0, *) {
                     ToolbarSpacer(.fixed)
                 }
-                ToolbarItemGroup(placement: .automatic) {
-                    Button { installRequest = InstallRequest() } label: {
-                        Label("Install", systemImage: "plus.circle.fill")
-                    }
-                    .help("Install a Windows game or app")
-                    Button { showRunCommand = true } label: {
-                        Label("Quick Run", systemImage: "bolt.fill")
-                    }
-                    .help("Quick Run: run any Windows program in a container")
-                    .disabled(manager.bottles.isEmpty)
+                // Pages put Install and Quick Run in the middle; a container's page has no toolbar of its own.
+                if case .bottle = selection {
+                    ToolbarItemGroup(placement: .automatic) { WindowActionButtons() }
                 }
             }
     }
@@ -281,6 +274,9 @@ struct ContentView: View {
             .onPreferenceChange(StatusTextKey.self) { statusText = $0 }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
             .environment(\.searchText, searchText)
+            .environment(\.windowActions, WindowActions(install: { installRequest = InstallRequest() },
+                                                        quickRun: { showRunCommand = true },
+                                                        canQuickRun: !manager.bottles.isEmpty))
         }
         .environment(\.storeActions, StoreActions(connect: { connecting = StoreConnection(group: $0) }, show: showStore))
         .toolbar {
@@ -994,5 +990,40 @@ struct LaunchStatusBar: View {
             }
         }
         .background(.bar)
+    }
+}
+
+/// Install and Quick Run belong to the window; each page shows them in the middle of the toolbar, in a group of
+/// their own between its actions and its view options.
+struct WindowActions {
+    var install: () -> Void = {}
+    var quickRun: () -> Void = {}
+    var canQuickRun = false
+}
+
+private struct WindowActionsKey: EnvironmentKey {
+    static let defaultValue = WindowActions()
+}
+
+extension EnvironmentValues {
+    var windowActions: WindowActions {
+        get { self[WindowActionsKey.self] }
+        set { self[WindowActionsKey.self] = newValue }
+    }
+}
+
+struct WindowActionButtons: View {
+    @Environment(\.windowActions) private var actions
+
+    var body: some View {
+        Button(action: actions.install) {
+            Label("Install", systemImage: "plus.circle.fill")
+        }
+        .help("Install a Windows game or app")
+        Button(action: actions.quickRun) {
+            Label("Quick Run", systemImage: "bolt.fill")
+        }
+        .help("Quick Run: run any Windows program in a container")
+        .disabled(!actions.canQuickRun)
     }
 }

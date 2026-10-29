@@ -183,15 +183,24 @@ struct LibraryView: View {
                 ToolbarSpacer(.fixed, placement: .principal)
             }
             ToolbarItemGroup(placement: .principal) {
-                LayoutMenu(layout: $layout, coverStyles: true)
-                SortMenu(key: $sortKey, ascending: $sortAscending)
+                WindowActionButtons()
             }
-            if store != nil {
-                ToolbarItem(placement: .principal) {
-                    Toggle(isOn: $installedOnly) {
-                        Label("Installed Only", systemImage: "line.3.horizontal.decrease")
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .principal)
+            }
+            // How the titles show: layout, order and, in a store's category, only the installed games.
+            ToolbarItem(placement: .principal) {
+                ViewControls {
+                    LayoutMenu(layout: $layout, coverStyles: true)
+                    SortMenu(key: $sortKey, ascending: $sortAscending)
+                    if store != nil {
+                        Toggle(isOn: $installedOnly) {
+                            Label("Installed Only", systemImage: installedOnly ? "line.3.horizontal.decrease.circle.fill"
+                                                                               : "line.3.horizontal.decrease.circle")
+                        }
+                        .foregroundStyle(installedOnly ? Color.accentColor : .primary)
+                        .help(installedOnly ? "Show the whole library" : "Show only installed games")
                     }
-                    .help(installedOnly ? "Show the whole library" : "Show only installed games")
                 }
             }
             if let store, let account = store.account {
@@ -764,8 +773,16 @@ struct BottlesView: View {
                 ToolbarSpacer(.fixed, placement: .principal)
             }
             ToolbarItemGroup(placement: .principal) {
-                LayoutMenu(layout: $layout, noun: "containers")
-                SortMenu(key: $sortKey, ascending: $sortAscending)
+                WindowActionButtons()
+            }
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .principal)
+            }
+            ToolbarItem(placement: .principal) {
+                ViewControls {
+                    LayoutMenu(layout: $layout, noun: "containers")
+                    SortMenu(key: $sortKey, ascending: $sortAscending)
+                }
             }
         }
         .focusedSceneValue(\.uninstallSelection, selected.map { bottle in

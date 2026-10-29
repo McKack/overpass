@@ -183,6 +183,23 @@ enum ContainerSort: String, SortKey {
     }
 }
 
+/// The toolbar's view options side by side in one toolbar item, so they share one pill.
+struct ViewControls<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 6) { content }
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
+            .toggleStyle(.button)
+            .labelStyle(.iconOnly)
+            // The size of the toolbar's other icons.
+            .font(.system(size: 15))
+            .padding(.horizontal, 8)
+            .fixedSize()
+    }
+}
+
 /// The toolbar's Sort By menu, like Finder's: the keys, then the order.
 struct SortMenu<Key: SortKey>: View {
     @Binding var key: Key

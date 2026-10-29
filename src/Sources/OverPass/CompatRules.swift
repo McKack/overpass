@@ -9,6 +9,8 @@ struct CompatRule: Hashable {
     var name: String
     var programs: [String] = []
     var steamAppIDs: [String] = []
+    /// File names that, found in the program's folder, make the rule cover it (libcef.dll: a Chromium program).
+    var besides: [String] = []
     var addArguments: [String] = []
     var unlessArgument: String?
     var environment: [(key: String, value: String)] = []
@@ -23,12 +25,19 @@ struct CompatRule: Hashable {
 
     /// Whether the rule covers a program, given as a Windows or host path. Same rule as OverPass Wine:
     /// the path ends with "\" + the program entry, in any case.
+    /// A `beside` entry needs a host path, to look in the program's folder.
     func matches(program path: String) -> Bool {
         let normalized = path.replacingOccurrences(of: "/", with: "\\").lowercased()
-        return programs.contains { entry in
+        let named = programs.contains { entry in
             let suffix = "\\" + entry.replacingOccurrences(of: "/", with: "\\")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\\")).lowercased()
             return ("\\" + normalized).hasSuffix(suffix)
+        }
+        guard !named, path.hasPrefix("/") else { return named }
+        let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+        return besides.contains { name in
+            guard !name.isEmpty, !name.contains("/"), !name.contains("\\") else { return false }
+            return FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path)
         }
     }
 }
@@ -75,6 +84,7 @@ enum CompatRules {
             switch key {
             case "program": rule.programs.append(value)
             case "steam-app": rule.steamAppIDs.append(value)
+            case "beside": rule.besides.append(value)
             case "add-arguments": rule.addArguments += value.split(separator: " ").map(String.init)
             case "unless-argument": rule.unlessArgument = value
             case "env":

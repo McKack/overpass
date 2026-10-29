@@ -87,6 +87,7 @@ source = https://...
 |---|---|---|
 | `program` | A program the rule covers: file name (`GalaxyClient.exe`) or path ending (`GOG Galaxy\GalaxyClient.exe`), any case | yes |
 | `steam-app` | A Steam game, by app ID (matched through the `SteamGameId` Steam gives the game) | yes |
+| `beside` | Any program with a file of this name in its folder, e.g. `libcef.dll` for Chromium Embedded programs | yes |
 | `add-arguments` | Appended to the program's command line | yes |
 | `unless-argument` | Don't append arguments to a command line containing this | no |
 | `env` | `NAME=value`, set for the program | yes |
@@ -96,7 +97,7 @@ source = https://...
 | `replace-path` | `from => to`: start another program instead. The part of the program's path matching `from` (any case) is replaced by `to`, or the whole path when `to` is absolute (`C:\...`). The arguments stay. Skipped when the new program doesn't exist | yes |
 | `source` | Where the fix comes from: bug report, test, forum thread | yes |
 
-A rule applies when any of its `program` or `steam-app` lines match. Matching rules apply in file-name
+A rule applies when any of its `program`, `steam-app` or `beside` lines match. Matching rules apply in file-name
 order, then in order within a file.
 
 Before adding a rule, test it: run the program with and without it, and put what you saw in the

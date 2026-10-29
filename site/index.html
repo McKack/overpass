@@ -74,8 +74,23 @@
   .button.primary { background: var(--accent); color: var(--accent-text); box-shadow: none; }
   .button svg { width: 18px; height: 18px; fill: currentColor; }
 
-  .window { margin: 72px auto 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); background: var(--surface); }
-  .window img { display: block; width: 100%; height: auto; }
+  .gallery { margin: 72px 0 0; }
+  .stage { margin: 0; aspect-ratio: 3200 / 1560; position: relative; }
+  .stage img {
+    position: absolute; inset: 0; margin: auto;
+    display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
+    filter: drop-shadow(0 18px 36px rgba(0, 0, 0, 0.28));
+  }
+  .caption { text-align: center; color: var(--secondary); font-size: 15px; margin: 18px auto 0; max-width: 640px; min-height: 2.6em; }
+  .thumbs { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 14px 0 0; padding: 0; list-style: none; }
+  .thumbs button {
+    width: 112px; height: 64px; padding: 4px; border: 0; border-radius: 10px; cursor: pointer;
+    background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+    display: grid; place-items: center; opacity: 0.7; transition: opacity 0.15s, box-shadow 0.15s;
+  }
+  .thumbs button:hover { opacity: 1; }
+  .thumbs button[aria-pressed="true"] { opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
+  .thumbs img { display: block; max-width: 104px; max-height: 56px; }
 
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 64px 0 0; }
   .feature { background: var(--surface); border-radius: 18px; padding: 24px; box-shadow: inset 0 0 0 1px var(--separator); }
@@ -134,9 +149,21 @@
     </a>
   </nav>
 
-  <div class="window">
-    <img src="home.png" width="2754" height="1554" alt="OverPass's Home screen with game launchers and utilities to install">
-  </div>
+  <section class="gallery" id="screenshots" aria-label="Screenshots">
+    <figure class="stage">
+      <img id="shot" src="shots/library.webp" alt="All Titles: games from Epic Games, GOG and Steam and a Mac game, as covers">
+    </figure>
+    <p class="caption" id="caption">Everything you have installed, from every store, as covers named after where each game comes from.</p>
+    <ul class="thumbs" id="thumbs">
+      <li><button type="button" aria-pressed="true" data-shot="library" data-caption="Everything you have installed, from every store, as covers named after where each game comes from."><img src="shots/thumbs/library.webp" alt="All Titles"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="home" data-caption="Home: start with a gaming service. Steam, Epic Games and GOG are a click away; Epic and GOG need no launcher."><img src="shots/thumbs/home.webp" alt="Home"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="gog" data-caption="Sign in to GOG and your whole library shows up. Install games straight from OverPass."><img src="shots/thumbs/gog.webp" alt="GOG library"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="epic" data-caption="The same for Epic Games: your games, without the Epic Games Launcher."><img src="shots/thumbs/epic.webp" alt="Epic Games library"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="list" data-caption="The list view shows each title's container, the game engine OverPass found and its graphics."><img src="shots/thumbs/list.webp" alt="List view"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="editor-graphics" data-caption="Each game has its own settings: graphics per Direct3D version, faster x87 math, a resolution cap and more."><img src="shots/thumbs/editor-graphics.webp" alt="A game's settings"></button></li>
+      <li><button type="button" aria-pressed="false" data-shot="components" data-caption="OverPass keeps Wine, the graphics runtime and the store clients up to date."><img src="shots/thumbs/components.webp" alt="Components"></button></li>
+    </ul>
+  </section>
 
   <section class="features">
     <div class="feature">
@@ -169,6 +196,17 @@
   <span aria-hidden="true">·</span> <a href="https://ko-fi.com/arctim">Ko-fi</a>
 </footer>
 <script>
+  // Gallery: a thumbnail shows its screenshot in the main view.
+  const shot = document.getElementById("shot"), caption = document.getElementById("caption");
+  document.getElementById("thumbs").addEventListener("click", (event) => {
+    const thumb = event.target.closest("button");
+    if (!thumb) return;
+    document.querySelectorAll("#thumbs button").forEach((b) => b.setAttribute("aria-pressed", String(b === thumb)));
+    shot.src = "shots/" + thumb.dataset.shot + ".webp";
+    shot.alt = thumb.querySelector("img").alt;
+    caption.textContent = thumb.dataset.caption;
+  });
+
   const button = document.getElementById("copy");
   button.addEventListener("click", async () => {
     const text = document.getElementById("command").textContent;

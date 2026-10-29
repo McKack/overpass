@@ -1,23 +1,31 @@
 # Screenshots
 
-OverPass in action. More will be added as OverPass grows.
+OverPass 0.6.0. More will be added as OverPass grows.
 
-Home lists the game stores and featured apps. Pick one and click Install, or Run once it's there:
+Everything you have installed, from every store, as covers named after where each game comes from:
 
-![Home: game stores and featured apps](screenshots/home.png)
+![All Titles: games from Epic Games, GOG and Steam and a Mac game](screenshots/library.webp)
 
-Everything you have installed, from every store, as covers in cases named after where each game comes from:
+Home: start with a gaming service. Steam, Epic Games and GOG are a click away, and Epic and GOG need no launcher:
 
-![All Titles: games from Epic Games, GOG and Steam, a Windows app and a Mac game](screenshots/library.jpg)
+![Home: the gaming services](screenshots/home.webp)
 
-Sign in to GOG or Epic Games and your whole library shows up. Install games straight from OverPass, no launcher needed:
+Sign in to GOG and your whole library shows up. Install games straight from OverPass:
 
-![The GOG library: installed games with Play, the rest with Install](screenshots/gog.jpg)
+![The GOG library: installed games with Play, the rest with Install](screenshots/gog.webp)
 
-The list view shows each title's container, the game engine OverPass found and its graphics backend:
+The same for Epic Games, without the Epic Games Launcher:
 
-![List view with Container, Engine and Graphics columns](screenshots/list.png)
+![The Epic Games library](screenshots/epic.webp)
 
-Each game has its own settings: graphics backend per Direct3D version, faster x87 math, a resolution cap and more:
+The list view shows each title's container, the game engine OverPass found and its graphics:
 
-![A game's settings: Graphics & Sound](screenshots/editor.png)
+![List view with Container, Engine and Graphics columns](screenshots/list.webp)
+
+Each game has its own settings: graphics per Direct3D version, faster x87 math, a resolution cap and more:
+
+![A game's settings: Graphics & Sound](screenshots/editor-graphics.webp)
+
+OverPass keeps Wine, the graphics runtime and the store clients up to date:
+
+![Settings: Components](screenshots/components.webp)

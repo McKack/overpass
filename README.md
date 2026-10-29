@@ -72,19 +72,18 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 
 ## Screenshots
 
-Home lists the game stores and featured apps. Pick one and click Install, or Run once it's there:
+![All Titles: games from Epic Games, GOG and Steam and a Mac game, as covers](docs/screenshots/library.webp)
 
-![Home: game stores and featured apps](docs/screenshots/home.png)
+<p align="center">
+<a href="docs/screenshots/home.webp"><img src="docs/screenshots/thumbs/home.webp" width="120" alt="Home"></a>
+<a href="docs/screenshots/gog.webp"><img src="docs/screenshots/thumbs/gog.webp" width="120" alt="GOG library"></a>
+<a href="docs/screenshots/epic.webp"><img src="docs/screenshots/thumbs/epic.webp" width="120" alt="Epic Games library"></a>
+<a href="docs/screenshots/list.webp"><img src="docs/screenshots/thumbs/list.webp" width="120" alt="List view"></a>
+<a href="docs/screenshots/editor-graphics.webp"><img src="docs/screenshots/thumbs/editor-graphics.webp" width="120" alt="A game's settings"></a>
+<a href="docs/screenshots/components.webp"><img src="docs/screenshots/thumbs/components.webp" width="120" alt="Components"></a>
+</p>
 
-Everything you have installed, from every store, as covers in cases named after where each game comes from:
-
-![All Titles: games from Epic Games, GOG and Steam, a Windows app and a Mac game](docs/screenshots/library.jpg)
-
-Sign in to GOG or Epic Games and your whole library shows up. Install games straight from OverPass, no launcher needed:
-
-![The GOG library: installed games with Play, the rest with Install](docs/screenshots/gog.jpg)
-
-[More screenshots…](docs/SCREENSHOTS.md)
+Click a thumbnail for the full screenshot, or see them all with descriptions in [Screenshots](docs/SCREENSHOTS.md).
 
 ## How it works
 

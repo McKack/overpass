@@ -86,9 +86,6 @@ struct HomeView: View {
                 .help(installed ? "Uninstall \(profile!.name)…" : "Select an installed app to uninstall it")
                 .disabled(!installed)
             }
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .principal)
-            }
             ToolbarItemGroup(placement: .principal) {
                 WindowActionButtons()
             }

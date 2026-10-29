@@ -179,14 +179,8 @@ struct LibraryView: View {
                 .help(item.map { "Change how \($0.app.name) runs" } ?? "Select an app to edit its profile")
                 .disabled(item == nil || item?.bottle.isMac == true)
             }
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .principal)
-            }
             ToolbarItemGroup(placement: .principal) {
                 WindowActionButtons()
-            }
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .principal)
             }
             // How the titles show: layout, order and, in a store's category, only the installed games.
             ToolbarItem(placement: .principal) {
@@ -201,19 +195,6 @@ struct LibraryView: View {
                         .foregroundStyle(installedOnly ? Color.accentColor : .primary)
                         .help(installedOnly ? "Show the whole library" : "Show only installed games")
                     }
-                }
-            }
-            if let store, let account = store.account {
-                ToolbarItem(placement: .principal) {
-                    Menu {
-                        Text("Signed in as \(account)")
-                        Button("Refresh Library") { Task { await store.refresh() } }.disabled(store.loading)
-                        Divider()
-                        Button("Sign Out") { Task { await store.signOut() } }
-                    } label: {
-                        Label(account, systemImage: "person.crop.circle")
-                    }
-                    .help("\(type(of: store).storeName) account")
                 }
             }
         }
@@ -769,14 +750,8 @@ struct BottlesView: View {
                 }
                 .help("Import a container someone exported")
             }
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .principal)
-            }
             ToolbarItemGroup(placement: .principal) {
                 WindowActionButtons()
-            }
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .principal)
             }
             ToolbarItem(placement: .principal) {
                 ViewControls {
@@ -984,5 +959,23 @@ struct AntiCheatBadge: View {
                 .shadow(color: .black.opacity(0.4), radius: 2)
                 .help(AntiCheat.warning(info, for: item.app.name))
         }
+    }
+}
+
+/// A built-in library's account: who is signed in, Refresh Library and Sign Out. Beside the search field.
+struct StoreAccountMenu: View {
+    let store: any StoreLibrary
+    let account: String
+
+    var body: some View {
+        Menu {
+            Text("Signed in as \(account)")
+            Button("Refresh Library") { Task { await store.refresh() } }.disabled(store.loading)
+            Divider()
+            Button("Sign Out") { Task { await store.signOut() } }
+        } label: {
+            Label(account, systemImage: "person.crop.circle")
+        }
+        .help("\(type(of: store).storeName) account")
     }
 }

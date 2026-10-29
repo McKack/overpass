@@ -179,7 +179,13 @@ struct ContentView: View {
                 if #available(macOS 26.0, *) {
                     ToolbarSpacer(.flexible)
                 }
-                // Search sits before Install and Quick Run; it shrinks to a button when the window is narrow.
+                // A store category's account, hugging the search field.
+                if case .launcher(let id) = selection,
+                   let group = profiles.profiles.first(where: { $0.id == id })?.bottle.group,
+                   let store = BuiltInLibrary.store(for: group), let account = store.account {
+                    ToolbarItem(placement: .automatic) { StoreAccountMenu(store: store, account: account) }
+                }
+                // Search shrinks to a button when the window is narrow.
                 ToolbarItem(placement: .automatic) {
                     ToolbarSearch(text: $searchText, compact: detailWidth < 720,
                                   prompt: showsLayouts ? "Search \(pageTitle)" : "Search")

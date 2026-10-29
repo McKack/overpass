@@ -217,6 +217,7 @@ struct HomeView: View {
 private struct StoreTile: View {
     @Environment(BottleManager.self) private var manager
     @AppStorage(XboxOptIn.key) private var xboxEnabled = false
+    @AppStorage(ViewOptions.legacyClientsKey) private var legacyClients = false
     @State private var enablingXbox = false
     let profile: GameProfile
     let bottle: Bottle?
@@ -263,8 +264,9 @@ private struct StoreTile: View {
             } else if bottle != nil || signedIn {
                 TileButton(symbol: "play.fill", help: library.map { "Open \($0.name)" } ?? "Run \(profile.name)",
                            busy: bottle.map { manager.isOpening(in: $0) } ?? false, prominent: true, action: open)
-            } else if let library, library.client == nil {
-                TileButton(symbol: "arrow.down", help: "Set Up \(library.name)") { openLibrary(library) }
+            } else if let library, library.client == nil || !legacyClients {
+                // Without the legacy clients (Settings › Advanced), Install goes straight to the built-in library.
+                TileButton(symbol: "arrow.down", help: "Install \(profile.name)") { openLibrary(library) }
             } else if let library {
                 // A native pop-up menu: a SwiftUI Menu here comes out smaller than the other tile buttons.
                 TileButton(symbol: "arrow.down", help: "Install \(profile.name)") { popUpInstallChoices(library) }
@@ -331,7 +333,7 @@ extension StoreTile {
 
     @ViewBuilder
     func installChoices(_ library: BuiltInLibrary.Entry) -> some View {
-        if let client = library.client {
+        if let client = library.client, legacyClients {
             Section("Recommended") {
                 Button(library.name) { openLibrary(library) }
             }
@@ -339,7 +341,7 @@ extension StoreTile {
                 Button("\(client)…") { install() }
             }
         } else {
-            Button("Set Up \(library.name)…") { openLibrary(library) }
+            Button("Install \(profile.name)…") { openLibrary(library) }
         }
     }
 }

@@ -8,6 +8,8 @@ enum ViewOptions {
     static let layoutKey = "libraryLayout"
     static let coverStyleKey = "coverStyle"
     static let installedOnlyKey = "storeInstalledOnly"
+    /// Offer the stores' own Windows clients (Epic Games Launcher, GOG Galaxy) beside the built-in libraries.
+    static let legacyClientsKey = "legacyGameClients"
     static let favoritesKey = "favorites"
     static let categoriesKey = "userCategories"
 }

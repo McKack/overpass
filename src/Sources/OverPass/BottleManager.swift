@@ -533,6 +533,40 @@ class BottleManager {
         lastRun[bottle.path] = LibraryItem(app: app, bottle: bottle)
         lastRunAnywhere = LibraryItem(app: app, bottle: bottle)
         if bottle.isMac { return MacApps.open(app) }
+        if let profile = profiles?.profile(for: LibraryItem(app: app, bottle: bottle)), !profile.fixes.isEmpty {
+            return launchWithFixes(app, profile: profile, in: bottle)
+        }
+        try launchPrepared(app, in: bottle)
+    }
+
+    /// A game whose profile names fixes (GameFixes): they're put in place, or taken out on another backend,
+    /// before it starts. It starts even when a fix couldn't be, with the reason shown.
+    private func launchWithFixes(_ app: WineApp, profile: GameProfile, in bottle: Bottle) {
+        // The game's own executable when the store knows it, else whatever starts it (a store's folder is enough).
+        let anchor = app.target.flatMap { WindowsIcons.hostPath($0, bottlePath: bottle.path) }
+            ?? URL(fileURLWithPath: app.executable)
+        let backend = profile.graphics != .auto ? profile.graphics : bottle.graphics.resolved
+        let task = RecipeTask(message: "Getting \(app.name)'s fixes ready…")
+        recipeTasks.append(task)
+        Task {
+            let problem = await GameFixes.prepare(profile.fixes, near: anchor, backend: backend, name: app.name)
+            recipeTasks.removeAll { $0.id == task.id }
+            if let problem {
+                var failed = RecipeTask(message: "\(app.name)'s fixes")
+                failed.failed = "\(app.name) started without its fix: \(problem)"
+                recipeTasks.append(failed)
+            }
+            do {
+                try launchPrepared(app, in: bottle)
+            } catch {
+                var failed = RecipeTask(message: app.name)
+                failed.failed = "\(app.name) couldn't start: \(error.localizedDescription)"
+                recipeTasks.append(failed)
+            }
+        }
+    }
+
+    private func launchPrepared(_ app: WineApp, in bottle: Bottle) throws {
         if app.backend == .legendary, let appName = app.storeID { return launchEpic(app, appName: appName, in: bottle) }
         if app.backend == .xodus, let id = app.storeID { return launchXbox(app, id: id, in: bottle) }
         try runExe(app.executable, in: bottle, arguments: app.arguments, name: app.name)

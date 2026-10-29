@@ -81,6 +81,7 @@ extension ComponentID {
         case .winetricks: "winetricks"
         case .d3dmetal: "d3dmetal"
         case .x87sidecar: "x87sidecar"
+        case .gamefixes: "game-fixes"
         case .legendary: "epic"
         case .gogdl: "gog"
         case .xodus: "xbox"

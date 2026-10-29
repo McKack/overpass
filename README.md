@@ -72,18 +72,23 @@ Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Re
 
 ## Screenshots
 
+Everything you have installed, from every store, as covers named after where each game comes from:
+
 ![All Titles: games from Epic Games, GOG and Steam and a Mac game, as covers](docs/screenshots/library.webp)
 
-<p align="center">
-<a href="docs/screenshots/home.webp"><img src="docs/screenshots/thumbs/home.webp" width="120" alt="Home"></a>
-<a href="docs/screenshots/gog.webp"><img src="docs/screenshots/thumbs/gog.webp" width="120" alt="GOG library"></a>
-<a href="docs/screenshots/epic.webp"><img src="docs/screenshots/thumbs/epic.webp" width="120" alt="Epic Games library"></a>
-<a href="docs/screenshots/list.webp"><img src="docs/screenshots/thumbs/list.webp" width="120" alt="List view"></a>
-<a href="docs/screenshots/editor-graphics.webp"><img src="docs/screenshots/thumbs/editor-graphics.webp" width="120" alt="A game's settings"></a>
-<a href="docs/screenshots/components.webp"><img src="docs/screenshots/thumbs/components.webp" width="120" alt="Components"></a>
-</p>
+Home: start with a gaming service. Steam, Epic Games and GOG are a click away, and Epic and GOG need no launcher:
 
-Click a thumbnail for the full screenshot, or see them all with descriptions in [Screenshots](docs/SCREENSHOTS.md).
+![Home: the gaming services](docs/screenshots/home.webp)
+
+Sign in to GOG or Epic Games and your whole library shows up. Install games straight from OverPass:
+
+![The GOG library: installed games with Play, the rest with Install](docs/screenshots/gog.webp)
+
+Each game has its own settings: graphics per Direct3D version, faster x87 math, a resolution cap and more:
+
+<p align="center"><img src="docs/screenshots/editor-graphics.webp" width="620" alt="A game's settings: Graphics & Sound"></p>
+
+[More screenshots…](docs/SCREENSHOTS.md)
 
 ## How it works
 

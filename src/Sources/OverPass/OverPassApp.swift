@@ -25,7 +25,7 @@ struct OverPassApp: App {
         _components = State(initialValue: components)
         MenuTrim.install()
         // Runs for the app's lifetime, whichever windows are open.
-        Task { await UpdateCheck.run(components) }
+        Task { @MainActor in UpdateCheck.start(components) }
     }
     @AppStorage("hasCompletedSetup") private var hasCompletedSetup = false
 
@@ -106,6 +106,36 @@ enum SidebarItem: Hashable {
     case builtIn(BuiltInCategory)
     case bottles
     case bottle(URL)
+
+    /// The page as text, so OverPass can open on it again next time.
+    var stored: String {
+        switch self {
+        case .home: "home"
+        case .library: "library"
+        case .favorites: "favorites"
+        case .launcher(let id): "launcher:" + id
+        case .category(let id): "category:" + id
+        case .builtIn(let category): "builtin:" + category.rawValue
+        case .bottles: "containers"
+        case .bottle(let url): "container:" + url.path
+        }
+    }
+
+    init?(stored: String) {
+        let (kind, value) = stored.firstIndex(of: ":").map { (String(stored[..<$0]), String(stored[stored.index(after: $0)...])) }
+            ?? (stored, "")
+        switch kind {
+        case "home": self = .home
+        case "library": self = .library
+        case "favorites": self = .favorites
+        case "launcher": self = .launcher(value)
+        case "category": self = .category(value)
+        case "builtin": guard let category = BuiltInCategory(rawValue: value) else { return nil }; self = .builtIn(category)
+        case "containers": self = .bottles
+        case "container": self = .bottle(URL(fileURLWithPath: value))
+        default: return nil
+        }
+    }
 }
 
 struct ContentView: View {
@@ -113,6 +143,9 @@ struct ContentView: View {
     @Environment(ProfileStore.self) private var profiles
     @Environment(\.openSettings) private var openSettings
     @State private var selection: SidebarItem? = .home
+    /// The page open when OverPass last closed, opened again at the next start while it still exists.
+    @AppStorage("lastPage") private var lastPage = "home"
+    @State private var restoredPage = false
     @AppStorage(ViewOptions.favoritesKey) private var favorites = ""
     private var favoriteIDs: Set<String> { Favorites.ids(favorites) }
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
@@ -234,6 +267,20 @@ struct ContentView: View {
         }
     }
 
+    private func restorePage() {
+        guard !restoredPage else { return }
+        defer { restoredPage = true }
+        guard let item = SidebarItem(stored: lastPage) else { return }
+        let exists: Bool = switch item {
+        case .launcher(let id): profiles.profiles.contains { $0.id == id }
+        case .category(let id): UserCategories.list(categories).contains { $0.id == id }
+        case .bottle(let path): manager.bottles.contains { $0.path == path }
+        case .builtIn(let category): !manager.titles(in: category).isEmpty
+        default: true
+        }
+        if exists { selection = item }
+    }
+
     @ViewBuilder private var page: some View {
         switch selection {
         case .bottle(let path):
@@ -331,7 +378,11 @@ struct ContentView: View {
         .toolbar(removing: .title)
         // Uninstall and the profile sheets for the sidebar and the pages that don't present their own.
         .itemSheets($itemSheet)
-        .onChange(of: selection) { _, item in visited(item) }
+        .onChange(of: selection) { _, item in
+            visited(item)
+            if restoredPage, let item { lastPage = item.stored }
+        }
+        .onAppear(perform: restorePage)
         // A deleted category leaves its page, and Back and Forward skip it.
         .onChange(of: categories) {
             let ids = Set(UserCategories.list(categories).map(\.id))
@@ -710,16 +761,15 @@ private struct GeneralSettings: View {
     @AppStorage(ViewOptions.showClientIconsKey) private var showClientIcons = false
     @AppStorage(AppWrappers.enabledKey) private var createWrappers = true
     @Environment(\.openSettings) private var openSettings
-    @AppStorage(UpdateCheck.componentsKey) private var checkForWineUpdates = true
-    @AppStorage(UpdateCheck.appKey) private var checkForAppUpdates = true
     @AppStorage(SettingsDetail.key) private var detail = SettingsDetail.simple
 
     var body: some View {
         Form {
             Section("OverPass") {
                 LabeledContent("Version", value: AppUpdate.currentVersion)
-                Toggle("Check for OverPass updates", isOn: $checkForAppUpdates)
-                Button("Check Now") { UpdateCheck.checkNow(with: openSettings) }
+                Button("Check for Updates…") { UpdateCheck.checkNow(with: openSettings) }
+                DetailCaption("How often OverPass looks for updates by itself is set in Settings › Components.",
+                              technical: "Automatic checks (interval, and at startup or when OverPass comes back) are in Settings › Components › Automatic Updates.")
             }
             Section(detail == .simple ? "Windows Support" : "Wine") {
                 if let root = manager.wineRoot {
@@ -733,9 +783,6 @@ private struct GeneralSettings: View {
                     Label("No Wine installation detected", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 }
-                Toggle("Check for component updates", isOn: $checkForWineUpdates)
-                DetailCaption("Checks OverPass Wine, OverPass Runtime and the extras once a day while OverPass is open and notifies you when a new release is out.",
-                              technical: "Asks GitHub for the latest release of each component every 24 hours while OverPass runs, and posts one notification per new version. Updates install from Settings › Components.")
                 Button("Run Setup Wizard Again…") { hasCompletedSetup = false }
             }
             Section("Library") {

@@ -8,6 +8,8 @@ struct ComponentsView: View {
     @AppStorage("componentsShowOverPass") private var showOverPass = true
     @AppStorage("componentsShowStores") private var showStores = false
     @AppStorage("componentsShowExtras") private var showExtras = false
+    @AppStorage(UpdateCheck.intervalKey) private var interval = UpdateCheck.interval
+    @AppStorage(UpdateCheck.onReturnKey) private var onReturn = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +19,7 @@ struct ComponentsView: View {
                 group("OverPass", ComponentID.overpass, expanded: $showOverPass)
                 group("Stores", ComponentID.stores, expanded: $showStores)
                 group("Extras", ComponentID.extras, expanded: $showExtras)
+                automaticUpdates
             }
             .edgeFade()
 
@@ -27,6 +30,22 @@ struct ComponentsView: View {
         .task {
             UpdateCheck.openComponents = { SettingsTab.open(.components, with: openSettings) }
             await components.checkForUpdates()
+        }
+    }
+
+    /// How often OverPass checks by itself; Never turns every automatic check off.
+    private var automaticUpdates: some View {
+        Section {
+            Picker("Check for updates automatically", selection: $interval) {
+                ForEach(UpdateInterval.allCases) { Text($0.title).tag($0) }
+            }
+            Toggle("On startup or when the window comes back after some time", isOn: $onReturn)
+                .toggleStyle(.switch)
+                .disabled(interval == .never)
+            DetailCaption("OverPass checks for new versions of itself and of these components, and notifies you when one is out. With the switch on, it also checks when it starts, and when you come back to it, once that much time has passed since the last check.",
+                          technical: "Asks GitHub for each component's latest release at the chosen interval, counted from the last check, while OverPass runs; with the switch, also at launch and on app activation or window deminiaturize when the interval has passed. One notification per new version.")
+        } header: {
+            Text("Automatic Updates")
         }
     }
 

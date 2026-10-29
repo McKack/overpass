@@ -520,6 +520,7 @@ private struct PermissionsStepView: View {
 // MARK: - Done Step
 
 private struct DoneStepView: View {
+    @AppStorage(UpdateCheck.intervalKey) private var interval = UpdateCheck.interval
     let setupManager: SetupManager
     let bottleManager: BottleManager
     let onComplete: () -> Void
@@ -548,6 +549,14 @@ private struct DoneStepView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Toggle("Check for updates automatically", isOn: Binding(
+                get: { interval != .never },
+                set: { interval = $0 ? UpdateCheck.defaultInterval : .never }))
+                .toggleStyle(.checkbox)
+            Text("Once every 6 hours, and when OverPass starts. You can change this in Settings › Components.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Spacer()
 

@@ -21,7 +21,6 @@ struct LibraryView: View {
     @AppStorage(LibraryLayout.rows.sizeKey) private var rowSize = LibraryLayout.rows.defaultSize
     @AppStorage(LibraryLayout.covers.sizeKey) private var coverSize = LibraryLayout.covers.defaultSize
     @Environment(\.searchText) private var searchText
-    @AppStorage(ViewOptions.showClientInCategoryKey) private var showClient = true
     @AppStorage(ViewOptions.favoritesKey) private var favorites = ""
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
     @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
@@ -51,7 +50,7 @@ struct LibraryView: View {
             return manager.library.filter { ids.contains($0.id) }
         }
         if let builtIn { return manager.titles(in: builtIn) }
-        return launcher.map { manager.games(of: $0, includeClient: showClient) } ?? manager.library
+        return launcher.map { manager.games(of: $0) } ?? manager.library
     }
     private var category: UserCategory? {
         categoryID.flatMap { id in UserCategories.list(categories).first { $0.id == id } }
@@ -111,7 +110,7 @@ struct LibraryView: View {
     }
 
     /// Dims an entry that's hidden while View › Show Hidden Items shows it.
-    private func dimmedIfHidden(_ id: String) -> Double { Hidden.ids(hidden).contains(id) ? 0.4 : 1 }
+    private func isHidden(_ id: String) -> Bool { Hidden.ids(hidden).contains(id) }
     private var selectedEntry: LibraryEntry? { entries.first { $0.id == selection } }
     private var selectedItem: LibraryItem? { selectedEntry?.item }
 
@@ -303,14 +302,14 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     AppTile(item: item, iconSize: gridSize, selected: selection == item.id, playButton: store != nil,
                             select: { selection = item.id }) { launch(item) }
-                        .opacity(dimmedIfHidden(item.id))
+                        .dimmedWhenHidden(isHidden(item.id))
                 }
                 if let store {
                     ForEach(storeGames) { game in
                         let id = LibraryEntry.store(game).id
                         StoreGameTile(game: game, store: store, iconSize: gridSize, selected: selection == id,
                                       select: { selection = id })
-                            .opacity(dimmedIfHidden(id))
+                            .dimmedWhenHidden(isHidden(id))
                     }
                 }
             }
@@ -332,7 +331,7 @@ struct LibraryView: View {
                               captionIcon: launcher == nil && builtIn == nil) {
                         launch(item)
                     }
-                    .opacity(dimmedIfHidden(item.id))
+                    .dimmedWhenHidden(isHidden(item.id))
                 }
                 if let store {
                     ForEach(storeGames) { game in
@@ -340,7 +339,7 @@ struct LibraryView: View {
                         StoreGameCover(game: game, store: store, width: coverSize, selected: selection == id,
                                        platform: casePlatform(store: type(of: store).storeName, stores: stores),
                                        select: { selection = id })
-                            .opacity(dimmedIfHidden(id))
+                            .dimmedWhenHidden(isHidden(id))
                     }
                 }
             }
@@ -356,7 +355,7 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     AppRow(item: item, iconSize: rowSize, selected: selection == item.id,
                            select: { selection = item.id }) { launch(item) }
-                        .opacity(dimmedIfHidden(item.id))
+                        .dimmedWhenHidden(isHidden(item.id))
                     Divider().padding(.leading, rowSize + 36)
                 }
                 if let store {
@@ -364,7 +363,7 @@ struct LibraryView: View {
                         let id = LibraryEntry.store(game).id
                         StoreGameRow(game: game, store: store, iconSize: rowSize, selected: selection == id,
                                      select: { selection = id })
-                            .opacity(dimmedIfHidden(id))
+                            .dimmedWhenHidden(isHidden(id))
                         Divider().padding(.leading, rowSize + 36)
                     }
                 }
@@ -415,7 +414,7 @@ struct LibraryView: View {
                 AppIcon(item: item, size: listSize)
                 Text(item.app.name)
             }
-            .opacity(dimmedIfHidden(item.id))
+            .dimmedWhenHidden(isHidden(item.id))
         case .store(let game):
             HStack(spacing: 8) {
                 StoreGameArt(game: game).frame(width: listSize, height: listSize)
@@ -424,7 +423,7 @@ struct LibraryView: View {
                 Spacer()
                 if let store { StoreGameAction(game: game, store: store, compact: true) }
             }
-            .opacity(dimmedIfHidden(LibraryEntry.store(game).id))
+            .dimmedWhenHidden(isHidden(LibraryEntry.store(game).id))
         }
     }
 
@@ -446,6 +445,16 @@ struct LibraryView: View {
 }
 
 /// A row in a library page: an installed title, or a store game owned but not installed (in a store's category).
+extension View {
+    /// A hidden title shown by View › Show Hidden Items: veiled in the window's colour. Not with opacity, which
+    /// left the title without its menu, so it couldn't be unhidden.
+    func dimmedWhenHidden(_ hidden: Bool) -> some View {
+        overlay {
+            if hidden { Color(nsColor: .windowBackgroundColor).opacity(0.6).allowsHitTesting(false) }
+        }
+    }
+}
+
 enum LibraryEntry: Identifiable {
     case title(LibraryItem)
     case store(LibraryGame)

@@ -4,7 +4,6 @@ import SwiftUI
 enum ViewOptions {
     static let showBottlesKey = "showBottlesInSidebar"
     static let showClientIconsKey = "showClientIconsInSidebar"
-    static let showClientInCategoryKey = "showClientInCategory"
     static let layoutKey = "libraryLayout"
     static let coverStyleKey = "coverStyle"
     static let installedOnlyKey = "storeInstalledOnly"
@@ -375,7 +374,6 @@ struct OverPassCommands: Commands {
     @AppStorage(ViewOptions.showBottlesKey) private var showBottles = false
     @AppStorage(ViewOptions.showHiddenKey) private var showHidden = false
     @AppStorage(ViewOptions.showClientIconsKey) private var showClientIcons = false
-    @AppStorage(ViewOptions.showClientInCategoryKey) private var showClientInCategory = true
     @AppStorage(ViewOptions.layoutKey) private var layout: LibraryLayout = .grid
     @AppStorage(ViewOptions.coverStyleKey) private var coverStyle: CoverStyle = .gameCase
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
@@ -434,7 +432,6 @@ struct OverPassCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Menu("Categories") {
                 Toggle("Show Category Icons", isOn: $showClientIcons)
-                Toggle("Show Category Clients", isOn: $showClientInCategory)
                 Toggle("Show Containers", isOn: $showBottles)
             }
             Divider()

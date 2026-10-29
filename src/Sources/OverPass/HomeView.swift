@@ -13,6 +13,7 @@ struct HomeView: View {
     @Environment(\.storeActions) private var storeActions
     /// Redraws the tiles when the Xbox Library is turned on or off.
     @AppStorage(XboxOptIn.key) private var xboxEnabled = false
+    @AppStorage(ViewOptions.otherAppsKey) private var otherApps = false
     @State private var enablingXbox = false
 
     var body: some View {
@@ -33,14 +34,15 @@ struct HomeView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.extraLarge)
-                    Text("Choose a game's Windows installer, or start with a game store below. Other Windows apps work too.")
+                    Text("Choose a game's Windows installer, or start with a gaming service below. Other Windows apps work too.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
 
                 ForEach(sections, id: \.title) { section in
                     VStack(spacing: 12) {
-                        Text(section.title).font(.title2.bold())
+                        // With only Gaming Services on Home, the section needs no title.
+                        if otherApps { Text(section.title).font(.title2.bold()) }
                         CenteredGrid(minimumWidth: 260, spacing: 14) {
                             ForEach(section.profiles) { profile in tile(profile) }
                         }
@@ -112,6 +114,7 @@ struct HomeView: View {
         let search = searchText.trimmingCharacters(in: .whitespaces)
         for profile in profiles.featured where search.isEmpty || profile.name.localizedStandardContains(search) {
             let category = profile.category ?? "Other"
+            if !otherApps && category != Self.gamingCategory { continue }
             if groups[category] == nil { order.append(category) }
             groups[category, default: []].append(profile)
         }
@@ -123,7 +126,8 @@ struct HomeView: View {
         }
     }
 
-    private static let sectionTitles = ["Game Launcher": "Gaming Services"]
+    private static let gamingCategory = "Game Launcher"
+    private static let sectionTitles = [gamingCategory: "Gaming Services"]
 
     private func bottle(for profile: GameProfile) -> Bottle? { manager.bottle(for: profile) }
 

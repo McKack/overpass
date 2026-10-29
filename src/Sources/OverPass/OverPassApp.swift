@@ -799,6 +799,7 @@ private struct AdvancedSettings: View {
     @AppStorage(SettingsDetail.key) private var detail = SettingsDetail.simple
     @AppStorage(XboxOptIn.key) private var xboxEnabled = false
     @AppStorage(ViewOptions.legacyClientsKey) private var legacyClients = false
+    @AppStorage(ViewOptions.otherAppsKey) private var otherApps = false
     @State private var enablingXbox = false
 
     var body: some View {
@@ -811,10 +812,13 @@ private struct AdvancedSettings: View {
             Section("Permissions") {
                 PermissionsList(permissions: permissions)
             }
-            Section("Game Clients") {
+            Section("Home") {
                 Toggle("Legacy game clients", isOn: $legacyClients)
                 DetailCaption("OverPass has Epic Games and GOG built in: Install signs you in and lists your games. Turn this on to also offer the stores' own Windows apps (Epic Games Launcher, GOG Galaxy) when you install them from Home. Clients you already installed keep working either way.",
                               technical: "Off: Home's Install for a store with a built-in library (Legendary, gogdl) opens its sign-in directly. On: a menu with the built-in library (Recommended) and the store's client profile (Legacy option). Installed client containers are unaffected.")
+                Toggle("Other recommended apps", isOn: $otherApps)
+                DetailCaption("Home shows the gaming services. Turn this on to also show the other apps OverPass has profiles for, such as utilities and music players. Apps you already installed stay in your library either way.",
+                              technical: "Off: Home lists only featured profiles in the Game Launcher category, without a section title. On: every featured category, each under its title.")
             }
             Section("Xbox") {
                 // Turning it on goes through the risks sheet; turning it off signs out and removes Xodus.

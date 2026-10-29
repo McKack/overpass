@@ -10,6 +10,8 @@ enum ViewOptions {
     static let installedOnlyKey = "storeInstalledOnly"
     /// Offer the stores' own Windows clients (Epic Games Launcher, GOG Galaxy) beside the built-in libraries.
     static let legacyClientsKey = "legacyGameClients"
+    /// Show Home's other recommended apps (Utilities, Music & Media...) beside the Gaming Services.
+    static let otherAppsKey = "otherRecommendedApps"
     static let favoritesKey = "favorites"
     static let categoriesKey = "userCategories"
 }

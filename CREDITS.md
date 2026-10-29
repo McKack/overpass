@@ -60,10 +60,6 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
 - **[gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl)** by imLinguin and the Heroic Games Launcher
   contributors downloads games for the GOG Library. GPL-3.0; OverPass downloads upstream's own macOS build and runs
   it as a separate program. Heroic Games Launcher showed how to drive it and set games up after the download.
-- **[MacGameFix](https://github.com/MathiasKowoll/MacGameFix)** by Mathias Kowoll and contributors provides the
-  Game fixes: proxy DLLs and install scripts that fix single games (cutscenes, crashes, graphics glitches).
-  GPL-3.0 (its FFmpeg-based reader LGPL); OverPass downloads it at a pinned commit and runs its game-folder fixes
-  for games whose profile names one.
 
 ## Kindred projects
 
@@ -73,9 +69,6 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
   run on macOS; OverPass marks those red.
 - **[Are We Anti-Cheat Yet?](https://areweanticheatyet.com)** collects which games use which anti-cheat (MIT).
   OverPass downloads its list to warn before a game with an anti-cheat starts.
-- **[MetalSharp-Wine](https://github.com/metalsharp/MetalSharp-Wine)** documents Wine bugs it fixed for games
-  on macOS; several of overpass-wine's fixes (I/O completion for file locks, GLOBALROOT names, file allocation,
-  working-set queries, stuck modifier keys) started from its notes, written independently.
 - **[ProtonDB](https://www.protondb.com)** collects community compatibility reports, the model for OverPass's
   open profile database.
 - **[Lutris](https://lutris.net)**, **[Bottles](https://usebottles.com)** and

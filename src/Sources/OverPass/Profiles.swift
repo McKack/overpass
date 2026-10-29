@@ -33,9 +33,6 @@ struct GameProfile: Codable, Identifiable, Hashable {
     /// DualShock 4 and DualSense reach the bottle's programs as PlayStation controllers instead of Xbox pads
     /// (Sony's own PC ports, for haptics and adaptive triggers). Applied when the bottle is made.
     var playStationControllers = false
-    /// Game fixes from the Game fixes component, "<fix> <backend>": put in place before the game starts when it
-    /// runs on that backend ("any": always), the game's own files put back otherwise. See GameFixes.
-    var fixes: [String] = []
     /// Backends the profile's rules select for some of its programs.
     var ruleGraphics: [GraphicsBackend] = []
     var launch: LaunchSpec?
@@ -275,7 +272,6 @@ struct GameProfile: Codable, Identifiable, Hashable {
         for d in all(app, "dll") { if let (k, v) = pair(d, "=") { p.dllOverrides[k] = v } }
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto
         p.playStationControllers = first(app, "controllers")?.lowercased() == "playstation"
-        p.fixes = all(app, "fix")
         p.notes = first(app, "notes")
         p.engine = first(app, "engine")
         p.icon = first(app, "icon")

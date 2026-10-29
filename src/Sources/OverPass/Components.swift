@@ -5,13 +5,13 @@ import CryptoKit
 // Shared components that live outside bottles, installed by the setup wizard or later from the Components window.
 // Per-bottle runtimes (vcrun, corefonts, .NET…) are winetricks verbs, see GameInstaller.
 enum ComponentID: String, CaseIterable, Identifiable {
-    case core, wine, dxmt, addons, winetricks, d3dmetal, x87sidecar, gamefixes, legendary, gogdl, xodus
+    case core, wine, dxmt, addons, winetricks, d3dmetal, x87sidecar, legendary, gogdl, xodus
     var id: String { rawValue }
 
     /// The Components page's two groups, in display order.
     static let overpass: [ComponentID] = [.core, .wine, .dxmt]
     /// Xodus isn't listed: it comes with turning on the Xbox Library (opt-in), not from here.
-    static let extras: [ComponentID] = [.addons, .winetricks, .d3dmetal, .x87sidecar, .gamefixes]
+    static let extras: [ComponentID] = [.addons, .winetricks, .d3dmetal, .x87sidecar]
     /// The store clients behind the built-in Epic and GOG libraries.
     static let stores: [ComponentID] = [.legendary, .gogdl]
 
@@ -24,7 +24,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .d3dmetal: "D3DMetal"
         case .winetricks: "Winetricks"
         case .x87sidecar: "x87sidecar"
-        case .gamefixes: "Game fixes"
         case .legendary: "Legendary"
         case .gogdl: "gogdl"
         case .xodus: "Xodus"
@@ -40,7 +39,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .d3dmetal: "Apple's Direct3D 11/12 → Metal translation, from the Game Porting Toolkit. Optional: an alternative to OverPass Runtime for games that run better on it."
         case .winetricks: "Installs Windows runtimes (Visual C++, .NET, fonts…) that games depend on."
         case .x87sidecar: "Much faster floating-point math for 32-bit games, in place of Rosetta's slow x87 translation. Used only by games whose profile turns on Faster x87 math."
-        case .gamefixes: "Fixes for single games from MacGameFix: cutscenes, crashes and graphics glitches. Put in place by itself when a game whose profile names a fix starts."
         case .legendary: "Signs in to Epic Games and downloads, updates and starts your Epic games, without the Epic Games Launcher."
         case .gogdl: "Signs in to GOG and downloads and updates your GOG games, without GOG Galaxy."
         case .xodus: "Signs in to your Microsoft account and downloads, licenses and starts your Xbox PC and Game Pass games. Opt-in: see Settings › Advanced."
@@ -57,7 +55,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .winetricks: "Extra Windows parts"
         case .d3dmetal: "Apple's game graphics"
         case .x87sidecar: "Faster older games"
-        case .gamefixes: "Game fixes"
         case .legendary: "Epic Games Library"
         case .gogdl: "GOG Library"
         case .xodus: "Xbox Library"
@@ -73,7 +70,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .winetricks: "Installs Windows pieces some games need, such as Visual C++ and .NET."
         case .d3dmetal: "Apple's own version of game graphics. Optional: some games run better with it."
         case .x87sidecar: "Speeds up the math in older 32-bit games. Only games you turn it on for use it."
-        case .gamefixes: "Fixes for particular games. Downloaded the first time one of those games starts."
         case .legendary: "Your Epic games in OverPass, without installing the Epic Games Launcher."
         case .gogdl: "Your GOG games in OverPass, without installing GOG Galaxy."
         case .xodus: "Your Xbox PC and Game Pass games in OverPass. You turned this on yourself."
@@ -89,7 +85,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .addons: "Wine's .NET Framework (Wine Mono) and MSHTML (Wine Gecko) replacements, cached in the versions this Wine asks for."
         case .winetricks: "Shell script that installs redistributables (vcrun, dotnet, corefonts, d3dx9…) into a container as native DLLs."
         case .d3dmetal: "Apple's Direct3D 11/12 → Metal (D3DMetal.framework, libd3dshared) from the Game Porting Toolkit, imported from Apple's download; found through CX_APPLEGPTK_LIBD3DSHARED_PATH."
-        case .gamefixes: "MacGameFix's game-folder fixes (proxy DLLs that forward to the game's own, with install, --status and --restore scripts), pinned to one commit and checksum-verified. A profile's `fix = <name> <backend>` installs one before the game starts when it runs on that backend and restores the game's files otherwise; scripts that need a CrossOver bottle aren't used. Logged to ~/Library/Logs/OverPass/game-fixes.log."
         case .x87sidecar: "Native arm64 JIT that replaces Rosetta 2's x87 translation, attached cooperatively (no entitlements): 32-bit processes re-exec under it when their profile sets OVERPASS_X87=1. Pinned to 1.9.0, checksum-verified."
         case .legendary: "Open-source Epic Games Store client (Python, PyInstaller build), run as a separate program: OAuth sign-in, library, manifest/chunk downloads, updates and the launch token. OverPass starts the games with its own Wine. Pinned to 0.21.1, checksum-verified; its data is in Application Support/OverPass/Stores/Epic."
         case .gogdl: "Open-source GOG downloader from Heroic Games Launcher (Python, PyInstaller build), run as a separate program: OAuth tokens, Galaxy content-system downloads, updates, repairs and GOG's shared redistributables. OverPass lists the library from GOG's web services, runs the install scripts in the bottle and starts the games itself. Pinned to 1.3.1, checksum-verified; its data is in Application Support/OverPass/Stores/GOG."
@@ -106,7 +101,6 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .d3dmetal: ("Apple Inc.", "Apple Game Porting Toolkit license (not redistributable)", URL(string: "https://developer.apple.com/games/game-porting-toolkit/")!)
         case .winetricks: ("Winetricks contributors", "LGPL-2.1", URL(string: "https://github.com/Winetricks/winetricks")!)
         case .x87sidecar: ("Alexander Theißen", "MIT", URL(string: "https://github.com/athei/x87sidecar")!)
-        case .gamefixes: ("Mathias Kowoll and the MacGameFix contributors", "GPL-3.0 (FFmpeg parts LGPL)", URL(string: "https://github.com/MathiasKowoll/MacGameFix")!)
         case .legendary: ("Rodney (derrod) and the Legendary contributors", "GPL-3.0", URL(string: "https://github.com/legendary-gl/legendary")!)
         case .gogdl: ("imLinguin and the Heroic Games Launcher contributors", "GPL-3.0", URL(string: "https://github.com/Heroic-Games-Launcher/heroic-gogdl")!)
         case .xodus: ("The Xodus contributors · Xodus Nexus and MACxus patches", "GPL-3.0", URL(string: "https://github.com/xodus-gaming/xodus")!)
@@ -210,11 +204,6 @@ class ComponentManager {
     static let x87sidecarSHA256 = "104098b0ba8baed37d4d63cf62ab3b55493889b8fe9ee225cad8febcd6bc1e78"
     nonisolated static var x87sidecarPath: URL { toolsDir.appendingPathComponent("x87sidecar/x87sidecar") }
 
-    /// MacGameFix, pinned to a commit: OverPass runs its scripts, so each version is read before OverPass moves to it.
-    static let gameFixesCommit = "e91456b6610aad92f950eaa07b05f6715c4bf02a"
-    static let gameFixesSHA256 = "a5aa1c061d3e9352639f278c8483b9ba4da481a75fd5d2c5c438e52f458b0656"
-    nonisolated static var gameFixesDir: URL { toolsDir.appendingPathComponent("game-fixes") }
-
     /// Legendary, pinned: OverPass reads its output, which isn't a stable interface, so each version is tried
     /// before OverPass moves to it. Upstream's own macOS builds, one per architecture.
     static let legendaryVersion = "0.21.1"
@@ -271,7 +260,6 @@ class ComponentManager {
         case .d3dmetal: return fm.fileExists(atPath: Self.d3dmetalDir.appendingPathComponent("external/D3DMetal.framework").path)
         case .winetricks: return fm.isExecutableFile(atPath: Self.winetricksPath.path)
         case .x87sidecar: return fm.isExecutableFile(atPath: Self.x87sidecarPath.path)
-        case .gamefixes: return fm.fileExists(atPath: GameFixes.directory.appendingPathComponent("pe.pl").path)
         case .legendary: return fm.isExecutableFile(atPath: Self.legendaryPath.path)
         case .gogdl: return fm.isExecutableFile(atPath: Self.gogdlPath.path)
         case .xodus: return Self.xodusInstalled
@@ -298,7 +286,7 @@ class ComponentManager {
     /// Why a component can't be installed right now, or nil if it can.
     func blocker(for id: ComponentID) -> String? {
         switch id {
-        case .core, .wine, .winetricks, .x87sidecar, .gamefixes, .legendary, .gogdl: return nil
+        case .core, .wine, .winetricks, .x87sidecar, .legendary, .gogdl: return nil
         case .xodus:
             guard let wine = BottleManager.findWine() else { return "Install Wine first." }
             let needs = ComponentCatalog.entry(.xodus)?.requires?.wineFeatures ?? Self.xodusWineFeatures
@@ -341,8 +329,6 @@ class ComponentManager {
                 try await installWinetricks()
             case .x87sidecar:
                 try await installX87Sidecar()
-            case .gamefixes:
-                try await installGameFixes()
             case .legendary:
                 try await installLegendary()
             case .gogdl:
@@ -377,7 +363,6 @@ class ComponentManager {
         case .d3dmetal: try? fm.removeItem(at: Self.d3dmetalDir)
         case .winetricks: try? fm.removeItem(at: Self.winetricksPath)
         case .x87sidecar: try? fm.removeItem(at: Self.x87sidecarPath.deletingLastPathComponent())
-        case .gamefixes: try? fm.removeItem(at: Self.gameFixesDir)
         case .legendary: try? fm.removeItem(at: Self.legendaryPath.deletingLastPathComponent())
         case .gogdl: try? fm.removeItem(at: Self.gogdlPath.deletingLastPathComponent())
         case .xodus: try? fm.removeItem(at: Self.xodusDir)
@@ -398,7 +383,6 @@ class ComponentManager {
             return WineAddons.versions(WineAddons.required(wineRoot: wine))
         case .d3dmetal: return nil
         case .x87sidecar: return isInstalled(.x87sidecar) ? Self.recordedVersion(Self.x87sidecarPath) ?? Self.x87sidecarVersion : nil
-        case .gamefixes: return isInstalled(.gamefixes) ? Self.recordedVersion(GameFixes.directory).map { String($0.prefix(7)) } : nil
         case .legendary: return isInstalled(.legendary) ? Self.recordedVersion(Self.legendaryPath) ?? Self.legendaryVersion : nil
         case .gogdl: return isInstalled(.gogdl) ? Self.recordedVersion(Self.gogdlPath) ?? Self.gogdlVersion : nil
         case .xodus: return isInstalled(.xodus) ? "local build" : nil
@@ -496,28 +480,6 @@ class ComponentManager {
         try await WineInstaller.run("/usr/bin/tar", ["-xf", tarball.path, "-C", dest.path])
         guard fm.isExecutableFile(atPath: Self.x87sidecarPath.path) else { throw ComponentError.badArchive }
         try pin.version.write(to: dest.appendingPathComponent(".version"), atomically: true, encoding: .utf8)
-        log += "Installed to \(dest.path)\n"
-    }
-
-    // MacGameFix's fixes folder and licence at the pinned commit, checked against the pinned checksum.
-    private func installGameFixes() async throws {
-        let pin = ComponentCatalog.pin(.gamefixes, arch: Self.arch) ?? (Self.gameFixesCommit,
-            URL(string: "https://codeload.github.com/MathiasKowoll/MacGameFix/tar.gz/\(Self.gameFixesCommit)")!,
-            Self.gameFixesSHA256)
-        log += "MacGameFix \(pin.version.prefix(7))\n\(pin.url.absoluteString)\n"
-        let tarball = try await Self.download(pin.url, sha256: pin.sha256)
-        defer { try? FileManager.default.removeItem(at: tarball) }
-        let fm = FileManager.default
-        let dest = Self.gameFixesDir
-        try? fm.removeItem(at: dest)
-        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-        let top = "MacGameFix-\(pin.version)"
-        try await WineInstaller.run("/usr/bin/tar", ["-xzf", tarball.path, "-C", dest.path, "--strip-components", "1",
-                                                     "\(top)/fixes", "\(top)/LICENSE", "\(top)/README.md"])
-        guard isInstalled(.gamefixes) else { throw ComponentError.badArchive }
-        // In the fixes folder, which recordedVersion reads beside the tool it's given.
-        try pin.version.write(to: GameFixes.directory.deletingLastPathComponent().appendingPathComponent(".version"),
-                              atomically: true, encoding: .utf8)
         log += "Installed to \(dest.path)\n"
     }
 

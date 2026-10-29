@@ -42,7 +42,6 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `dll` | `name=mode` DLL override | yes |
 | `graphics` | `dxmt`, `d3dmetal`, `wined3d`, `dxvk` or `auto` (default) | no |
 | `controllers` | `playstation`: DualShock 4 and DualSense reach the container as PlayStation controllers (Sony's PC ports: haptics, adaptive triggers) instead of Xbox pads (default `xbox`). Applied when the container is made; changed later in the container's settings | no |
-| `fix` | `<name> <backend>`: a game fix from the Game fixes component (MacGameFix's `install-<name>.sh`), put into the game folder before the game starts when it runs on that backend (`dxmt`, `d3dmetal`, `dxvk`, or `any`), and the game's own files put back on any other. Only fixes that work on the game folder alone are used. Logged to `~/Library/Logs/OverPass/game-fixes.log` | yes |
 | `icon` | File name of an image in your Profiles/Icons folder (`~/Library/Application Support/OverPass/Profiles/Icons`), shown instead of the app's Windows icon. Set by the profile editor | no |
 | `notes` | Free text shown with the app | no |
 | `engine` | Game engine shown in the library's Engine column, e.g. `Unity` or `Unreal Engine`. Without it, OverPass tells the engine from the game's files, or shows Unknown | no |

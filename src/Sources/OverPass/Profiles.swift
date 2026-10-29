@@ -33,6 +33,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
     /// DualShock 4 and DualSense reach the bottle's programs as PlayStation controllers instead of Xbox pads
     /// (Sony's own PC ports, for haptics and adaptive triggers). Applied when the bottle is made.
     var playStationControllers = false
+    /// Presets (Profiles/Presets/<name>.ini) whose settings this profile's game also gets.
+    var presets: [String] = []
     /// Backends the profile's rules select for some of its programs.
     var ruleGraphics: [GraphicsBackend] = []
     var launch: LaunchSpec?
@@ -272,6 +274,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         for d in all(app, "dll") { if let (k, v) = pair(d, "=") { p.dllOverrides[k] = v } }
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto
         p.playStationControllers = first(app, "controllers")?.lowercased() == "playstation"
+        p.presets = all(app, "preset")
         p.notes = first(app, "notes")
         p.engine = first(app, "engine")
         p.icon = first(app, "icon")
@@ -422,6 +425,33 @@ class ProfileStore {
         return Bundle.module
     }
 
+    /// Names of the presets in effect, bundled and the user's own.
+    private(set) var presets: [String] = []
+
+    /// One rule per profile and preset it names: the profile's game (Steam app, program) with the preset's
+    /// settings. Lines that pick programs in the preset itself stay out.
+    static func presetRules(_ profiles: [GameProfile], presets: [String: URL]) -> String {
+        let matchKeys: Set<String> = ["program", "steam-app", "beside", "source"]
+        var out = "# Made by OverPass from the profiles' `preset` lines; changes here are overwritten.\n"
+        for profile in profiles {
+            var matches: [String] = []
+            if let app = profile.steamAppID { matches.append("steam-app = \(app)") }
+            if let exe = profile.launch?.executable.split(separator: "\\").last { matches.append("program = \(exe)") }
+            guard !matches.isEmpty else { continue }
+            for name in profile.presets {
+                guard let url = presets[name], let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let settings = text.components(separatedBy: .newlines).filter { line in
+                    let t = line.trimmingCharacters(in: .whitespaces)
+                    guard !t.isEmpty, !t.hasPrefix("#"), !t.hasPrefix(";"), !t.hasPrefix("["),
+                          let eq = t.firstIndex(of: "=") else { return false }
+                    return !matchKeys.contains(t[..<eq].trimmingCharacters(in: .whitespaces).lowercased())
+                }
+                out += "\n[\(profile.name): preset \(name)]\n" + (matches + settings).joined(separator: "\n") + "\n"
+            }
+        }
+        return out
+    }
+
     /// Bundled profiles replaced by an edited copy.
     private(set) var edited: Set<String> = []
     /// Profiles made in OverPass, with no bundled original.
@@ -457,7 +487,16 @@ class ProfileStore {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             return GameProfile.parseINI(id: id, text: text)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        UserProfiles.syncRules(Array(effective.values))
+        // Presets go first (rules apply in file-name order), so a profile's own rules come after them.
+        let presets = Self.iniFiles(in: Self.bundledDirectory?.appendingPathComponent("Presets"))
+            .merging(Self.iniFiles(in: UserProfiles.directory.appendingPathComponent("Presets"))) { $1 }
+        self.presets = presets.keys.sorted()
+        var rules = Array(effective.values)
+        for (name, url) in presets {
+            rules.append(UserProfiles.generatedRule("00-preset-\(name).ini", text: (try? String(contentsOf: url, encoding: .utf8)) ?? ""))
+        }
+        rules.append(UserProfiles.generatedRule("00-presets-of-profiles.ini", text: Self.presetRules(profiles, presets: presets)))
+        UserProfiles.syncRules(rules)
         CompatRules.reload()
     }
 

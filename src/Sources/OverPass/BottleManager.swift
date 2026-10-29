@@ -695,7 +695,7 @@ class BottleManager {
         // A program started through `start` is created by Windows code, so OverPass Wine applies the rules to it
         // (and runs it from an app bundle, which macOS needs for Game Mode); others get them applied here.
         if !Self.startsThroughStart(path) {
-            CompatRules.apply(to: &path, arguments: &arguments, environment: &ruleEnv)
+            CompatRules.apply(to: &path, arguments: &arguments, environment: &ruleEnv, graphicsChosen: bottle.graphics != .auto)
         }
         let process = try wineProcess(for: bottle, args: Self.launchArgs(path) + arguments)
         process.environment?.merge(ruleEnv) { $1 }
@@ -889,6 +889,8 @@ class BottleManager {
 
         let graphics = bottle.graphics.resolved
         env.merge(graphics.environment) { $1 }
+        // A container with a backend of its own keeps it over a rule's `prefer-graphics`.
+        if bottle.graphics != .auto { env["OVERPASS_GRAPHICS_CHOSEN"] = "1" }
         let dllPath = bottle.direct3D9.dllPath(with: graphics)
         if !dllPath.isEmpty { env["OVERPASS_DLL_PATH_PREPEND"] = dllPath }
         // For a game's `d3d9 =` rule, which moves this folder into or out of the DLL path.

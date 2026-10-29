@@ -16,6 +16,8 @@ struct CompatRule: Hashable {
     var environment: [(key: String, value: String)] = []
     var dllOverrides: [String] = []
     var graphics: GraphicsBackend?
+    /// The backend the program runs best on, used only while its container is on Automatic.
+    var preferGraphics: GraphicsBackend?
     /// mtld3d or WineD3D for this program's Direct3D 9, applied after `graphics`.
     var direct3D9: Direct3D9Backend?
     var replacePaths: [(from: String, to: String)] = []
@@ -93,6 +95,7 @@ enum CompatRules {
                 }
             case "dll": rule.dllOverrides.append(value)
             case "graphics": rule.graphics = GraphicsBackend(rawValue: value.lowercased())
+            case "prefer-graphics": rule.preferGraphics = GraphicsBackend(rawValue: value.lowercased())
             case "d3d9": rule.direct3D9 = Direct3D9Backend(rawValue: value.lowercased())
             case "replace-path":
                 if let sep = value.range(of: "=>") {
@@ -123,7 +126,9 @@ enum CompatRules {
 
     /// Applies matching rules to a program OverPass starts itself, given as a host path; a replace-path
     /// rule changes `program`.
-    static func apply(to program: inout String, arguments: inout [String], environment env: inout [String: String]) {
+    /// `graphicsChosen`: the container has a backend of its own (not Automatic), which `prefer-graphics` leaves alone.
+    static func apply(to program: inout String, arguments: inout [String], environment env: inout [String: String],
+                      graphicsChosen: Bool = false) {
         for rule in all where rule.matches(program: program) {
             for (from, to) in rule.replacePaths {
                 // Absolute replacements are Windows paths for programs other programs start, which OverPass
@@ -144,7 +149,7 @@ enum CompatRules {
                     + rule.dllOverrides).joined(separator: ";")
             }
             // As in OverPass Wine: a backend that isn't installed leaves the program on its usual one.
-            if let graphics = rule.graphics?.resolved,
+            if let graphics = (rule.graphics ?? (graphicsChosen ? nil : rule.preferGraphics))?.resolved,
                graphics.dllDirectory.map({ FileManager.default.fileExists(atPath: $0.path) }) ?? true {
                 env.merge(graphics.environment) { $1 }
                 if graphics == .auto { env.removeValue(forKey: "CX_ACTIVE_GRAPHICS_BACKEND") }

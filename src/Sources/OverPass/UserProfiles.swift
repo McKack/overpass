@@ -30,6 +30,14 @@ enum UserProfiles {
         }
     }
 
+    /// A rules file OverPass writes itself (presets), kept with OverPass's data so syncRules can copy it.
+    static func generatedRule(_ name: String, text: String) -> URL {
+        let url = support.appendingPathComponent("Generated").appendingPathComponent(name)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if (try? String(contentsOf: url, encoding: .utf8)) != text { try? text.write(to: url, atomically: true, encoding: .utf8) }
+        return url
+    }
+
     /// Makes rulesDirectory hold exactly the given files.
     static func syncRules(_ files: [URL]) {
         let fm = FileManager.default

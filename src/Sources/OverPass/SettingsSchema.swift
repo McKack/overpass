@@ -80,8 +80,8 @@ struct SimpleSettingsEditor: View {
     var body: some View {
         Group {
             Section {
-                ForEach($variables) { $row in
-                    SettingRow(row: $row, spec: SettingsSchema.spec(row.name, .env)) { remove(row.id, from: &variables) }
+                ForEach(variables) { row in
+                    SettingRow(row: Self.binding(row, in: $variables), spec: SettingsSchema.spec(row.name, .env)) { remove(row.id, from: &variables) }
                 }
                 addMenu(.env, present: Set(variables.map(\.name))) { name in
                     if SettingsSchema.optionVariables.contains(where: { $0.name == name }) {
@@ -99,8 +99,9 @@ struct SimpleSettingsEditor: View {
                 let rows = options[variable.name] ?? []
                 if !rows.isEmpty || openSections.contains(variable.name) {
                     Section {
-                        ForEach(Binding(get: { options[variable.name] ?? [] }, set: { options[variable.name] = $0 })) { $row in
-                            SettingRow(row: $row, spec: SettingsSchema.spec(row.name, variable.kind)) {
+                        ForEach(rows) { row in
+                            SettingRow(row: Self.binding(row, in: Binding(get: { options[variable.name] ?? [] },
+                                                                          set: { options[variable.name] = $0 })), spec: SettingsSchema.spec(row.name, variable.kind)) {
                                 options[variable.name]?.removeAll { $0.id == row.id }
                             }
                         }
@@ -117,8 +118,8 @@ struct SimpleSettingsEditor: View {
                 }
             }
             Section {
-                ForEach($overrides) { $row in
-                    DLLOverrideRow(row: $row) { remove(row.id, from: &overrides) }
+                ForEach(overrides) { row in
+                    DLLOverrideRow(row: Self.binding(row, in: $overrides)) { remove(row.id, from: &overrides) }
                 }
                 Button { overrides.append(Row(name: "", value: "n,b")) } label: { Label("Add DLL Override", systemImage: "plus") }
                     .buttonStyle(.borderless)
@@ -175,6 +176,15 @@ struct SimpleSettingsEditor: View {
     }
 
     private func remove(_ id: UUID, from rows: inout [Row]) { rows.removeAll { $0.id == id } }
+
+    /// A row's binding found by its ID, not its position: a text field can still read its row once more after
+    /// the row is removed, and a position-based binding then reads past the end of the list and crashes.
+    private static func binding(_ row: Row, in rows: Binding<[Row]>) -> Binding<Row> {
+        Binding(get: { rows.wrappedValue.first { $0.id == row.id } ?? row },
+                set: { new in
+                    if let i = rows.wrappedValue.firstIndex(where: { $0.id == row.id }) { rows.wrappedValue[i] = new }
+                })
+    }
 
     private func optionsLine(_ variable: String) -> String {
         (options[variable] ?? []).compactMap { row in row.value.map { "\(row.name)=\($0)" } }.joined(separator: ";")

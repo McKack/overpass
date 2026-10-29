@@ -13,6 +13,9 @@ enum ViewOptions {
     /// Show Home's other recommended apps (Utilities, Music & Media...) beside the Gaming Services.
     static let otherAppsKey = "otherRecommendedApps"
     static let favoritesKey = "favorites"
+    /// Titles and store games the person hid (Hide in their menu), and whether View shows them anyway.
+    static let hiddenKey = "hiddenTitles"
+    static let showHiddenKey = "showHiddenTitles"
     static let categoriesKey = "userCategories"
 }
 
@@ -26,6 +29,19 @@ enum Favorites {
         var ids = ids(stored)
         if ids.remove(id) == nil { ids.insert(id) }
         return ids.sorted().joined(separator: "\n")
+    }
+}
+
+/// Hidden titles and store games, by library entry ID (store games as "store:<id>"), stored like Favorites.
+enum Hidden {
+    static func ids(_ stored: String) -> Set<String> { Favorites.ids(stored) }
+    static func toggled(_ id: String, in stored: String) -> String { Favorites.toggled(id, in: stored) }
+
+    /// The titles to list and count: all of them while View › Show Hidden Items is on.
+    static func visible(_ items: [LibraryItem], hidden: String, showing: Bool) -> [LibraryItem] {
+        guard !showing else { return items }
+        let ids = ids(hidden)
+        return ids.isEmpty ? items : items.filter { !ids.contains($0.id) }
     }
 }
 
@@ -357,6 +373,7 @@ struct OverPassCommands: Commands {
     @FocusedValue(\.uninstallSelection) private var uninstallSelection
     @AppStorage("hasCompletedSetup") private var hasCompletedSetup = false
     @AppStorage(ViewOptions.showBottlesKey) private var showBottles = false
+    @AppStorage(ViewOptions.showHiddenKey) private var showHidden = false
     @AppStorage(ViewOptions.showClientIconsKey) private var showClientIcons = false
     @AppStorage(ViewOptions.showClientInCategoryKey) private var showClientInCategory = true
     @AppStorage(ViewOptions.layoutKey) private var layout: LibraryLayout = .grid
@@ -412,6 +429,9 @@ struct OverPassCommands: Commands {
                 ForEach(CoverStyle.allCases) { Text($0.title).tag($0) }
             }
             Divider()
+            // Finder's shortcut for showing hidden files.
+            Toggle("Show Hidden Items", isOn: $showHidden)
+                .keyboardShortcut(".", modifiers: [.command, .shift])
             Menu("Categories") {
                 Toggle("Show Category Icons", isOn: $showClientIcons)
                 Toggle("Show Category Clients", isOn: $showClientInCategory)

@@ -24,6 +24,8 @@ struct LibraryView: View {
     @AppStorage(ViewOptions.showClientInCategoryKey) private var showClient = true
     @AppStorage(ViewOptions.favoritesKey) private var favorites = ""
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
+    @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
+    @AppStorage(ViewOptions.showHiddenKey) private var showHidden = false
     @State private var launchError: String?
     /// A title with an anti-cheat, waiting for the person to confirm the first start.
     @State private var antiCheatItem: LibraryItem?
@@ -56,7 +58,8 @@ struct LibraryView: View {
     }
     private var items: [LibraryItem] {
         let search = searchText.trimmingCharacters(in: .whitespaces)
-        let found = search.isEmpty ? allItems : allItems.filter { $0.app.name.localizedStandardContains(search) }
+        let shown = Hidden.visible(allItems, hidden: hidden, showing: showHidden)
+        let found = search.isEmpty ? shown : shown.filter { $0.app.name.localizedStandardContains(search) }
         return found.map(LibraryEntry.title).sorted(using: sortOrder.wrappedValue).compactMap(\.item)
     }
 
@@ -73,8 +76,10 @@ struct LibraryView: View {
     private var storeGames: [LibraryGame] {
         guard let store, store.account != nil, !installedOnly else { return [] }
         let search = searchText.trimmingCharacters(in: .whitespaces)
+        let hiddenIDs = showHidden ? [] : Hidden.ids(hidden)
         return store.games.filter { game in
-            !store.isInstalled(game) && (search.isEmpty || game.title.localizedStandardContains(search))
+            !store.isInstalled(game) && !hiddenIDs.contains(LibraryEntry.store(game).id)
+                && (search.isEmpty || game.title.localizedStandardContains(search))
         }
         .map(LibraryEntry.store).sorted(using: sortOrder.wrappedValue)
         .compactMap { if case .store(let game) = $0 { game } else { nil } }
@@ -86,9 +91,27 @@ struct LibraryView: View {
     private var status: String {
         let name = launcher?.name ?? category?.name ?? builtIn?.name ?? (favoritesOnly ? "Favorites" : "All Titles")
         if !searchText.trimmingCharacters(in: .whitespaces).isEmpty { return "\(name) · \(entries.count) found" }
-        let installed = "\(name) · " + titleCount(launcher.map { manager.games(of: $0, includeClient: false).count } ?? allItems.count)
-        return storeGames.isEmpty ? installed : installed + " · \(storeGames.count) more to install"
+        let counted = launcher.map { manager.games(of: $0, includeClient: false) } ?? allItems
+        let installed = "\(name) · " + titleCount(Hidden.visible(counted, hidden: hidden, showing: showHidden).count)
+        let withStore = storeGames.isEmpty ? installed : installed + " · \(storeGames.count) more to install"
+        let hiddenHere = hiddenCount
+        return hiddenHere == 0 || showHidden ? withStore : withStore + " · \(hiddenHere) hidden"
     }
+
+    /// Hidden titles and store games of this page, for the status bar.
+    private var hiddenCount: Int {
+        let ids = Hidden.ids(hidden)
+        guard !ids.isEmpty else { return 0 }
+        let titles = allItems.filter { ids.contains($0.id) }.count
+        let games = store.map { store in
+            store.account == nil || installedOnly ? 0
+                : store.games.filter { !store.isInstalled($0) && ids.contains(LibraryEntry.store($0).id) }.count
+        } ?? 0
+        return titles + games
+    }
+
+    /// Dims an entry that's hidden while View › Show Hidden Items shows it.
+    private func dimmedIfHidden(_ id: String) -> Double { Hidden.ids(hidden).contains(id) ? 0.4 : 1 }
     private var selectedEntry: LibraryEntry? { entries.first { $0.id == selection } }
     private var selectedItem: LibraryItem? { selectedEntry?.item }
 
@@ -280,12 +303,14 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     AppTile(item: item, iconSize: gridSize, selected: selection == item.id, playButton: store != nil,
                             select: { selection = item.id }) { launch(item) }
+                        .opacity(dimmedIfHidden(item.id))
                 }
                 if let store {
                     ForEach(storeGames) { game in
                         let id = LibraryEntry.store(game).id
                         StoreGameTile(game: game, store: store, iconSize: gridSize, selected: selection == id,
                                       select: { selection = id })
+                            .opacity(dimmedIfHidden(id))
                     }
                 }
             }
@@ -307,6 +332,7 @@ struct LibraryView: View {
                               captionIcon: launcher == nil && builtIn == nil) {
                         launch(item)
                     }
+                    .opacity(dimmedIfHidden(item.id))
                 }
                 if let store {
                     ForEach(storeGames) { game in
@@ -314,6 +340,7 @@ struct LibraryView: View {
                         StoreGameCover(game: game, store: store, width: coverSize, selected: selection == id,
                                        platform: casePlatform(store: type(of: store).storeName, stores: stores),
                                        select: { selection = id })
+                            .opacity(dimmedIfHidden(id))
                     }
                 }
             }
@@ -329,6 +356,7 @@ struct LibraryView: View {
                 ForEach(items) { item in
                     AppRow(item: item, iconSize: rowSize, selected: selection == item.id,
                            select: { selection = item.id }) { launch(item) }
+                        .opacity(dimmedIfHidden(item.id))
                     Divider().padding(.leading, rowSize + 36)
                 }
                 if let store {
@@ -336,6 +364,7 @@ struct LibraryView: View {
                         let id = LibraryEntry.store(game).id
                         StoreGameRow(game: game, store: store, iconSize: rowSize, selected: selection == id,
                                      select: { selection = id })
+                            .opacity(dimmedIfHidden(id))
                         Divider().padding(.leading, rowSize + 36)
                     }
                 }
@@ -386,6 +415,7 @@ struct LibraryView: View {
                 AppIcon(item: item, size: listSize)
                 Text(item.app.name)
             }
+            .opacity(dimmedIfHidden(item.id))
         case .store(let game):
             HStack(spacing: 8) {
                 StoreGameArt(game: game).frame(width: listSize, height: listSize)
@@ -394,6 +424,7 @@ struct LibraryView: View {
                 Spacer()
                 if let store { StoreGameAction(game: game, store: store, compact: true) }
             }
+            .opacity(dimmedIfHidden(LibraryEntry.store(game).id))
         }
     }
 
@@ -484,6 +515,7 @@ struct LibraryItemMenu: View {
     @Environment(BottleManager.self) private var manager
     @Environment(\.openItemSheet) private var openItemSheet
     @AppStorage(ViewOptions.favoritesKey) private var favorites = ""
+    @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
     let item: LibraryItem
     let launch: () -> Void
@@ -494,6 +526,7 @@ struct LibraryItemMenu: View {
         Button(Favorites.ids(favorites).contains(item.id) ? "Remove from Favorites" : "Add to Favorites") {
             favorites = Favorites.toggled(item.id, in: favorites)
         }
+        Button(Hidden.ids(hidden).contains(item.id) ? "Unhide" : "Hide") { hidden = Hidden.toggled(item.id, in: hidden) }
         Menu("Add to Category") {
             ForEach(UserCategories.list(categories)) { category in
                 Toggle(category.name, isOn: Binding(

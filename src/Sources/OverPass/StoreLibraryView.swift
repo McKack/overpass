@@ -203,6 +203,7 @@ struct StoreGameAction: View {
 
 struct StoreGameMenu: View {
     @Environment(BottleManager.self) private var manager
+    @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
     let game: LibraryGame
     let store: any StoreLibrary
 
@@ -212,6 +213,8 @@ struct StoreGameMenu: View {
         } else {
             Button("Install") { store.install(game, using: manager) }.disabled(game.unavailable != nil)
         }
+        let id = LibraryEntry.store(game).id
+        Button(Hidden.ids(hidden).contains(id) ? "Unhide" : "Hide") { hidden = Hidden.toggled(id, in: hidden) }
     }
 }
 

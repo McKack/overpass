@@ -44,6 +44,8 @@ final class EpicStore: StoreLibrary {
     init() {
         account = Self.storedAccount()
         if account != nil { (games, refreshed) = SavedLibrary.load(Self.configDir) }
+        // A library saved before a tool was left out lists it: refresh it at once rather than when it gets old.
+        if games.contains(where: { Self.unrealTools.contains($0.title.lowercased()) }) { refreshed = nil }
     }
 
     // MARK: Account
@@ -126,6 +128,10 @@ final class EpicStore: StoreLibrary {
             || categories.contains(where: { $0 == "engines" || ["asset-format", "plugins", "projects"].contains($0.split(separator: "/").first.map(String.init)) }) {
             return nil
         }
+        // Epic's own Unreal Engine tools are listed like games (categories "games" and "applications", an
+        // executable, a namespace of their own), so nothing in the catalog tells them apart: they're left out by
+        // name, and only when Epic Games made them, so no other developer's game can match.
+        if metadata["developer"] as? String == "Epic Games", Self.unrealTools.contains(title.lowercased()) { return nil }
         let attributes = metadata["customAttributes"] as? [String: Any]
         // Another store's launcher runs it ("Origin", "Uplay"); OverPass can't start those yet.
         let thirdParty = (attributes?["ThirdPartyManagedApp"] as? [String: Any])?["value"] as? String
@@ -135,6 +141,13 @@ final class EpicStore: StoreLibrary {
         return LibraryGame(id: id, service: "Epic", title: title, cover: cover, icon: icon,
                            unavailable: thirdParty.map { "Needs the \($0) launcher" })
     }
+
+    /// Epic's Unreal Engine tools that come with an Epic account, by title. Anything else that isn't a game can be
+    /// hidden from its menu.
+    nonisolated static let unrealTools: Set<String> = [
+        "live link hub", "unreal editor for fortnite", "twinmotion", "metahuman creator", "metahuman animator",
+        "realityscan", "realitycapture", "quixel bridge", "unreal engine",
+    ]
 
     /// The 2:3 box art from a catalog item's keyImages.
     nonisolated static func cover(in metadata: [String: Any]) -> URL? {

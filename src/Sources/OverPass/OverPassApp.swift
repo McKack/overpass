@@ -423,6 +423,9 @@ struct InstallRequest: Identifiable {
 }
 
 struct SidebarView: View {
+    /// Titles counted in the sidebar: without the hidden ones unless View shows them.
+    private func visible(_ items: [LibraryItem]) -> [LibraryItem] { Hidden.visible(items, hidden: hidden, showing: showHidden) }
+
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
     @Binding var selection: SidebarItem?
@@ -430,6 +433,8 @@ struct SidebarView: View {
     @AppStorage(ViewOptions.showClientIconsKey) private var showClientIcons = false
     @AppStorage(ViewOptions.favoritesKey) private var favorites = ""
     @AppStorage(ViewOptions.categoriesKey) private var categories = ""
+    @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
+    @AppStorage(ViewOptions.showHiddenKey) private var showHidden = false
     @State private var runningLaunchers: Set<String> = []
     @Environment(\.openItemSheet) private var openItemSheet
 
@@ -442,7 +447,7 @@ struct SidebarView: View {
                     HStack {
                         Text("All Titles")
                         Spacer()
-                        Text("\(manager.library.count)").foregroundStyle(.secondary)
+                        Text("\(visible(manager.library).count)").foregroundStyle(.secondary)
                     }
                 } icon: {
                     Image(systemName: "square.grid.2x2.fill")
@@ -481,7 +486,7 @@ struct SidebarView: View {
             let launchers = manager.installedClients(from: profiles)
             // The user's own categories follow, like Steam's collections.
             // Then Mac apps and Windows titles no client installed, while there are any.
-            let builtIn = BuiltInCategory.allCases.map { ($0, manager.titles(in: $0).count) }.filter { $0.1 > 0 }
+            let builtIn = BuiltInCategory.allCases.map { ($0, visible(manager.titles(in: $0)).count) }.filter { $0.1 > 0 }
             let userCategories = UserCategories.list(categories)
             if !launchers.isEmpty || !builtIn.isEmpty || !userCategories.isEmpty {
                 Section("Categories") {
@@ -527,7 +532,7 @@ struct SidebarView: View {
                             HStack {
                                 Text(category.name)
                                 Spacer()
-                                Text("\(manager.library.filter { ids.contains($0.id) }.count)").foregroundStyle(.secondary)
+                                Text("\(visible(manager.library).filter { ids.contains($0.id) }.count)").foregroundStyle(.secondary)
                             }
                         } icon: {
                             Image(systemName: "folder.fill")
@@ -591,6 +596,8 @@ extension SidebarView {
 /// while anything runs in the client's bottle.
 private struct LauncherRow: View {
     @Environment(BottleManager.self) private var manager
+    @AppStorage(ViewOptions.hiddenKey) private var hidden = ""
+    @AppStorage(ViewOptions.showHiddenKey) private var showHidden = false
     let launcher: GameProfile
     let showIcon: Bool
     let running: Bool
@@ -605,7 +612,8 @@ private struct LauncherRow: View {
             HStack {
                 Text(launcher.name)
                 Spacer()
-                Text("\(manager.games(of: launcher, includeClient: false).count)").foregroundStyle(.secondary)
+                Text("\(Hidden.visible(manager.games(of: launcher, includeClient: false), hidden: hidden, showing: showHidden).count)")
+                    .foregroundStyle(.secondary)
             }
         } icon: {
             // A hidden square symbol gives the icon the size every other sidebar icon has.

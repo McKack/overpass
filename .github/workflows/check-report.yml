@@ -74,7 +74,7 @@ jobs:
             if (facts.windows && !/^(windows(7|10|11)|win(7|10|11)_64)$/.test(facts.windows)) problems.push(`The Windows version ${shown(facts.windows)} isn't one OverPass has.`);
             if (facts.profile && !/^(none|[A-Za-z0-9][A-Za-z0-9._-]*( \((changed|own)\))?)$/.test(facts.profile))
               problems.push(`The profile ${shown(facts.profile)} isn't a profile ID.`);
-            if (facts.store && !/^(none|[A-Za-z]+ [A-Za-z0-9._-]+)$/.test(facts.store)) problems.push(`The store ${shown(facts.store)} isn't understood.`);
+            if (facts.store && !/^(none|[A-Za-z][A-Za-z .]* [A-Za-z0-9._-]+)$/.test(facts.store)) problems.push(`The store ${shown(facts.store)} isn't understood.`);
             if (facts.log && !kind.logs.includes(facts.log)) problems.push(`The log kind ${shown(facts.log)} isn't understood.`);
             // The zip is attached on GitHub, or kept by OverPass's report relay (services/report-relay), which links it.
             const attached = /https:\/\/github\.com\/(user-attachments\/files|[\w.-]+\/[\w.-]+\/files)\/\d+\/[^\s)]+\.zip/.test(body);
@@ -107,7 +107,7 @@ jobs:
             if (kind === kinds.crash) wanted.push(['app crash', 'b60205']);
             if (facts.wine) wanted.push([`wine ${facts.wine}`, '7e57c2']);
             if (graphics) wanted.push([`graphics ${graphics[1] || graphics[2]}`, '1d76db']);
-            if (facts.store && facts.store !== 'none') wanted.push([`store ${facts.store.split(' ')[0].toLowerCase()}`, '0e8a16']);
+            if (facts.store && facts.store !== 'none') wanted.push([`store ${facts.store.replace(/ \S+$/, '').toLowerCase()}`, '0e8a16']);
             for (const [name, color] of wanted) {
               try { await github.rest.issues.createLabel({ owner, repo, name, color }); }
               catch (e) { if (e.status !== 422) throw e; }

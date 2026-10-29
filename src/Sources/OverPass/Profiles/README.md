@@ -173,8 +173,7 @@ with `preset = <name>` in `[app]`. OverPass puts the presets in its Rules folder
 profile's own rules come after them and win where they differ. Your own presets go in
 `~/Library/Application Support/OverPass/Profiles/Presets`; one named like a bundled preset replaces it.
 
-The bundled presets carry over which games CrossOver 26 gives which settings (facts only, in our format and
-names), grouped by setting: for example `overpass-runtime` and `dxvk` (as `prefer-graphics`, so a backend chosen
+The bundled presets list games known to need each setting under Wine on macOS, grouped by setting: for example `overpass-runtime` and `dxvk` (as `prefer-graphics`, so a backend chosen
 for the container still wins), `microsoft-xaudio2`, `microsoft-d3dcompiler`, `qt-software-rendering` and the
 `chromium-*` switch sets. Games whose own profile already covers them are left out of the presets. They are
 untested on OverPass unless a game's profile says otherwise.

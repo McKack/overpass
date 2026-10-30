@@ -1,0 +1,19 @@
+name: Feature request
+description: Ask for something OverPass doesn't do yet. Help › Request Feature… in OverPass opens this for you.
+labels: ["feature"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What would you like?
+      description: Describe the feature, and what you'd use it for. A screenshot (JPG or PNG) can go in here too.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Details
+      description: Filled in by OverPass when it opens this form. Leave it as it is, or empty if you came here yourself.
+      render: text
+    validations:
+      required: false

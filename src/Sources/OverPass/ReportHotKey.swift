@@ -3,7 +3,8 @@ import Carbon.HIToolbox
 import ScreenCaptureKit
 
 // The report hotkey, ⌃⌘R: while a Windows program is frontmost, it takes a screenshot of that program's window and
-// opens the report window over it (ReportCenter.swift). The key is only claimed while a Windows program is in front,
+// opens the report window over it (ReportCenter.swift), for the title or, for a program that isn't one, for OverPass.
+// It only works while OverPass is open. The key is only claimed while a Windows program is in front,
 // so other Mac apps keep it. The screenshot needs Screen Recording permission, which macOS asks for the first time.
 @MainActor
 final class ReportHotKey {
@@ -15,6 +16,8 @@ final class ReportHotKey {
 
     func start(_ manager: BottleManager) {
         self.manager = manager
+        // Each new main window starts this again.
+        guard handler == nil else { return }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
             Task { @MainActor in await ReportHotKey.shared.pressed() }
@@ -25,10 +28,12 @@ final class ReportHotKey {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated { ReportHotKey.shared.frontmostChanged(app) }
         }
+        frontmostChanged(NSWorkspace.shared.frontmostApplication)
     }
 
     private func frontmostChanged(_ app: NSRunningApplication?) {
-        let isWine = app.map { app in manager?.wineWindows().contains { $0.processIdentifier == app.processIdentifier } ?? false } ?? false
+        // By its executable: a list of Wine's windows can lack a program that came to the front just now.
+        let isWine = app.map { manager?.runsWine($0) ?? false } ?? false
         if isWine && hotKey == nil {
             let id = EventHotKeyID(signature: OSType(0x4F505250), id: 1) // "OPRP"
             RegisterEventHotKey(UInt32(kVK_ANSI_R), UInt32(controlKey | cmdKey), id, GetApplicationEventTarget(), 0, &hotKey)
@@ -39,10 +44,14 @@ final class ReportHotKey {
     }
 
     private func pressed() async {
-        guard let manager, let app = NSWorkspace.shared.frontmostApplication,
-              let item = manager.reportItem(forProcess: app.processIdentifier) else { return }
+        guard let manager, let app = NSWorkspace.shared.frontmostApplication else { return }
+        let item = manager.reportItem(forProcess: app.processIdentifier)
         let screenshot = await Self.capture(pid: app.processIdentifier)
-        ReportCenter.shared.show(ReportContext(item: item, mode: .inGame, screenshot: screenshot))
+        if let item {
+            ReportCenter.shared.show(ReportContext(item: item, mode: .inGame, screenshot: screenshot))
+        } else {
+            ReportCenter.shared.showAppReport(.issue, screenshot: screenshot, overGame: true)
+        }
     }
 
     /// The program's largest window on screen, at full resolution; nil without Screen Recording permission, which

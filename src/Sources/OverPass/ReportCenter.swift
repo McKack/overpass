@@ -1,9 +1,9 @@
 import SwiftUI
 import AppKit
 
-// One report window for every way a report starts: Report Issue… on a title, the report hotkey while a game runs
-// (with a screenshot of it attached), a crash Wine caught, and the end of a run recorded with extra debugging.
-// It floats over the game, also in full screen, and sends the report through the relay (ReportRelay.swift) or,
+// One report window for every way a report on a title starts: Report Issue… on the title, the report hotkey while a
+// game runs (with a screenshot of it attached), a crash Wine caught, and the end of a run recorded with extra
+// debugging. Reports on OverPass itself have windows of their own (AppCrash.swift, AppReport.swift). It floats over the game, also in full screen, and sends the report through the relay (ReportRelay.swift) or,
 // without one, as a prefilled GitHub issue with the zip on the Desktop.
 
 enum ReportMode {
@@ -54,6 +54,13 @@ final class ReportCenter: NSObject, NSWindowDelegate {
     func showAppCrash(_ report: URL, summary: AppCrash.Summary) {
         panel?.close()
         present(AppCrashView(report: report, summary: summary) { [weak self] in self?.panel?.close() }, level: .floating)
+    }
+
+    /// The Help menu's report on OverPass or feature request; also the hotkey's, over a program that's no title.
+    func showAppReport(_ kind: AppReportKind, screenshot: NSImage? = nil, overGame: Bool = false) {
+        panel?.close()
+        present(AppReportView(kind: kind, screenshot: screenshot, overGame: overGame) { [weak self] in self?.panel?.close() },
+                level: overGame ? .screenSaver : .floating)
     }
 
     private func present(_ view: some View, level: NSWindow.Level) {
@@ -128,7 +135,8 @@ struct ReportView: View {
                 ReportStep(number: steps - 1, title: "What happened?", isLast: false) { whatHappened }
                 ReportStep(number: steps, title: "Attachments", isLast: true) { attachments }
             }
-            privacyNote
+            ReportPrivacyNote()
+            if context.mode == .title { ReportHotKeyHint() }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
@@ -195,21 +203,7 @@ struct ReportView: View {
     }
 
     private var whatHappened: some View {
-        TextEditor(text: $description)
-            .font(.body)
-            .frame(height: 90)
-            .scrollContentBackground(.hidden)
-            .padding(4)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-            .overlay(alignment: .topLeading) {
-                if description.isEmpty {
-                    Text("Explain the issue you encountered with \(name). Are you able to make it happen again, and if so, how?")
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .allowsHitTesting(false)
-                }
-            }
+        ReportTextEditor(text: $description, placeholder: "Explain the issue you encountered with \(name). Are you able to make it happen again, and if so, how?")
     }
 
     @ViewBuilder private var attachments: some View {
@@ -239,7 +233,7 @@ struct ReportView: View {
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.quaternary))
                 Button("Remove") { self.screenshot = nil }
             } else {
-                Button("Attach Screenshot…") { chooseScreenshot() }
+                Button("Attach Screenshot…") { screenshot = Self.chooseScreenshot() ?? screenshot }
             }
         }
         if context.mode == .inGame && context.screenshot == nil && !CGPreflightScreenCaptureAccess() {
@@ -252,12 +246,6 @@ struct ReportView: View {
                 .controlSize(.small)
             }
         }
-    }
-
-    private var privacyNote: some View {
-        Label("No personal information is included: your name, home folder, computer name and e-mail addresses are "
-              + "taken out of everything that's sent.", systemImage: "lock.shield")
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Actions
@@ -334,12 +322,13 @@ struct ReportView: View {
         }
     }
 
-    private func chooseScreenshot() {
+    /// A JPG or PNG the person picks, which is what GitHub takes when it's added to the issue by hand.
+    static func chooseScreenshot() -> NSImage? {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.message = "Choose a screenshot of the problem."
-        guard panel.runModal() == .OK, let url = panel.url, let image = NSImage(contentsOf: url) else { return }
-        screenshot = image
+        panel.allowedContentTypes = [.jpeg, .png]
+        panel.message = "Choose a screenshot."
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return NSImage(contentsOf: url)
     }
 
     /// The end of the log that goes with the report; for a crash, from Wine's first crash line.
@@ -377,6 +366,47 @@ struct ReportView: View {
         context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let scaled = context.makeImage() else { return nil }
         return NSBitmapImageRep(cgImage: scaled).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+    }
+}
+
+/// The field a report's text goes in.
+struct ReportTextEditor: View {
+    @Binding var text: String
+    let placeholder: String
+    var height: CGFloat = 90
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.body)
+            .frame(height: height)
+            .scrollContentBackground(.hidden)
+            .padding(4)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+struct ReportPrivacyNote: View {
+    var body: some View {
+        Label("No personal information is included: your name, home folder, computer name and e-mail addresses are "
+              + "taken out of everything that's sent.", systemImage: "lock.shield")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct ReportHotKeyHint: View {
+    var body: some View {
+        Label("While a game runs and OverPass is open, press \(ReportHotKey.display) to report from inside the game, "
+              + "with a screenshot of it.", systemImage: "keyboard")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }
 

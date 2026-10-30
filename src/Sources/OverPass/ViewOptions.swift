@@ -483,6 +483,9 @@ struct OverPassCommands: Commands {
             Link("OverPass Wine Releases", destination: URL(string: "https://github.com/McKack/overpass-wine/releases")!)
             Link("OverPass Runtime Releases", destination: URL(string: "https://github.com/McKack/overpass-runtime/releases")!)
             Divider()
+            Button("Report Issue…") { ReportCenter.shared.showAppReport(.issue) }
+            Button("Request Feature…") { ReportCenter.shared.showAppReport(.feature) }
+            Divider()
             Button("Credits") { openWindow(id: "credits") }
         }
     }

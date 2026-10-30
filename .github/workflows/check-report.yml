@@ -1,4 +1,4 @@
-# Checks problem reports made with OverPass and labels them; it never closes one. The rules are in
+# Checks problem reports and feature requests made with OverPass and labels them; it never closes one. The rules are in
 # .github/scripts/check-report.js.
 name: Check report
 

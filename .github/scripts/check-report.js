@@ -1,6 +1,6 @@
-// Checks problem reports made with OverPass: a game's report (Report Issue…) or OverPass's own crash (the window
-// offered at the next start, whose details carry `crash:`). Run by .github/workflows/check-report.yml; test with
-// `node --test .github/scripts/`.
+// Checks what OverPass sends in: a game's report (Report Issue… on a title), OverPass's own crash (the window offered
+// at the next start, whose details carry `crash:`), and the Help menu's report on OverPass and feature request (`kind:
+// general`, `kind: feature`). Run by .github/workflows/check-report.yml; test with `node --test .github/scripts/`.
 //
 // A report is never closed or locked: a person wrote it, and most reports come through the report relay, whose
 // sender has no GitHub account to edit or reopen anything with. What the check finds only labels it:
@@ -20,6 +20,9 @@ const KINDS = {
   game: { keys: ['app', 'profile', 'store', 'overpass', 'wine', 'runtime', 'graphics', 'windows', 'macos', 'mac', 'log'],
           logs: ['recorded', 'last run', 'none'] },
   crash: { keys: ['app', 'overpass', 'macos', 'crash', 'log'], logs: ['crash report', 'none'] },
+  general: { keys: ['app', 'overpass', 'wine', 'runtime', 'macos', 'mac', 'log'], logs: ['none'] },
+  // A request, not a problem report: it gets `feature` instead of `report`.
+  feature: { keys: ['app', 'overpass', 'macos', 'log'], logs: ['none'], label: ['feature', 'a2eeef'] },
 };
 const BACKENDS = 'wined3d|dxmt|d3dmetal|dxvk';
 // OverPass up to 0.6.4 writes `auto (auto)` when the Runtime isn't installed: Automatic then means Wine's own.
@@ -59,6 +62,7 @@ async function check(rawBody, released) {
   const sum = crypto.createHash('sha256').update(block.join('\n')).digest('hex').slice(0, 16);
   if (lines[end] !== `checksum: ${sum}`) broken.push("The details were changed after OverPass wrote them (the checksum doesn't match).");
   if ('crash' in facts) kind = KINDS.crash;
+  else if (Object.hasOwn(KINDS, facts.kind)) kind = KINDS[facts.kind];
   for (const key of kind.keys) if (!(key in facts)) odd.push(`The details lack ${shown(key)}.`);
 
   // Values the app writes when there's nothing to name are facts too, not oddities.
@@ -93,6 +97,7 @@ async function check(rawBody, released) {
   if (facts.log !== 'none' && !ATTACHED.test(body) && !RELAYED.test(body)) odd.push('The log zip isn\'t attached.');
 
   if (kind === KINDS.crash) labels.push(['app crash', 'b60205']);
+  if (kind === KINDS.general) labels.push(['app issue', 'b60205']);
   return { kind, broken, odd, labels };
 }
 
@@ -118,7 +123,7 @@ async function run({ github, context }) {
     try { await github.rest.repos.getReleaseByTag({ owner, repo: repository, tag }); return true; }
     catch (e) { return e.status === 404 ? false : null; }
   }
-  const { broken, odd, labels } = await check(issue.body, released);
+  const { kind, broken, odd, labels } = await check(issue.body, released);
 
   const text = comment(broken, odd, issue.user?.type !== 'Bot');
   const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number });
@@ -130,7 +135,7 @@ async function run({ github, context }) {
   if (issue.state === 'closed' && issue.closed_by?.type === 'Bot')
     await github.rest.issues.update({ owner, repo, issue_number: number, state: 'open' });
 
-  const wanted = [['report', 'd73a4a'], ...labels];
+  const wanted = [kind.label || ['report', 'd73a4a'], ...labels];
   if (broken.length || odd.length > TOLERATED) wanted.push(['invalid', 'e4e669']);
   else if (odd.length) wanted.push(['unverified', 'fbca04']);
   for (const [name, color] of wanted) {
@@ -139,7 +144,7 @@ async function run({ github, context }) {
   }
   // Earlier details may have named another Wine or backend, or been wrong.
   const stale = issue.labels.map(l => l.name)
-    .filter(l => /^(wine|graphics|store) |^(invalid|unverified)$/.test(l) && !wanted.some(([n]) => n === l));
+    .filter(l => /^(wine|graphics|store) |^(report|invalid|unverified)$/.test(l) && !wanted.some(([n]) => n === l));
   for (const name of stale) await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
   await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: wanted.map(([n]) => n) });
 }

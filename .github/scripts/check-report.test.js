@@ -58,6 +58,24 @@ test('crash reports pass, with or without a log', async () => {
         assert.deepStrictEqual((await check(relayed(crash({ log, overpass, crash: line.trim() || 'at' }), log === 'none' ? '' : undefined), released)).odd, []);
 });
 
+const general = over => ({ app: 'OverPass', kind: 'general', overpass: '0.6.4', wine: '11.0-11', runtime: '0.3.0',
+                           macos: '26.6.2 (25G83)', mac: 'Mac15,3, Apple M3, 24 GB', log: 'none', ...over });
+const feature = over => ({ app: 'OverPass', kind: 'feature', overpass: '0.6.4', macos: '26.6.2 (25G83)', log: 'none', ...over });
+const noLog = '_No log: sent without one._';
+
+test('reports on OverPass itself pass, whatever is installed', async () => {
+  for (const [wine, runtime, overpass] of product(['11.0-11', 'not found'], ['0.3.0', 'not installed'], ['0.6.4', 'development build'])) {
+    const { broken, odd, labels } = await check(relayed(general({ wine, runtime, overpass }), noLog), released);
+    assert.deepStrictEqual([...broken, ...odd], []);
+    assert.ok(labels.some(([n]) => n === 'app issue'));
+  }
+});
+
+test('feature requests pass, and a kind nobody knows is checked as a game report', async () => {
+  assert.deepStrictEqual((await check(relayed(feature({ overpass: 'development build' }), noLog), released)).odd, []);
+  assert.ok((await check(relayed(feature({ kind: 'constructor' }), noLog), released)).odd.length > 0);
+});
+
 test('the report that started this: Fear & Hunger 2, no Runtime', async () => {
   const { broken, odd, labels } = await check(relayed(game({
     app: 'Fear & Hunger 2: Termina', profile: 'fear-hunger-2-termina (own)', store: 'Steam 2171440', overpass: '0.6.1',
@@ -159,6 +177,23 @@ test('a changed block or no block: invalid, still open', async () => {
     assert.ok(added(f.calls).includes('invalid'), String(body));
     assertStaysOpen(f.calls);
   }
+});
+
+test('a feature request gets `feature`, not `report`, also when the relay labelled it `report`', async () => {
+  for (const labels of [[], [{ name: 'report' }]]) {
+    const f = fake(issue(relayed(feature(), noLog), { labels }));
+    await run(f);
+    assert.deepStrictEqual(added(f.calls), ['feature']);
+    assert.strictEqual(said(f.calls), undefined);
+    assert.strictEqual(f.calls.some(([n, a]) => n === 'removeLabel' && a.name === 'report'), labels.length > 0);
+  }
+});
+
+test('a report on OverPass is a report', async () => {
+  const f = fake(issue(relayed(general(), noLog)));
+  await run(f);
+  assert.deepStrictEqual(added(f.calls), ['report', 'wine 11.0-11', 'app issue']);
+  assert.ok(!f.calls.some(([n]) => n === 'removeLabel'));
 });
 
 test('only an issue someone can edit is told to edit it', async () => {

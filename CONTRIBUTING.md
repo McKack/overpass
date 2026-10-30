@@ -1,7 +1,8 @@
 # Contributing
 
 Bug reports, test results and findings are very welcome. The easiest way is **Report Issue** in OverPass: it
-collects the log, your Mac's details and the game's settings for you. Or open an issue with:
+collects the log, your Mac's details and the game's settings for you. **Help › Report Issue…** is for a problem with
+OverPass itself and **Help › Request Feature…** for an idea. Or open an issue with:
 
 - what you saw;
 - how to reproduce it;

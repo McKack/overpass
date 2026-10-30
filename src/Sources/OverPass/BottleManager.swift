@@ -55,7 +55,8 @@ class BottleManager {
     static let reportCrashesKey = "reportCrashes"
 
     /// The library title a running Windows program belongs to: by its program's file name in its container, or the
-    /// title last run there (a game started through its launcher), or the last one run anywhere.
+    /// title last run there (a game started through its launcher), or that container's first title. Nil in a container
+    /// without titles; the last one run anywhere only for a process in no known container.
     func reportItem(forProcess pid: pid_t) -> LibraryItem? {
         guard let root = wineRoot, let process = WineProcess.all(under: root).first(where: { $0.pid == pid }) else {
             return lastRunAnywhere
@@ -69,7 +70,7 @@ class BottleManager {
         let titles = library.filter { bottle == nil || $0.bottle.path == bottle?.path }
         return titles.first { ($0.app.target.map { ($0.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent }?
                                 .lowercased().replacingOccurrences(of: ".exe", with: "")) == program }
-            ?? bottle.flatMap { lastRun[$0.path] } ?? lastRunAnywhere ?? titles.first
+            ?? (bottle.map { lastRun[$0.path] ?? titles.first } ?? lastRunAnywhere ?? titles.first)
     }
 
     /// Opens the report window when Wine's crash handler starts (ReportCenter.swift). A crash during a run with
@@ -727,6 +728,12 @@ class BottleManager {
     }
 
     /// Running Wine processes that have a window (winemac.drv makes those regular apps).
+    /// Whether a running app is a Windows program under this Wine.
+    func runsWine(_ app: NSRunningApplication) -> Bool {
+        guard let root = wineRoot, let path = app.executableURL?.path else { return false }
+        return WineProcess.runsWine(under: root)(path)
+    }
+
     func wineWindows() -> [NSRunningApplication] {
         guard let root = wineRoot else { return [] }
         let isWine = WineProcess.runsWine(under: root)

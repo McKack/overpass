@@ -121,6 +121,17 @@ enum LogCollector {
     }
 
     /// The facts the report block carries, in its order; the issue check reads them by these names.
+    static var overpassFact: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build" }
+    static var wineFact: String { WineInstaller.installedTag.map(WineInstaller.shortVersion) ?? WineInstaller.installedVersion ?? "not found" }
+    static var runtimeFact: String { ComponentManager.runtimeVersion ?? "not installed" }
+    static var macOSFact: String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(sysctl("kern.osversion") ?? "?"))"
+    }
+    static var macFact: String {
+        "\(sysctl("hw.model") ?? "?"), \(sysctl("machdep.cpu.brand_string") ?? "?"), \(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB"
+    }
+
     static func reportBlock(_ facts: KeyValuePairs<String, String>) -> String {
         let lines = ["overpass-report: 1"] + facts.map { key, value in
             let flat = value.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
@@ -133,9 +144,9 @@ enum LogCollector {
 
     /// A new issue in the report repository, from its report form, with the title and report block filled in.
     /// The log can't go in the address (GitHub caps it at about 8 KB), so the person attaches the zip.
-    static func issueURL(title: String, what: String = "", block: String) -> URL? {
+    static func issueURL(title: String, what: String = "", block: String, form: String = "report.yml") -> URL? {
         var parts = URLComponents(string: "https://github.com/\(reportRepo)/issues/new")
-        parts?.queryItems = [URLQueryItem(name: "template", value: "report.yml"),
+        parts?.queryItems = [URLQueryItem(name: "template", value: form),
                              URLQueryItem(name: "title", value: title),
                              URLQueryItem(name: "what-happened", value: String(what.prefix(3000))),
                              URLQueryItem(name: "report", value: block)]
@@ -226,7 +237,6 @@ extension BottleManager {
     /// The facts for the issue's report block, which labels and checks the report. Without a recording the report
     /// carries no log ("log: none").
     func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?) -> String {
-        let os = ProcessInfo.processInfo.operatingSystemVersion
         let graphics = item.bottle.graphics
         // Automatic without the Runtime stays .auto: that's Wine's own Direct3D.
         let automatic = graphics.resolved == .auto ? GraphicsBackend.wined3d : graphics.resolved
@@ -234,14 +244,13 @@ extension BottleManager {
             "app": item.app.name,
             "profile": profile ?? "none",
             "store": item.app.storeID.map { "\(item.app.launcher ?? "Store") \($0)" } ?? "none",
-            "overpass": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build",
-            "wine": WineInstaller.installedTag.map(WineInstaller.shortVersion) ?? WineInstaller.installedVersion ?? "not found",
-            "runtime": ComponentManager.runtimeVersion ?? "not installed",
+            "overpass": LogCollector.overpassFact,
+            "wine": LogCollector.wineFact,
+            "runtime": LogCollector.runtimeFact,
             "graphics": graphics == .auto ? "auto (\(automatic.rawValue))" : graphics.rawValue,
             "windows": item.bottle.template.rawValue,
-            "macos": "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(LogCollector.sysctl("kern.osversion") ?? "?"))",
-            "mac": "\(LogCollector.sysctl("hw.model") ?? "?"), \(LogCollector.sysctl("machdep.cpu.brand_string") ?? "?"), "
-                + "\(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB",
+            "macos": LogCollector.macOSFact,
+            "mac": LogCollector.macFact,
             "log": recording.map { $0.lastRun ? "last run" : "recorded" } ?? "none",
         ])
     }

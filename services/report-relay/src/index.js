@@ -1,5 +1,5 @@
-// Arctim report relay (reports.arctim.no): files a problem report sent from an app as a GitHub issue, so
-// reporting needs no GitHub account. Each app has a path of its own and a repository in APPS
+// Arctim report relay (reports.arctim.no): files a problem report or feature request sent from an app as a GitHub
+// issue, so reporting needs no GitHub account. Each app has a path of its own and a repository in APPS
 // ({"overpass": "McKack/overpass"}); the log zip and screenshot are kept here (KV) and linked from the issue.
 //
 //   POST /<app>/report              multipart: title, what, steps, block (the app's details block), zip (the log
@@ -9,8 +9,8 @@
 //   GET  /<app>/shots/<id>.jpg         the screenshot it showed
 //
 // Only reports whose details block carries a valid checksum are accepted, at most HOURLY_LIMIT per address an
-// hour. The issue has the same sections as the app repository's report form, so its check workflow treats it
-// the same.
+// hour. The issue has the same sections as the app repository's forms, so its check workflow treats it the same.
+// A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -56,6 +56,7 @@ async function report(request, env, url, app, repo) {
   const shot = file(form.get("screenshot"));
   if (!title || !what) return json({ error: "The report needs a title and what happened." }, 400);
   if (!(await validBlock(block))) return json({ error: "The details block is missing or was changed." }, 400);
+  const feature = /^kind: feature$/m.test(block);
   const withoutLog = /^log: none$/m.test(block);
   if (!zip && !withoutLog) return json({ error: "The log zip is missing." }, 400);
   if (zip && zip.size > MAX_ZIP) return json({ error: "The log zip is larger than 20 MB." }, 413);
@@ -72,16 +73,16 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    "### What happened", "", what, "",
+    feature ? "### What would you like?" : "### What happened", "", what, "",
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
-    "### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", "",
+    ...(feature ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: ["report"] }),
+    body: JSON.stringify({ title, body, labels: [feature ? "feature" : "report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);

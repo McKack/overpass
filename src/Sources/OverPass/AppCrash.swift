@@ -107,21 +107,7 @@ struct AppCrashView: View {
             }
             VStack(alignment: .leading, spacing: 0) {
                 ReportStep(number: 1, title: "What were you doing?", isLast: false) {
-                    TextEditor(text: $description)
-                        .font(.body)
-                        .frame(height: 80)
-                        .scrollContentBackground(.hidden)
-                        .padding(4)
-                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-                        .overlay(alignment: .topLeading) {
-                            if description.isEmpty {
-                                Text("For example: changed the sort order in the GOG library's list.")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 9).padding(.vertical, 4)
-                                    .allowsHitTesting(false)
-                            }
-                        }
+                    ReportTextEditor(text: $description, placeholder: "For example: changed the sort order in the GOG library's list.", height: 80)
                 }
                 ReportStep(number: 2, title: "Attachments", isLast: true) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -136,9 +122,7 @@ struct AppCrashView: View {
                     }
                 }
             }
-            Label("No personal information is included: your name, home folder, computer name and e-mail addresses are "
-                  + "taken out of everything that's sent.", systemImage: "lock.shield")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            ReportPrivacyNote()
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
@@ -160,12 +144,11 @@ struct AppCrashView: View {
         error = nil
         Task {
             do {
-                let os = ProcessInfo.processInfo.operatingSystemVersion
                 let zip = includeReport ? await AppCrash.zip(report) : nil
                 let block = LogCollector.reportBlock([
                     "app": "OverPass",
                     "overpass": summary.version,
-                    "macos": "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(LogCollector.sysctl("kern.osversion") ?? "?"))",
+                    "macos": LogCollector.macOSFact,
                     "crash": summary.line,
                     "log": zip == nil ? "none" : "crash report",
                 ])

@@ -525,6 +525,11 @@ class ProfileStore {
         load()
     }
 
+    /// "ghostrunner (changed)": the ID, and whether the person changed the shipped profile or made their own.
+    func reportTag(of id: String) -> String {
+        edited.contains(id) ? "\(id) (changed)" : custom.contains(id) ? "\(id) (own)" : id
+    }
+
     /// Goes back to the bundled profile, or removes a profile made in OverPass.
     func revert(id: String) {
         try? FileManager.default.removeItem(at: UserProfiles.directory.appendingPathComponent("\(id).ini"))

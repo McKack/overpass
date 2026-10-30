@@ -1,6 +1,6 @@
 // Checks what OverPass sends in: a game's report (Report Issue… on a title), OverPass's own crash (the window offered
 // at the next start, whose details carry `crash:`), and the Help menu's report on OverPass and feature request (`kind:
-// general`, `kind: feature`). Run by .github/workflows/check-report.yml; test with `node --test .github/scripts/`.
+// general`, `kind: feature`), and a profile sent with Submit Profile… (`kind: profile`). Run by .github/workflows/check-report.yml; test with `node --test .github/scripts/`.
 //
 // A report is never closed or locked: a person wrote it, and most reports come through the report relay, whose
 // sender has no GitHub account to edit or reopen anything with. What the check finds only labels it:
@@ -23,6 +23,9 @@ const KINDS = {
   general: { keys: ['app', 'overpass', 'wine', 'runtime', 'macos', 'mac', 'log'], logs: ['none'] },
   // A request, not a problem report: it gets `feature` instead of `report`.
   feature: { keys: ['app', 'overpass', 'macos', 'log'], logs: ['none'], label: ['feature', 'a2eeef'] },
+  // A profile to review, also not a problem report: it gets `profile`, and has passed a test run on the sender's Mac.
+  profile: { keys: ['test', 'app', 'profile', 'store', 'overpass', 'wine', 'runtime', 'graphics', 'windows', 'macos', 'mac', 'log'],
+             logs: ['none'], label: ['profile', '5319e7'] },
 };
 const BACKENDS = 'wined3d|dxmt|d3dmetal|dxvk';
 // OverPass up to 0.6.4 writes `auto (auto)` when the Runtime isn't installed: Automatic then means Wine's own.
@@ -95,6 +98,12 @@ async function check(rawBody, released) {
   if (given('log') && !kind.logs.includes(facts.log)) odd.push(`The log kind ${shown(facts.log)} isn't understood.`);
   // A report sent without a log says "log: none" and has no zip.
   if (facts.log !== 'none' && !ATTACHED.test(body) && !RELAYED.test(body)) odd.push('The log zip isn\'t attached.');
+
+  if (kind === KINDS.profile) {
+    if (given('test') && !/^ran \d+ s$/.test(facts.test)) odd.push(`The test result ${shown(facts.test)} isn't understood.`);
+    if (!/^### Profile\n\n(`{3,})ini\n[\s\S]*?\n\1$/m.test(body)) odd.push("The profile's text is missing.");
+    if (!/^### Screenshot$/m.test(body)) odd.push("The test run's screenshot is missing.");
+  }
 
   if (kind === KINDS.crash) labels.push(['app crash', 'b60205']);
   if (kind === KINDS.general) labels.push(['app issue', 'b60205']);

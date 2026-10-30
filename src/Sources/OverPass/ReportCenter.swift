@@ -63,6 +63,18 @@ final class ReportCenter: NSObject, NSWindowDelegate {
                 level: overGame ? .screenSaver : .floating)
     }
 
+    /// Submit Profile…, also when its test run is over.
+    func showProfileSubmission(_ submission: ProfileSubmission) {
+        guard let manager, let profiles else { return }
+        panel?.close()
+        let view = ProfileSubmitView(submission: submission) { [weak self] in self?.panel?.close() }
+            .environment(manager)
+            .environment(profiles)
+        present(view, level: .floating)
+    }
+
+    func closePanel() { panel?.close() }
+
     private func present(_ view: some View, level: NSWindow.Level) {
         let panel = Panel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 520),
                           styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -109,11 +121,7 @@ struct ReportView: View {
     private var name: String { item.app.name }
     private var lastRun: Date? { LogCollector.lastRunLogs(for: item).first.map(LogCollector.modified) }
 
-    /// "ghostrunner (changed)": the ID, and whether the person changed the shipped profile or made their own.
-    private var profileTag: String? {
-        guard let id = profiles.profile(for: item)?.id else { return nil }
-        return profiles.edited.contains(id) ? "\(id) (changed)" : profiles.custom.contains(id) ? "\(id) (own)" : id
-    }
+    private var profileTag: String? { profiles.profile(for: item).map { profiles.reportTag(of: $0.id) } }
 
     /// Whether a log goes with the report, the way things stand.
     private var hasLog: Bool {

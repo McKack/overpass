@@ -15,8 +15,10 @@ enum ReportRelay {
         var errorDescription: String? { message }
     }
 
-    /// Sends the report and returns the issue's address. Without a zip the details block says "log: none".
-    static func send(title: String, what: String, block: String, zip: URL?, screenshot: Data?) async throws -> URL {
+    /// Sends the report and returns the issue's address. Without a zip the details block says "log: none". `profile` is
+    /// the text of a submitted profile (ProfileSubmit.swift).
+    static func send(title: String, what: String, block: String, zip: URL?, screenshot: Data?,
+                     profile: String? = nil) async throws -> URL {
         guard let base = url else { throw Failure(message: "The report relay isn't set up in this build.") }
         let boundary = "overpass-\(UUID().uuidString)"
         var body = Data()
@@ -33,6 +35,7 @@ enum ReportRelay {
         field("what", what)
         field("steps", "")
         field("block", block)
+        if let profile { field("profile", profile) }
         if let zip { file("zip", zip.lastPathComponent.replacingOccurrences(of: "\"", with: ""), "application/zip", try Data(contentsOf: zip)) }
         if let screenshot { file("screenshot", "screenshot.jpg", "image/jpeg", screenshot) }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)

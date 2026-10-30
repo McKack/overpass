@@ -189,6 +189,28 @@ test('a feature request gets `feature`, not `report`, also when the relay labell
   }
 });
 
+const submitted = (facts = {}, parts = {}) => {
+  const { profile = '### Profile\n\n```ini\n[app]\nname = Astroneer\n```\n\n', shot = '### Screenshot\n\n![Screenshot](x)\n\n' } = parts;
+  return `### What it does\n\nFixes it.\n\n${profile}${shot}### Details\n\n\`\`\`text\n${
+    block({ kind: 'profile', test: 'ran 41 s', ...game({ profile: 'astroneer (own)', log: 'none' }), ...facts })}\n\`\`\`\n`;
+};
+
+test('a submitted profile gets `profile`, not `report`, and needs no log', async () => {
+  const { kind, broken, odd, labels } = await check(submitted(), released);
+  assert.deepStrictEqual([broken, odd], [[], []]);
+  assert.deepStrictEqual(kind.label, ['profile', '5319e7']);
+  assert.ok(labels.some(([name]) => name === 'graphics dxmt'));
+  const longer = await check(submitted({}, { profile: '### Profile\n\n````ini\nx = ```\n````\n\n' }), released);
+  assert.deepStrictEqual(longer.odd, []);
+});
+
+test('a submitted profile without its test, text or screenshot is marked', async () => {
+  const odd = async (...args) => (await check(submitted(...args), released)).odd;
+  assert.match((await odd({ test: 'skipped' }))[0], /test result/);
+  assert.match((await odd({}, { profile: '' }))[0], /text is missing/);
+  assert.match((await odd({}, { shot: '' }))[0], /screenshot is missing/);
+});
+
 test('a report on OverPass is a report', async () => {
   const f = fake(issue(relayed(general(), noLog)));
   await run(f);

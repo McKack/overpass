@@ -3,7 +3,8 @@
 // ({"overpass": "McKack/overpass"}); the log zip and screenshot are kept here (KV) and linked from the issue.
 //
 //   POST /<app>/report              multipart: title, what, steps, block (the app's details block), zip (the log
-//                                   zip; not when the block says "log: none"), screenshot (JPEG, optional)
+//                                   zip; not when the block says "log: none"), screenshot (JPEG, optional),
+//                                   profile (a submitted profile's text)
 //                                   -> { "url": "<issue url>" }
 //   GET  /<app>/logs/<id>/<name>.zip   the zip a report linked
 //   GET  /<app>/shots/<id>.jpg         the screenshot it showed
@@ -11,6 +12,7 @@
 // Only reports whose details block carries a valid checksum are accepted, at most HOURLY_LIMIT per address an
 // hour. The issue has the same sections as the app repository's forms, so its check workflow treats it the same.
 // A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
+// One with "kind: profile" is a submitted profile: the text in `profile`, a required screenshot, and no log either.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -57,8 +59,11 @@ async function report(request, env, url, app, repo) {
   if (!title || !what) return json({ error: "The report needs a title and what happened." }, 400);
   if (!(await validBlock(block))) return json({ error: "The details block is missing or was changed." }, 400);
   const feature = /^kind: feature$/m.test(block);
+  const submitted = /^kind: profile$/m.test(block);
+  const profile = String(form.get("profile") || "").replace(/\r\n/g, "\n").trim().slice(0, 20000);
   const withoutLog = /^log: none$/m.test(block);
   if (!zip && !withoutLog) return json({ error: "The log zip is missing." }, 400);
+  if (submitted && (!profile || !shot)) return json({ error: "A submitted profile needs its text and a screenshot." }, 400);
   if (zip && zip.size > MAX_ZIP) return json({ error: "The log zip is larger than 20 MB." }, 413);
   if (shot && (shot.size > MAX_SHOT || shot.type !== "image/jpeg"))
     return json({ error: "The screenshot must be a JPEG of at most 4 MB." }, 413);
@@ -73,16 +78,17 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    feature ? "### What would you like?" : "### What happened", "", what, "",
+    feature ? "### What would you like?" : submitted ? "### What it does" : "### What happened", "", what, "",
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
-    ...(feature ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
+    ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
+    ...(feature || submitted ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: [feature ? "feature" : "report"] }),
+    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : "report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);
@@ -151,6 +157,13 @@ async function screenshot(id, env) {
   const value = await env.REPORTS.get(`shot:${id}`, { type: "arrayBuffer" });
   if (!value) return new Response("This screenshot has expired or doesn't exist.\n", { status: 404 });
   return new Response(value, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" } });
+}
+
+/// Text as a code block, with a fence longer than any it holds.
+function fenced(text) {
+  const longest = Math.max(2, ...(text.match(/`+/g) || []).map((run) => run.length));
+  const fence = "`".repeat(longest + 1);
+  return [`${fence}ini`, text, fence];
 }
 
 /// A form field that holds a non-empty file, or null.

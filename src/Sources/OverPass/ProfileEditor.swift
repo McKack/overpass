@@ -107,6 +107,11 @@ struct ProfileEditor: View {
         return item.app.programName.map { "program = \($0)" }
     }
 
+    /// Whether there's anything of the person's own to send.
+    private var canSubmit: Bool {
+        identity != nil && (profiles.edited.contains(profileID) || profiles.custom.contains(profileID) || builtText() != text)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Drawn where Settings has its title and toolbar: the window's title bar is hidden.
@@ -197,6 +202,15 @@ struct ProfileEditor: View {
                                 ReportCenter.shared.show(ReportContext(item: item, mode: .title, profileText: builtText()))
                             }
                                 .help("Record a log while you reproduce a problem, for a bug report")
+                            Button("Submit Profile…") {
+                                if save() {
+                                    dismiss()
+                                    ReportCenter.shared.showProfileSubmission(ProfileSubmission(item: item, profileID: profileID, profiles: profiles))
+                                }
+                            }
+                                .disabled(!canSubmit)
+                                .help(canSubmit ? "Saves the profile, tests it and sends it to OverPass for review"
+                                      : "Change a setting first: a profile is submitted once it differs from what OverPass has")
                         }
                         .buttonStyle(.bordered)
                         .fixedSize()

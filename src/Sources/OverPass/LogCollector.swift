@@ -133,6 +133,10 @@ enum LogCollector {
     }
 
     static func reportBlock(_ facts: KeyValuePairs<String, String>) -> String {
+        reportBlock(facts.map { ($0.key, $0.value) })
+    }
+
+    static func reportBlock(_ facts: [(String, String)]) -> String {
         let lines = ["overpass-report: 1"] + facts.map { key, value in
             let flat = value.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
             return "\(key): \(flat.isEmpty ? "unknown" : flat)"
@@ -236,23 +240,23 @@ extension BottleManager {
     }
 
     /// The facts for the issue's report block, which labels and checks the report. Without a recording the report
-    /// carries no log ("log: none").
-    func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?) -> String {
+    /// carries no log ("log: none"). `submission` is a submitted profile's test result (ProfileSubmit.swift).
+    func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?, submission: String? = nil) -> String {
         let graphics = item.bottle.graphics
         // Automatic without the Runtime stays .auto: that's Wine's own Direct3D.
         let automatic = graphics.resolved == .auto ? GraphicsBackend.wined3d : graphics.resolved
-        return LogCollector.reportBlock([
-            "app": item.app.name,
-            "profile": profile ?? "none",
-            "store": item.app.storeID.map { "\(item.app.launcher ?? "Store") \($0)" } ?? "none",
-            "overpass": LogCollector.overpassFact,
-            "wine": LogCollector.wineFact,
-            "runtime": LogCollector.runtimeFact,
-            "graphics": graphics == .auto ? "auto (\(automatic.rawValue))" : graphics.rawValue,
-            "windows": item.bottle.template.rawValue,
-            "macos": LogCollector.macOSFact,
-            "mac": LogCollector.macFact,
-            "log": recording.map { $0.lastRun ? "last run" : "recorded" } ?? "none",
+        return LogCollector.reportBlock((submission.map { [("kind", "profile"), ("test", $0)] } ?? []) + [
+            ("app", item.app.name),
+            ("profile", profile ?? "none"),
+            ("store", item.app.storeID.map { "\(item.app.launcher ?? "Store") \($0)" } ?? "none"),
+            ("overpass", LogCollector.overpassFact),
+            ("wine", LogCollector.wineFact),
+            ("runtime", LogCollector.runtimeFact),
+            ("graphics", graphics == .auto ? "auto (\(automatic.rawValue))" : graphics.rawValue),
+            ("windows", item.bottle.template.rawValue),
+            ("macos", LogCollector.macOSFact),
+            ("mac", LogCollector.macFact),
+            ("log", recording.map { $0.lastRun ? "last run" : "recorded" } ?? "none"),
         ])
     }
 

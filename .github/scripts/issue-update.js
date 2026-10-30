@@ -16,9 +16,12 @@ function comment({ problem, outcome, release }) {
   return `${text}\n\n${OUTCOMES[outcome]} ${when} ${AGAIN}`;
 }
 
-/// The workflow's step.
+/// The workflow's step: comments, closes the issue with `close`, or with `close` and no description only closes it.
 async function run({ github, context, inputs }) {
-  await github.rest.issues.createComment({ ...context.repo, issue_number: Number(inputs.issue), body: comment(inputs) });
+  const target = { ...context.repo, issue_number: Number(inputs.issue) };
+  const close = inputs.close === 'true';
+  if (inputs.problem?.trim() || !close) await github.rest.issues.createComment({ ...target, body: comment(inputs) });
+  if (close) await github.rest.issues.update({ ...target, state: 'closed', state_reason: 'completed' });
 }
 
 module.exports = { comment, run };

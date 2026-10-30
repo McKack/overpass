@@ -17,10 +17,28 @@ test('refuses an empty description or an unknown outcome', () => {
   assert.throws(() => comment({ problem: 'x', outcome: 'constructor' }));
 });
 
-test('comments on the issue it was given', async () => {
+const update = async inputs => {
   const calls = [];
-  const github = { rest: { issues: { createComment: async args => calls.push(args) } } };
-  await run({ github, context: { repo: { owner: 'McKack', repo: 'overpass' } }, inputs: { issue: '3', problem: 'x', outcome: 'verified' } });
-  assert.strictEqual(calls[0].issue_number, 3);
-  assert.strictEqual(calls[0].repo, 'overpass');
+  const note = name => async args => calls.push([name, args]);
+  const github = { rest: { issues: { createComment: note('comment'), update: note('update') } } };
+  await run({ github, context: { repo: { owner: 'McKack', repo: 'overpass' } }, inputs: { issue: '3', outcome: 'verified', ...inputs } });
+  return calls;
+};
+
+test('comments on the issue it was given, and leaves it open', async () => {
+  const calls = await update({ problem: 'x', close: 'false' });
+  assert.deepStrictEqual(calls.map(([n]) => n), ['comment']);
+  assert.strictEqual(calls[0][1].issue_number, 3);
+  assert.strictEqual(calls[0][1].repo, 'overpass');
+});
+
+test('close comments first; close with no description only closes', async () => {
+  assert.deepStrictEqual((await update({ problem: 'x', close: 'true' })).map(([n]) => n), ['comment', 'update']);
+  const only = await update({ problem: '', close: 'true' });
+  assert.deepStrictEqual(only.map(([n]) => n), ['update']);
+  assert.strictEqual(only[0][1].state, 'closed');
+});
+
+test('no description and no close is a mistake', async () => {
+  await assert.rejects(update({ problem: '', close: 'false' }));
 });

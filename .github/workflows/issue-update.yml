@@ -1,5 +1,6 @@
-# Comments on an issue as arctim-janitor, with what the problem was and how far its fix is tested. Started by hand:
-# gh workflow run issue-update.yml -f issue=3 -f outcome=verified -f problem="…" -f release=0.6.5
+# Comments on an issue as arctim-janitor, with what the problem was and how far its fix is tested, and closes it if
+# asked. Started by hand:
+# gh workflow run issue-update.yml -f issue=3 -f outcome=verified -f problem="…" -f release=0.6.5 -f close=true
 # Needs the repository secrets JANITOR_APP_ID and JANITOR_PRIVATE_KEY. The wording is in .github/scripts/issue-update.js.
 name: Issue update
 
@@ -10,8 +11,8 @@ on:
         description: Issue number
         required: true
       problem:
-        description: What the problem was
-        required: true
+        description: What the problem was; empty with close = only close it
+        required: false
       outcome:
         description: verified = reproduced and tested; untested = should work, may need a try
         required: true
@@ -20,6 +21,11 @@ on:
       release:
         description: The OverPass version with the fix; empty = the next update
         required: false
+      close:
+        description: Close the issue
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read

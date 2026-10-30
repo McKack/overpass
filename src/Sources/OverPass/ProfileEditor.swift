@@ -443,13 +443,9 @@ struct ProfileEditor: View {
             } header: {
                 Text("Sound")
             } footer: {
-                Text("If a game's sound crackles, cuts out or is missing, try Microsoft's XAudio2. Wine plays at the "
-                     + "sample rate of your Mac's sound output; change that in Audio MIDI Setup.")
-            }
-            Section {
-                Button("Open Audio MIDI Setup") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Audio MIDI Setup.app"))
-                }
+                Text("If a game's sound crackles, cuts out or is missing, try Microsoft's XAudio2. It only helps "
+                     + "games that use XAudio2. Sample rates and sound buffers are matched to your Mac's sound output "
+                     + "automatically.")
             }
         }
         .formStyle(.grouped)

@@ -215,7 +215,8 @@ extension BottleManager {
 
     /// Puts the log and the details around it (engine logs, the screenshot) in a zip in `folder`.
     func makeZip(_ recording: LogRecording, screenshot: Data?, in folder: URL) async -> URL {
-        let report = report(for: recording)
+        let bluetooth = await Task.detached { LogCollector.bluetoothDevices() }.value
+        let report = report(for: recording, bluetooth: bluetooth)
         let zip = folder.appendingPathComponent("OverPass Logs – \(recording.name) – \(LogCollector.dateStamp(recording.started)).zip")
         let installFolder = recording.installFolder, bottle = recording.bottle
         await Task.detached {
@@ -256,7 +257,7 @@ extension BottleManager {
     }
 
     /// What's known about the Mac and the Wine setup, as text.
-    private func report(for recording: LogRecording) -> String {
+    private func report(for recording: LogRecording, bluetooth: [String]) -> String {
         let info = Bundle.main.infoDictionary ?? [:]
         let runtime = (try? String(contentsOf: ComponentManager.dxmtDir.appendingPathComponent("README.txt"), encoding: .utf8))?
             .components(separatedBy: .newlines).first
@@ -275,7 +276,15 @@ extension BottleManager {
             "Mac: \(LogCollector.sysctl("hw.model") ?? "?"), \(LogCollector.sysctl("machdep.cpu.brand_string") ?? "?"), "
                 + "\(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB",
             "Rosetta: \(rosetta ? "installed" : "not installed")",
-            "Sound output: \(LogCollector.outputDevice() ?? "unknown")",
+            "",
+            "Sound outputs:",
+        ] + LogCollector.soundOutputs() + [
+            "",
+            "Displays:",
+        ] + LogCollector.displays() + [
+            "",
+            "Bluetooth devices connected:",
+        ] + bluetooth + [
             "",
             "Container: \(recording.bottle.name) (\(recording.bottle.template.displayName))",
             "Container graphics: \(recording.bottle.graphics.displayName)",
@@ -399,6 +408,96 @@ extension LogCollector {
     }
 
     /// The Mac's default sound output and its sample rate, which Wine's sound output follows.
+    /// One line per sound output: how it's connected and how it takes its audio, which Wine's buffers depend on.
+    nonisolated static func soundOutputs() -> [String] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return ["  unknown"] }
+        var devices = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &devices) == noErr else { return ["  unknown"] }
+        var standard = AudioObjectID(0)
+        size = UInt32(MemoryLayout<AudioObjectID>.size)
+        address.mSelector = kAudioHardwarePropertyDefaultOutputDevice
+        AudioObjectGetPropertyData(system, &address, 0, nil, &size, &standard)
+
+        func number(_ device: AudioObjectID, _ selector: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope) -> UInt32 {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+            var value = UInt32(0)
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value)
+            return value
+        }
+        return devices.compactMap { device -> String? in
+            var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            var streams = UInt32(0)
+            guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &streams) == noErr, streams > 0 else { return nil }
+            var rate = Float64(0)
+            var size = UInt32(MemoryLayout<Float64>.size)
+            address.mScope = kAudioObjectPropertyScopeGlobal
+            address.mSelector = kAudioDevicePropertyNominalSampleRate
+            AudioObjectGetPropertyData(device, &address, 0, nil, &size, &rate)
+            var name: Unmanaged<CFString>?
+            size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            address.mSelector = kAudioObjectPropertyName
+            AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name)
+            let transport = transportName(number(device, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal))
+            return "  \(name?.takeRetainedValue() as String? ?? "unnamed device"): \(transport), \(Int(rate)) Hz, "
+                + "buffer \(number(device, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal)), "
+                + "latency \(number(device, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput)), "
+                + "safety offset \(number(device, kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeOutput)) frames"
+                + (device == standard ? " (in use)" : "")
+        }
+    }
+
+    nonisolated private static func transportName(_ type: UInt32) -> String {
+        switch type {
+        case kAudioDeviceTransportTypeBuiltIn: "built-in"
+        case kAudioDeviceTransportTypeBluetooth: "Bluetooth"
+        case kAudioDeviceTransportTypeBluetoothLE: "Bluetooth LE"
+        case kAudioDeviceTransportTypeHDMI: "HDMI"
+        case kAudioDeviceTransportTypeDisplayPort: "DisplayPort"
+        case kAudioDeviceTransportTypeUSB: "USB"
+        case kAudioDeviceTransportTypeThunderbolt: "Thunderbolt"
+        case kAudioDeviceTransportTypeAirPlay: "AirPlay"
+        case kAudioDeviceTransportTypeVirtual: "virtual"
+        case kAudioDeviceTransportTypeAggregate: "aggregate"
+        default: "other"
+        }
+    }
+
+    /// One line per display, the one with the menu bar first.
+    static func displays() -> [String] {
+        NSScreen.screens.map { screen in
+            let scale = screen.backingScaleFactor
+            let size = "\(Int(screen.frame.width * scale))x\(Int(screen.frame.height * scale))"
+            return "  \(screen.localizedName): \(size) at \(Int(scale))x, \(screen.maximumFramesPerSecond) Hz"
+        }
+    }
+
+    /// The kinds of Bluetooth devices connected. Their names often hold a person's name, so only kind and IDs are kept.
+    nonisolated static func bluetoothDevices() -> [String] {
+        let profiler = Process()
+        let output = Pipe()
+        profiler.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+        profiler.arguments = ["SPBluetoothDataType", "-json", "-timeout", "5"]
+        profiler.standardOutput = output
+        profiler.standardError = FileHandle.nullDevice
+        guard (try? profiler.run()) != nil else { return ["  unknown"] }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        profiler.waitUntilExit()
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sections = root["SPBluetoothDataType"] as? [[String: Any]] else { return ["  unknown"] }
+        let devices = sections.flatMap { $0["device_connected"] as? [[String: [String: Any]]] ?? [] }.flatMap(\.values)
+        guard !devices.isEmpty else { return ["  none"] }
+        return devices.map { device in
+            let ids = [device["device_vendorID"], device["device_productID"]].compactMap { $0 as? String }.joined(separator: " ")
+            return "  \(device["device_minorType"] as? String ?? "unknown kind")" + (ids.isEmpty ? "" : " (\(ids))")
+        }
+    }
+
     nonisolated static func outputDevice() -> String? {
         var device = AudioObjectID(0)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)

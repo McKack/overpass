@@ -2,13 +2,13 @@
 
 OverPass 0.6.0. More will be added as OverPass grows.
 
-Everything you have installed, from every store, as covers named after where each game comes from:
-
-![All Titles: games from Epic Games, GOG and Steam and a Mac game](screenshots/library.webp)
-
 Home: start with a gaming service. Steam, Epic Games and GOG are a click away, and Epic and GOG need no launcher:
 
 ![Home: the gaming services](screenshots/home.webp)
+
+Everything you have installed, from every store, as covers named after where each game comes from:
+
+![All Titles: games from Epic Games, GOG and Steam and a Mac game](screenshots/library.webp)
 
 Sign in to GOG and your whole library shows up. Install games straight from OverPass:
 

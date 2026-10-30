@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var badgeTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppUpdate.showUpdateFailure()
         badgeTask = Task { [weak self] in
             while !Task.isCancelled {
                 if let self, let manager = self.manager {

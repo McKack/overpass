@@ -92,17 +92,53 @@ enum AppUpdate {
         }
         try await runTool("/usr/bin/codesign", ["--verify", "--deep", app.path])
 
-        let destination = Bundle.main.bundleURL
-        // Waits for this copy to quit, swaps the apps, and opens the new one.
+        // Waits for this copy to quit, swaps the apps, and opens the new one. The old copy goes only once the new
+        // one is complete; if anything fails, this copy opens again and says so (showUpdateFailure).
         let script = """
         while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done
-        rm -rf "$1" && ditto "$2" "$1" && open "$1"
+        rm -rf "$1.new" "$1.old"
+        if ditto "$2" "$1.new" && { [ ! -e "$1" ] || mv "$1" "$1.old"; } && mv "$1.new" "$1"; then
+            rm -rf "$1.old"
+            open "$1"
+        else
+            rm -rf "$1.new"
+            if [ -e "$1.old" ] && [ ! -e "$1" ]; then mv "$1.old" "$1"; fi
+            touch "$3"
+            open "$4"
+        fi
         """
         let swap = Process()
         swap.executableURL = URL(fileURLWithPath: "/bin/sh")
-        swap.arguments = ["-c", script, "sh", destination.path, app.path]
+        swap.arguments = ["-c", script, "sh", destination.path, app.path, updateFailed.path, Bundle.main.bundleURL.path]
         try swap.run()
         NSApp.terminate(nil)
+    }
+
+    /// Where an update goes. A quarantined app opened where it was downloaded runs from a read-only copy macOS
+    /// makes (App Translocation), which can't be replaced, so it goes to Applications instead.
+    private static var destination: URL {
+        let own = Bundle.main.bundleURL
+        return own.path.contains("/AppTranslocation/") ? URL(fileURLWithPath: "/Applications/OverPass.app") : own
+    }
+
+    /// Left by a swap that failed, for the copy that opens after it.
+    private static var updateFailed: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("OverPass Update Failed")
+    }
+
+    /// Says so when the last update couldn't replace this copy; otherwise it would simply look like nothing happened.
+    static func showUpdateFailure() {
+        guard FileManager.default.fileExists(atPath: updateFailed.path) else { return }
+        try? FileManager.default.removeItem(at: updateFailed)
+        let alert = NSAlert()
+        alert.messageText = "OverPass couldn't update itself"
+        alert.informativeText = "macOS didn't let it replace the app. Allow OverPass in System Settings › Privacy & Security "
+            + "› App Management, or download the new version and drag it to Applications."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn, let page = URL(string: "https://github.com/McKack/overpass/releases/latest") {
+            NSWorkspace.shared.open(page)
+        }
     }
 
     private static func runTool(_ path: String, _ arguments: [String]) async throws {

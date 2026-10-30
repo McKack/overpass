@@ -1,9 +1,5 @@
-# Checks problem reports made with OverPass: a game's report (Report Issue…) or OverPass's own crash (the window
-# offered at the next start, whose details carry `crash:`). The details block must be complete and unchanged
-# (its checksum is recomputed here), name released versions, and the log zip must be attached. Reports that
-# fail are labelled `invalid`, told why and closed; fixing the issue reopens it. Valid reports are labelled
-# from their details. The checksum only shows the block wasn't edited by hand: OverPass is open source, so it
-# can't prove a report came from the app.
+# Checks problem reports made with OverPass and labels them; it never closes one. The rules are in
+# .github/scripts/check-report.js.
 name: Check report
 
 on:
@@ -11,6 +7,7 @@ on:
     types: [opened, edited, reopened]
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
@@ -18,101 +15,9 @@ jobs:
     if: contains(github.event.issue.body, 'overpass-report:') || contains(github.event.issue.labels.*.name, 'report')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/github-script@v7
         with:
           script: |
-            const crypto = require('crypto');
-            const marker = '<!-- overpass-report-check -->';
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const number = context.payload.issue.number;
-            const issue = (await github.rest.issues.get({ owner, repo, issue_number: number })).data;
-            const body = (issue.body || '').replace(/\r\n/g, '\n');
-            const shown = s => '`' + String(s).replace(/[`@\n]/g, '').slice(0, 80) + '`';
-            const problems = [];
-
-            // The block: "overpass-report: 1", "key: value" lines, then "checksum: <16 hex>" over the lines before it.
-            const lines = body.split('\n').map(l => l.trim());
-            const start = lines.indexOf('overpass-report: 1');
-            const end = start < 0 ? -1 : lines.findIndex((l, i) => i > start && l.startsWith('checksum: '));
-            const facts = {};
-            // What each kind of report carries, and the log kinds it can have.
-            const kinds = {
-              game: { keys: ['app', 'profile', 'store', 'overpass', 'wine', 'runtime', 'graphics', 'windows', 'macos', 'mac', 'log'],
-                      logs: ['recorded', 'last run', 'none'] },
-              crash: { keys: ['app', 'overpass', 'macos', 'crash', 'log'], logs: ['crash report', 'none'] },
-            };
-            let kind = kinds.game;
-            if (start < 0 || end < 0) {
-              problems.push('The details block is missing or cut short. Start the report with Report Issue… in OverPass, which fills it in.');
-            } else {
-              const block = lines.slice(start, end);
-              for (const line of block.slice(1)) {
-                const m = line.match(/^([a-z]+): (.+)$/);
-                if (m) facts[m[1]] = m[2]; else problems.push(`A line in the details isn't understood: ${shown(line)}.`);
-              }
-              const sum = crypto.createHash('sha256').update(block.join('\n')).digest('hex').slice(0, 16);
-              if (lines[end] !== `checksum: ${sum}`)
-                problems.push("The details were changed after OverPass wrote them (the checksum doesn't match). Copy them again from a new Report Issue….");
-              if ('crash' in facts) kind = kinds.crash;
-              const missing = kind.keys.filter(k => !(k in facts));
-              if (missing.length) problems.push(`The details lack ${missing.map(shown).join(', ')}.`);
-            }
-
-            async function released(repository, tag) {
-              try { await github.rest.repos.getReleaseByTag({ owner, repo: repository, tag }); return true; }
-              catch (e) { if (e.status === 404) return false; throw e; }
-            }
-            if (facts.overpass && !(await released('overpass', `v${facts.overpass}`)) && !(await released('overpass-releases', `v${facts.overpass}`)))
-              problems.push(`OverPass ${shown(facts.overpass)} isn't a released version. Update OverPass (Help › Check for Updates…) and report again.`);
-            if (facts.wine && !(await released('overpass-wine', `overpass-wine-${facts.wine}`)))
-              problems.push(`OverPass Wine ${shown(facts.wine)} isn't a released version. Update it in Components and report again.`);
-            if (facts.runtime && facts.runtime !== 'not installed' && !(await released('overpass-runtime', `v${facts.runtime}`)))
-              problems.push(`OverPass Runtime ${shown(facts.runtime)} isn't a released version. Update it in Components and report again.`);
-            const backends = 'wined3d|dxmt|d3dmetal|dxvk';
-            const graphics = (facts.graphics || '').match(new RegExp(`^(?:auto \\((${backends})\\)|(${backends}))$`));
-            if (facts.graphics && !graphics) problems.push(`The graphics ${shown(facts.graphics)} aren't one OverPass has.`);
-            if (facts.windows && !/^(windows(7|10|11)|win(7|10|11)_64)$/.test(facts.windows)) problems.push(`The Windows version ${shown(facts.windows)} isn't one OverPass has.`);
-            if (facts.profile && !/^(none|[A-Za-z0-9][A-Za-z0-9._-]*( \((changed|own)\))?)$/.test(facts.profile))
-              problems.push(`The profile ${shown(facts.profile)} isn't a profile ID.`);
-            if (facts.store && !/^(none|[A-Za-z][A-Za-z .]* [A-Za-z0-9._-]+)$/.test(facts.store)) problems.push(`The store ${shown(facts.store)} isn't understood.`);
-            if (facts.log && !kind.logs.includes(facts.log)) problems.push(`The log kind ${shown(facts.log)} isn't understood.`);
-            // The zip is attached on GitHub, or kept by OverPass's report relay (services/report-relay), which links it.
-            const attached = /https:\/\/github\.com\/(user-attachments\/files|[\w.-]+\/[\w.-]+\/files)\/\d+\/[^\s)]+\.zip/.test(body);
-            const relayed = /https:\/\/reports\.arctim\.no\/overpass\/logs\/[0-9a-f-]{36}\/[^\s)]+\.zip/.test(body);
-            // A report sent without a log (OverPass's manual report) says "log: none" and has no zip.
-            if (!attached && !relayed && facts.log !== 'none')
-              problems.push('The log zip isn\'t attached. Drag the "OverPass Logs – … .zip" from your Desktop into the Log box.');
-
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number });
-            const mine = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
-            const labels = issue.labels.map(l => l.name);
-
-            if (problems.length) {
-              const text = `${marker}\nThis report was closed because:\n\n${problems.map(p => `- ${p}`).join('\n')}\n\nEdit the issue to fix it and it reopens.`;
-              if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body: text });
-              else await github.rest.issues.createComment({ owner, repo, issue_number: number, body: text });
-              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: ['invalid'] });
-              if (issue.state === 'open')
-                await github.rest.issues.update({ owner, repo, issue_number: number, state: 'closed', state_reason: 'not_planned' });
-              return;
-            }
-
-            // Valid: undo an earlier rejection, then label from the details.
-            if (mine) await github.rest.issues.deleteComment({ owner, repo, comment_id: mine.id });
-            if (labels.includes('invalid'))
-              await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: 'invalid' });
-            if (issue.state === 'closed' && issue.closed_by?.type === 'Bot')
-              await github.rest.issues.update({ owner, repo, issue_number: number, state: 'open' });
-            const wanted = [['report', 'd73a4a']];
-            if (kind === kinds.crash) wanted.push(['app crash', 'b60205']);
-            if (facts.wine) wanted.push([`wine ${facts.wine}`, '7e57c2']);
-            if (graphics) wanted.push([`graphics ${graphics[1] || graphics[2]}`, '1d76db']);
-            if (facts.store && facts.store !== 'none') wanted.push([`store ${facts.store.replace(/ \S+$/, '').toLowerCase()}`, '0e8a16']);
-            for (const [name, color] of wanted) {
-              try { await github.rest.issues.createLabel({ owner, repo, name, color }); }
-              catch (e) { if (e.status !== 422) throw e; }
-            }
-            // Earlier details may have named another Wine or backend.
-            const stale = labels.filter(l => /^(wine|graphics|store) /.test(l) && !wanted.some(([n]) => n === l));
-            for (const name of stale) await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
-            await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: wanted.map(([n]) => n) });
+            const { run } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/check-report.js`);
+            await run({ github, context });

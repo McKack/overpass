@@ -228,6 +228,8 @@ extension BottleManager {
     func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?) -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let graphics = item.bottle.graphics
+        // Automatic without the Runtime stays .auto: that's Wine's own Direct3D.
+        let automatic = graphics.resolved == .auto ? GraphicsBackend.wined3d : graphics.resolved
         return LogCollector.reportBlock([
             "app": item.app.name,
             "profile": profile ?? "none",
@@ -235,7 +237,7 @@ extension BottleManager {
             "overpass": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build",
             "wine": WineInstaller.installedTag.map(WineInstaller.shortVersion) ?? WineInstaller.installedVersion ?? "not found",
             "runtime": ComponentManager.runtimeVersion ?? "not installed",
-            "graphics": graphics == .auto ? "auto (\(graphics.resolved.rawValue))" : graphics.rawValue,
+            "graphics": graphics == .auto ? "auto (\(automatic.rawValue))" : graphics.rawValue,
             "windows": item.bottle.template.rawValue,
             "macos": "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(LogCollector.sysctl("kern.osversion") ?? "?"))",
             "mac": "\(LogCollector.sysctl("hw.model") ?? "?"), \(LogCollector.sysctl("machdep.cpu.brand_string") ?? "?"), "

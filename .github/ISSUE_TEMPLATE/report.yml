@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Start reports from OverPass: right-click the app and choose **Report Issue…**. OverPass saves a zip with the log on your Desktop and opens this form with the details below filled in. Reports without the zip, or with a changed details block, are closed automatically; editing the issue to fix it reopens it.
+        Start reports from OverPass: right-click the app and choose **Report Issue…**. OverPass saves a zip with the log on your Desktop and opens this form with the details below filled in. A report stays open whatever the check finds: one with a changed details block, or several details it doesn't recognise, is labelled `invalid` until the issue is edited to fix it.
   - type: textarea
     id: what-happened
     attributes:

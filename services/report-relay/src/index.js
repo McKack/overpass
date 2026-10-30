@@ -23,7 +23,7 @@ export default {
       const apps = JSON.parse(env.APPS || "{}");
       const [, app, ...rest] = url.pathname.split("/");
       const repo = apps[app];
-      if (!repo) return new Response("Arctim report relay\n", { status: url.pathname === "/" ? 200 : 404 });
+      if (!repo) return new Response("Arctic Imaginarium report relay\n", { status: url.pathname === "/" ? 200 : 404 });
       const path = "/" + rest.join("/");
       if (request.method === "POST" && path === "/report") return await report(request, env, url, app, repo);
       const log = path.match(/^\/logs\/([0-9a-f-]{36})\/[^/]+\.zip$/);
@@ -68,7 +68,8 @@ async function report(request, env, url, app, repo) {
   if (shot) await env.REPORTS.put(`shot:${id}`, await shot.arrayBuffer(), { expirationTtl: KEEP_SECONDS });
   await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
 
-  const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name)}`;
+  // encodeURIComponent keeps parentheses, which would end the Markdown link and a check's match early.
+  const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
     "### What happened", "", what, "",
@@ -76,7 +77,7 @@ async function report(request, env, url, app, repo) {
     "### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", "",
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
-    "<sub>Sent from the app through Arctim's report relay.</sub>",
+    "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
@@ -103,7 +104,7 @@ function github(env, path, token, init = {}) {
   });
 }
 
-// Issues are filed as the overpass-reports GitHub App: a JWT signed with its key buys an hour-long token for its
+// Issues are filed as the arctim-janitor GitHub App: a JWT signed with its key buys an hour-long token for its
 // installation on the app's repository, kept in KV for 50 minutes. GITHUB_TOKEN (a plain token) is used instead
 // when set.
 async function issueToken(env, repo) {
@@ -170,8 +171,8 @@ async function validBlock(block) {
 }
 
 function safeName(name) {
-  const clean = name.replace(/[^\w .()+–-]/g, "").trim();
-  return (clean.toLowerCase().endsWith(".zip") ? clean : clean + ".zip").slice(0, 120);
+  const clean = name.replace(/[^\w .()+–-]/g, "").trim().replace(/\.zip$/i, "");
+  return clean.slice(0, 116) + ".zip";
 }
 
 function json(value, status = 200) {

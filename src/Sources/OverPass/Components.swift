@@ -432,7 +432,7 @@ class ComponentManager {
         defer { try? fm.removeItem(at: staging) }
         try await WineInstaller.run("/usr/bin/tar", ["-xf", tarball.path, "-C", staging.path])
 
-        // Archive root is a single version directory holding x86_64-windows/ and x86_64-unix/ (64-bit only).
+        // Archive root is a single version directory holding x86_64-windows/, x86_64-unix/ and, from 0.4.0, i386-windows/.
         guard let root = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil).first(where: {
             fm.fileExists(atPath: $0.appendingPathComponent("x86_64-windows/d3d11.dll").path)
         }) else { throw ComponentError.badArchive }

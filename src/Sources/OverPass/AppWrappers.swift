@@ -192,6 +192,17 @@ enum DockIcon {
 /// `OverPass --launch <bottle> <program> [arguments…]`: what app wrappers run. Replaces this process with Wine, so the
 /// wrapper's Dock icon belongs to the running game, and never starts the UI.
 enum WrapperLaunch {
+    /// Starts OverPass hidden if it isn't running, so the report hotkey and the crash report work for a game started
+    /// from its wrapper. `open` outlives this process, which becomes Wine.
+    private static func startInBackground() {
+        let id = "no.arctim.overpass"
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: id).allSatisfy({ $0.processIdentifier == getpid() }) else { return }
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-g", "-j", "-b", id]
+        try? open.run()
+    }
+
     @MainActor
     static func run(bottlePath: String, program: String, arguments: [String]) -> Never {
         AppWrappers.syncAllowed = false
@@ -200,6 +211,7 @@ enum WrapperLaunch {
         do {
             let process = try manager.exeProcess(program, in: bottle, arguments: arguments)
             guard let exe = process.executableURL else { throw WineError.noWineInstallation }
+            startInBackground()
             if let cwd = process.currentDirectoryURL { FileManager.default.changeCurrentDirectoryPath(cwd.path) }
             let argv = ([exe.path] + (process.arguments ?? [])).map { strdup($0) } + [nil]
             let envp = (process.environment ?? [:]).map { strdup("\($0.key)=\($0.value)") } + [nil]

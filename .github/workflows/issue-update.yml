@@ -1,0 +1,42 @@
+# Comments on an issue as arctim-janitor, with what the problem was and how far its fix is tested. Started by hand:
+# gh workflow run issue-update.yml -f issue=3 -f outcome=verified -f problem="…" -f release=0.6.5
+# Needs the repository secrets JANITOR_APP_ID and JANITOR_PRIVATE_KEY. The wording is in .github/scripts/issue-update.js.
+name: Issue update
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+      problem:
+        description: What the problem was
+        required: true
+      outcome:
+        description: verified = reproduced and tested; untested = should work, may need a try
+        required: true
+        type: choice
+        options: [verified, untested]
+      release:
+        description: The OverPass version with the fix; empty = the next update
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: janitor
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.JANITOR_APP_ID }}
+          private-key: ${{ secrets.JANITOR_PRIVATE_KEY }}
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.janitor.outputs.token }}
+          script: |
+            const { run } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/issue-update.js`);
+            await run({ github, context, inputs: context.payload.inputs });

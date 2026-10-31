@@ -158,6 +158,20 @@ class WineInstaller {
         let version = try await Self.run(dest.appendingPathComponent("bin/wine").path, ["--version"])
         log("\(version)\n")
         status = "Installed \(version.trimmingCharacters(in: .whitespacesAndNewlines))"
+        Self.removeOldBuilds()
+    }
+
+    /// Keeps the current build and the newest other one to go back to. Every bottle runs `current`, so nothing else needs them.
+    nonisolated static func removeOldBuilds(in root: URL = installRoot) {
+        let fm = FileManager.default
+        guard let link = try? fm.destinationOfSymbolicLink(atPath: root.appendingPathComponent("current").path) else { return }
+        let current = URL(fileURLWithPath: link).lastPathComponent
+        let others = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? [])
+            .filter { !$0.hasPrefix(".") && $0 != "current" && $0 != current }
+            .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+        for old in others.dropFirst() {
+            try? fm.removeItem(at: root.appendingPathComponent(old))
+        }
     }
 
     func cancel() {

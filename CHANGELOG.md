@@ -15,6 +15,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Library**
 - A title's size counts its whole game folder, not only the folder its program sits in.
 
+**Components**
+- Updating Windows support removes old versions, keeping the current one and the one before it.
+
 ## 0.6.7 - 2026-10-31
 
 - Rate a game and send in its settings, with a comment if you like

@@ -2,7 +2,7 @@
 
 What changed in each release of OverPass, newest first. The short list at the top of each version is what OverPass shows after an update.
 
-## Unreleased
+## 0.6.8 - Unreleased
 
 - Add ready-made settings to a game from its profile
 - The profile editor shows the settings a game already gets, and where each comes from

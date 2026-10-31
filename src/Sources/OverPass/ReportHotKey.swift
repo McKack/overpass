@@ -54,10 +54,10 @@ final class ReportHotKey {
         }
     }
 
-    /// The program's largest window on screen, at full resolution; nil without Screen Recording permission, which
-    /// macOS asks for the first time.
+    /// The program's largest window on screen, at full resolution; nil without Screen Recording permission. Never
+    /// asks: the system's prompt would come up over the game. The report window says how to allow it.
     static func capture(pid: pid_t) async -> NSImage? {
-        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else { return nil }
+        guard CGPreflightScreenCaptureAccess() else { return nil }
         guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true),
               let window = content.windows.filter({ $0.owningApplication?.processID == pid && $0.frame.width > 64 })
                 .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else { return nil }

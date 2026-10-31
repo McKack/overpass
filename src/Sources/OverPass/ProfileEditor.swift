@@ -990,7 +990,7 @@ struct BottleSettings: View {
                         Text(launcher).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    OpenButton(opening: manager.isOpening(in: bottle, program: app.executable), label: app.runLabel) {
+                    OpenButton(opening: manager.isOpening(app, in: bottle), label: app.runLabel) {
                         try? manager.launchApp(app, in: bottle)
                     }
                 }

@@ -20,7 +20,7 @@ struct CoverTile: View {
     @State private var background: NSImage?
 
     var body: some View {
-        let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
+        let opening = manager.isOpening(item.app, in: item.bottle)
         VStack(spacing: 8) {
             StyledCover(platform: platform, width: width, selected: selected, dimmed: opening) { corner in
                 art(width: width, corner: corner)
@@ -372,7 +372,7 @@ extension Comparable {
 @MainActor func platformName(_ item: LibraryItem, clients: [GameProfile], manager: BottleManager) -> String? {
     let name = item.app.launcher ?? clients.first { manager.bottle(for: $0)?.path == item.bottle.path }?.name
     guard let name else { return nil }
-    let short = [("Steam", "Steam"), ("GOG", "GOG"), ("Epic", "Epic"), ("Xbox", "Xbox"), ("EA", "EA"),
+    let short = [("Steam", "Steam"), ("GOG", "GOG"), ("Epic", "Epic Games"), ("Xbox", "Xbox"), ("EA", "EA"),
                  ("Ubisoft", "Ubisoft"), ("Battle.net", "Battle.net"), ("Rockstar", "Rockstar")]
     return short.first { name.localizedCaseInsensitiveContains($0.0) }?.1 ?? name
 }

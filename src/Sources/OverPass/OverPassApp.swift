@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 enum Entry {
     static func main() {
         let args = CommandLine.arguments
+        if args.count >= 2, args[1] == "--bring-forward" {
+            MainActor.assumeIsolated { WrapperLaunch.bringForward() }
+        }
         if args.count >= 4, args[1] == "--launch" {
             MainActor.assumeIsolated { WrapperLaunch.run(bottlePath: args[2], program: args[3], arguments: Array(args.dropFirst(4))) }
         }
@@ -657,7 +660,7 @@ private struct LauncherRow: View {
 
     var body: some View {
         let client = manager.games(of: launcher).first { manager.isClient($0, of: launcher) }
-        let opening = client.map { manager.isOpening(in: $0.bottle, program: $0.app.executable) } ?? false
+        let opening = client.map { manager.isOpening($0.app, in: $0.bottle) } ?? false
         let logo = showIcon ? StoreIcon.logo(for: launcher.id) : nil
         Label {
             HStack {

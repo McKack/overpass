@@ -172,7 +172,7 @@ struct LibraryView: View {
             // selected; the window's buttons stay on the right.
             ToolbarItemGroup(placement: .principal) {
                 let item = selectedItem
-                let opening = item.map { manager.isOpening(in: $0.bottle, program: $0.app.executable) } ?? false
+                let opening = item.map { manager.isOpening($0.app, in: $0.bottle) } ?? false
                 if case .store(let game) = selectedEntry, let store {
                     Button { store.install(game, using: manager) } label: {
                         Label("Install \(game.title)", systemImage: "arrow.down.circle")
@@ -505,7 +505,7 @@ struct AppIcon: View {
     @State private var icon: NSImage?
 
     var body: some View {
-        let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
+        let opening = manager.isOpening(item.app, in: item.bottle)
         Image(nsImage: icon ?? NSWorkspace.shared.icon(forFile: item.app.executable))
             .resizable()
             .interpolation(.high)
@@ -530,7 +530,7 @@ struct LibraryItemMenu: View {
     let launch: () -> Void
 
     var body: some View {
-        let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
+        let opening = manager.isOpening(item.app, in: item.bottle)
         Button(opening ? "Starting…" : item.app.runLabel) { launch() }.disabled(opening)
         Button(Favorites.ids(favorites).contains(item.id) ? "Remove from Favorites" : "Add to Favorites") {
             favorites = Favorites.toggled(item.id, in: favorites)
@@ -587,7 +587,7 @@ struct AppTile: View {
     let launch: () -> Void
 
     var body: some View {
-        let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
+        let opening = manager.isOpening(item.app, in: item.bottle)
         VStack(spacing: 8) {
             AppIcon(item: item, size: iconSize)
                 .overlay(alignment: .topTrailing) { AntiCheatBadge(item: item, size: iconSize * 0.3) }
@@ -620,7 +620,7 @@ struct AppRow: View {
     let launch: () -> Void
 
     var body: some View {
-        let opening = manager.isOpening(in: item.bottle, program: item.app.executable)
+        let opening = manager.isOpening(item.app, in: item.bottle)
         HStack(spacing: 14) {
             AppIcon(item: item, size: iconSize)
             VStack(alignment: .leading, spacing: 3) {

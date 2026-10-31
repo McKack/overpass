@@ -38,6 +38,8 @@ class BottleManager {
         let bottlePath: URL
         /// The host path OverPass was asked to run.
         let program: String
+        /// Tells apart games started through one launcher program (steam.exe steam://rungameid/...).
+        let arguments: [String]
         var state: State = .starting
 
         enum State { case starting, slow, crashed }
@@ -599,7 +601,7 @@ class BottleManager {
             process.standardError = output
         }
         try process.run()
-        track(name, program: path, process: process, in: bottle)
+        track(name, program: path, arguments: arguments, process: process, in: bottle)
     }
 
     func addMacApps(_ urls: [URL]) {
@@ -611,9 +613,17 @@ class BottleManager {
         macApps.removeAll { $0 == item.app.executable }
     }
 
-    /// Whether something (or this program) is still starting in the bottle; a crashed start doesn't count.
-    func isOpening(in bottle: Bottle, program: String? = nil) -> Bool {
-        launches.contains { $0.bottlePath == bottle.path && $0.state != .crashed && (program == nil || $0.program == program) }
+    /// Whether something is still starting in the bottle; a crashed start doesn't count.
+    func isOpening(in bottle: Bottle) -> Bool {
+        launches.contains { $0.bottlePath == bottle.path && $0.state != .crashed }
+    }
+
+    /// Whether this title is still starting. A launch can carry more arguments than the title's own (Epic's token).
+    func isOpening(_ app: WineApp, in bottle: Bottle) -> Bool {
+        launches.contains {
+            $0.bottlePath == bottle.path && $0.state != .crashed && $0.program == app.executable
+                && $0.arguments.starts(with: app.arguments)
+        }
     }
 
     func dismissLaunch(_ id: Launch.ID) {
@@ -622,9 +632,9 @@ class BottleManager {
 
     /// Follows a launch until the program shows a window (brought forward), Wine's crash handler starts in its
     /// bottle (reported right away; Wine's own dialog takes a while), or it gives up after five minutes.
-    private func track(_ name: String, program: String, process: Process, in bottle: Bottle) {
+    private func track(_ name: String, program: String, arguments: [String], process: Process, in bottle: Bottle) {
         guard let root = wineRoot else { return }
-        let launch = Launch(name: name, bottlePath: bottle.path, program: program)
+        let launch = Launch(name: name, bottlePath: bottle.path, program: program, arguments: arguments)
         launches.append(launch)
         let bottlePath = bottle.path
         let windowsBefore = Set(wineWindows().map(\.processIdentifier))

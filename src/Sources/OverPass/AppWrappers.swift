@@ -203,6 +203,44 @@ enum WrapperLaunch {
         try? open.run()
     }
 
+    /// A game started from its wrapper opens behind whatever is frontmost: since macOS 14 only the frontmost app can
+    /// hand over, and that's Finder or the Dock, which know nothing of Wine. The wrapper starts this helper, which
+    /// `--launch` outlives by becoming Wine. Only a launch the person just asked for does this, and only until
+    /// they've moved on to something else.
+    private static func startBringForward() {
+        guard let path = Bundle.main.executablePath else { return }
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: path)
+        helper.arguments = ["--bring-forward"]
+        try? helper.run()
+    }
+
+    /// Waits for the new Wine program's window and opens its bundle, which LaunchServices brings to the front for
+    /// an app in the background too. NSWorkspace's lists only update while the run loop runs.
+    @MainActor
+    static func bringForward() -> Never {
+        guard let root = BottleManager.findWine() else { exit(1) }
+        let isWine = WineProcess.runsWine(under: root)
+        func wineWindows() -> [NSRunningApplication] {
+            NSWorkspace.shared.runningApplications.filter {
+                $0.activationPolicy == .regular && $0.executableURL.map { isWine($0.path) } == true
+                    && !BottleManager.wineServices.contains(($0.localizedName ?? "").lowercased() + ".exe")
+            }
+        }
+        let before = Set(wineWindows().map(\.processIdentifier))
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let start = Date.now
+        while Date.now.timeIntervalSince(start) < 120 {
+            RunLoop.current.run(until: .now + 0.5)
+            let now = NSWorkspace.shared.frontmostApplication
+            if now?.processIdentifier != front && now?.bundleIdentifier != "com.apple.finder" { exit(0) }
+            guard let game = wineWindows().first(where: { !before.contains($0.processIdentifier) }) else { continue }
+            if let bundle = game.bundleURL, !game.isTerminated { NSWorkspace.shared.open(bundle) } else { game.activate() }
+            exit(0)
+        }
+        exit(0)
+    }
+
     @MainActor
     static func run(bottlePath: String, program: String, arguments: [String]) -> Never {
         AppWrappers.syncAllowed = false
@@ -212,6 +250,7 @@ enum WrapperLaunch {
             let process = try manager.exeProcess(program, in: bottle, arguments: arguments)
             guard let exe = process.executableURL else { throw WineError.noWineInstallation }
             startInBackground()
+            startBringForward()
             if let cwd = process.currentDirectoryURL { FileManager.default.changeCurrentDirectoryPath(cwd.path) }
             let argv = ([exe.path] + (process.arguments ?? [])).map { strdup($0) } + [nil]
             let envp = (process.environment ?? [:]).map { strdup("\($0.key)=\($0.value)") } + [nil]

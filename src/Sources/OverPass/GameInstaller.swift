@@ -102,7 +102,7 @@ class GameInstaller {
                 target = existing
                 set("bottle", .done, "Using \(existing.name)")
             } else {
-                let name = bottles.freeBottleName(profile?.name ?? file.deletingPathExtension().lastPathComponent)
+                let name = bottles.freeBottleName(profile?.name ?? Self.containerName(forInstaller: file))
                 var env = profile?.environment ?? [:]
                 if let overrides = profile?.dllOverrides, !overrides.isEmpty {
                     env["WINEDLLOVERRIDES"] = overrides.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ";")
@@ -282,6 +282,43 @@ class GameInstaller {
 
 /// Installer frameworks with documented unattended switches, recognized by the marker each one embeds near
 /// the start of its stub (checked against Steam's NSIS installer and GOG's Inno Setup installers).
+/// The game's name in an installer's file name, for a container with no profile to name it:
+/// setup_stronghold_crusader_2_1.0.22795_shields_(80391).exe is Stronghold Crusader 2. A file with nothing but a
+/// generic name (setup.exe) takes its folder's name, unless that's a folder everything lands in.
+extension GameInstaller {
+    nonisolated static func containerName(forInstaller file: URL) -> String {
+        let stem = file.deletingPathExtension().lastPathComponent
+        var name = cleanInstallerName(stem)
+        if name.isEmpty {
+            let folder = file.deletingLastPathComponent().lastPathComponent
+            let shared = ["downloads", "desktop", "documents", "tmp", "temp", "inbox", "/"]
+            name = shared.contains(folder.lowercased()) ? "" : cleanInstallerName(folder)
+        }
+        return name.isEmpty ? stem : name
+    }
+
+    private nonisolated static func cleanInstallerName(_ raw: String) -> String {
+        var name = raw
+        func strip(_ pattern: String) {
+            name = name.replacingOccurrences(of: pattern, with: " ", options: [.regularExpression, .caseInsensitive])
+        }
+        strip(#"\([^)]*\)|\[[^\]]*\]"#)                                 // (80391), (64bit), [repack]
+        strip(#"^\s*(setup|install(er)?)(?=[_-]|$)"#)
+        strip(#"[_\s-]+v?\d+(\.\d+)+.*$"#)                                // the version and whatever follows it
+        strip(#"[_\s-]+(setup|install(er)?|x64|x86|win(64|32)|(64|32)[_-]?bit)\b.*$"#)
+        strip(#"[_\s-]+\d{5,}\s*$"#)                                       // a build number; 2077 is a name
+        name = name.replacingOccurrences(of: "_", with: " ")
+            .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " -."))
+        guard name.rangeOfCharacter(from: .uppercaseLetters) == nil else { return name }
+        let small: Set<String> = ["a", "an", "and", "at", "for", "in", "of", "on", "the", "to"]
+        func capitalized(_ word: Substring) -> String { word.prefix(1).uppercased() + word.dropFirst() }
+        return name.split(separator: " ").enumerated().map { i, word in
+            i > 0 && small.contains(String(word)) ? String(word) : word.split(separator: "-").map(capitalized).joined(separator: "-")
+        }.joined(separator: " ")
+    }
+}
+
 enum InstallerKind {
     case nsis, inno, msi
 

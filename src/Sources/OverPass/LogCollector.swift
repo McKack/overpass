@@ -241,11 +241,14 @@ extension BottleManager {
 
     /// The facts for the issue's report block, which labels and checks the report. Without a recording the report
     /// carries no log ("log: none"). `submission` is a submitted profile's test result (ProfileSubmit.swift).
-    func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?, submission: String? = nil) -> String {
+    func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?, rating: String? = nil, frames: String? = nil) -> String {
         let graphics = item.bottle.graphics
         // Automatic without the Runtime stays .auto: that's Wine's own Direct3D.
         let automatic = graphics.resolved == .auto ? GraphicsBackend.wined3d : graphics.resolved
-        return LogCollector.reportBlock((submission.map { [("kind", "profile"), ("test", $0)] } ?? []) + [
+        var submission: [(String, String)] = []
+        if let rating { submission += [("kind", "profile"), ("rating", rating)] }
+        if let frames { submission.append(("frames", frames)) }
+        return LogCollector.reportBlock(submission + [
             ("app", item.app.name),
             ("profile", profile ?? "none"),
             ("store", item.app.storeID.map { "\(item.app.launcher ?? "Store") \($0)" } ?? "none"),

@@ -249,6 +249,7 @@ enum WrapperLaunch {
         do {
             let process = try manager.exeProcess(program, in: bottle, arguments: arguments)
             guard let exe = process.executableURL else { throw WineError.noWineInstallation }
+            StartedTitles.add(bottle.path.path + "|" + ([program] + arguments).joined(separator: "|"))
             startInBackground()
             startBringForward()
             if let cwd = process.currentDirectoryURL { FileManager.default.changeCurrentDirectoryPath(cwd.path) }

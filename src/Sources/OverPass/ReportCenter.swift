@@ -63,16 +63,6 @@ final class ReportCenter: NSObject, NSWindowDelegate {
                 level: overGame ? .screenSaver : .floating)
     }
 
-    /// Submit Profile…, also when its test run is over.
-    func showProfileSubmission(_ submission: ProfileSubmission) {
-        guard let manager, let profiles else { return }
-        panel?.close()
-        let view = ProfileSubmitView(submission: submission) { [weak self] in self?.panel?.close() }
-            .environment(manager)
-            .environment(profiles)
-        present(view, level: .floating)
-    }
-
     func closePanel() { panel?.close() }
 
     private func present(_ view: some View, level: NSWindow.Level) {

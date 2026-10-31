@@ -23,14 +23,15 @@ const KINDS = {
   general: { keys: ['app', 'overpass', 'wine', 'runtime', 'macos', 'mac', 'log'], logs: ['none'] },
   // A request, not a problem report: it gets `feature` instead of `report`.
   feature: { keys: ['app', 'overpass', 'macos', 'log'], logs: ['none'], label: ['feature', 'a2eeef'] },
-  // A profile to review, also not a problem report: it gets `profile`, and has passed a test run on the sender's Mac.
-  profile: { keys: ['test', 'app', 'profile', 'store', 'overpass', 'wine', 'runtime', 'graphics', 'windows', 'macos', 'mac', 'log'],
+  // A rating and the profile it ran with, to review. Also not a problem report: it gets `profile`.
+  profile: { keys: ['rating', 'app', 'profile', 'store', 'overpass', 'wine', 'runtime', 'graphics', 'windows', 'macos', 'mac', 'log'],
              logs: ['none'], label: ['profile', '5319e7'] },
 };
 const BACKENDS = 'wined3d|dxmt|d3dmetal|dxvk';
 // OverPass up to 0.6.4 writes `auto (auto)` when the Runtime isn't installed: Automatic then means Wine's own.
 const GRAPHICS = new RegExp(`^(?:auto \\((${BACKENDS}|auto)\\)|(${BACKENDS}))$`);
 // Profile IDs keep any letter or digit (a game's name can be in any script). "(changed)" and "(own)" are the app's.
+const RATINGS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const PROFILE = /^(none|[\p{L}\p{N}][\p{L}\p{N}._-]*( \((changed|own)\))?)$/u;
 // "<store name> <the store's ID for the game>".
 const STORE = /^(none|([\p{L}\p{N}][\p{L}\p{N} .&'-]*) \S+)$/u;
@@ -100,9 +101,9 @@ async function check(rawBody, released) {
   if (facts.log !== 'none' && !ATTACHED.test(body) && !RELAYED.test(body)) odd.push('The log zip isn\'t attached.');
 
   if (kind === KINDS.profile) {
-    if (given('test') && !/^ran \d+ s$/.test(facts.test)) odd.push(`The test result ${shown(facts.test)} isn't understood.`);
+    if (RATINGS.includes(facts.rating)) labels.push([`rating ${facts.rating}`, 'fbca04']);
+    else if (given('rating')) odd.push(`The rating ${shown(facts.rating)} isn't one OverPass has.`);
     if (!/^### Profile\n\n(`{3,})ini\n[\s\S]*?\n\1$/m.test(body)) odd.push("The profile's text is missing.");
-    if (!/^### Screenshot$/m.test(body)) odd.push("The test run's screenshot is missing.");
   }
 
   if (kind === KINDS.crash) labels.push(['app crash', 'b60205']);

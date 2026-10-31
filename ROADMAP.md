@@ -22,7 +22,7 @@ The order can change as we test real games. Want to help it along? [Support Over
 
 | Type | What |
 |---|---|
-| Feature | Submit Profile: test a game's settings and send them in |
+| Feature | Rate a game and send its settings in, with an optional comment |
 | Fix | "Epic Games" spelled out on covers and labels |
 | Fix | Containers from offline installers are named after the game |
 | Fix | Games started from their Mac app open in front |
@@ -107,6 +107,16 @@ one for this stretch of the roadmap.
 | Feature | One Downloads page for everything |
 | Feature | Drag games onto categories |
 
+## 0.14: Standing alone
+
+OverPass keeps working after Apple winds Rosetta down, and no longer needs Apple's D3DMetal.
+
+| Type | What |
+|---|---|
+| Support | Runs on Apple silicon without Rosetta, ready for macOS 28 |
+| Support | 32-bit games keep working without Rosetta |
+| Support | overpass-runtime covers what games use D3DMetal for, including ray tracing |
+
 ## 1.0.0: Big Picture and the new look
 
 The whole refreshed interface arrives at once, to celebrate.
@@ -126,8 +136,6 @@ Ideas we want to explore, without promises yet.
 | Type | What |
 |---|---|
 | Feature | Steam games without the Windows Steam client |
-| Support | Ray tracing |
-| Support | Running without Rosetta |
 | Feature | Native ports: use tools that turn games you own into Mac apps |
 | Feature | Emulators, with their games in your library |
 | Feature | Widescreen and frame-rate patches in game profiles |

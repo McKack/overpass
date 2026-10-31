@@ -190,9 +190,9 @@ test('a feature request gets `feature`, not `report`, also when the relay labell
 });
 
 const submitted = (facts = {}, parts = {}) => {
-  const { profile = '### Profile\n\n```ini\n[app]\nname = Astroneer\n```\n\n', shot = '### Screenshot\n\n![Screenshot](x)\n\n' } = parts;
-  return `### What it does\n\nFixes it.\n\n${profile}${shot}### Details\n\n\`\`\`text\n${
-    block({ kind: 'profile', test: 'ran 41 s', ...game({ profile: 'astroneer (own)', log: 'none' }), ...facts })}\n\`\`\`\n`;
+  const { profile = '### Profile\n\n```ini\n[app]\nname = Astroneer\n```\n\n', comment = '### Comment\n\nFixes it.\n\n' } = parts;
+  return `${comment}${profile}### Details\n\n\`\`\`text\n${
+    block({ kind: 'profile', rating: 'gold', ...game({ profile: 'astroneer (own)', log: 'none' }), ...facts })}\n\`\`\`\n`;
 };
 
 test('a submitted profile gets `profile`, not `report`, and needs no log', async () => {
@@ -200,15 +200,22 @@ test('a submitted profile gets `profile`, not `report`, and needs no log', async
   assert.deepStrictEqual([broken, odd], [[], []]);
   assert.deepStrictEqual(kind.label, ['profile', '5319e7']);
   assert.ok(labels.some(([name]) => name === 'graphics dxmt'));
+  assert.ok(labels.some(([name]) => name === 'rating gold'));
   const longer = await check(submitted({}, { profile: '### Profile\n\n````ini\nx = ```\n````\n\n' }), released);
   assert.deepStrictEqual(longer.odd, []);
 });
 
-test('a submitted profile without its test, text or screenshot is marked', async () => {
+test('a submitted profile without a rating or its text is marked', async () => {
   const odd = async (...args) => (await check(submitted(...args), released)).odd;
-  assert.match((await odd({ test: 'skipped' }))[0], /test result/);
+  assert.match((await odd({ rating: 'great' }))[0], /isn't one OverPass has/);
   assert.match((await odd({}, { profile: '' }))[0], /text is missing/);
-  assert.match((await odd({}, { shot: '' }))[0], /screenshot is missing/);
+});
+
+test('a comment and frame rates are optional on a submitted profile', async () => {
+  const { broken, odd } = await check(submitted({ frames: '58.2 fps, 1% low 41.0, 17.2 ms, p99 24.4 ms, jitter 1.3 ms, 612 s' }, { comment: '' }), released);
+  assert.deepStrictEqual([broken, odd], [[], []]);
+  const borked = await check(submitted({ rating: 'borked' }), released);
+  assert.ok(borked.labels.some(([name]) => name === 'rating borked'));
 });
 
 test('a report on OverPass is a report', async () => {

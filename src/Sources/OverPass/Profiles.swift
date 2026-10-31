@@ -76,9 +76,9 @@ struct GameProfile: Codable, Identifiable, Hashable {
             var summary: String {
                 switch self {
                 case .platinum: "Runs perfectly out of the box"
-                case .gold: "Runs well; OverPass applies the needed tweaks"
-                case .silver: "Runs, with minor issues"
-                case .bronze: "Runs, with major issues"
+                case .gold: "Fully playable with OverPass's tweaks"
+                case .silver: "Mostly playable, with minor issues"
+                case .bronze: "Starts, but crashes or has major issues"
                 case .borked: "Doesn't run"
                 case .untested: "Not tested on OverPass yet"
                 }

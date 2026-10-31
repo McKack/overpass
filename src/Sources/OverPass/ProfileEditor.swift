@@ -99,17 +99,16 @@ struct ProfileEditor: View {
         return "\(title) — \(Self.tabs.first { $0.tab == tab }?.title ?? "")"
     }
 
+    @State private var rating: GameProfile.Rating.Tier?
+    @State private var started = false
+    @State private var submitting = false
+
     private var profile: GameProfile? { profiles.profile(id: profileID) }
     private var isSteam: Bool { item.app.launcher == "Steam" && item.app.storeID != nil }
     /// What the app's own settings apply to; nil when OverPass can't tell which program runs.
     private var identity: String? {
         if isSteam, let id = item.app.storeID { return "steam-app = \(id)" }
         return item.app.programName.map { "program = \($0)" }
-    }
-
-    /// Whether there's anything of the person's own to send.
-    private var canSubmit: Bool {
-        identity != nil && (profiles.edited.contains(profileID) || profiles.custom.contains(profileID) || builtText() != text)
     }
 
     var body: some View {
@@ -196,21 +195,15 @@ struct ProfileEditor: View {
                             .frame(maxHeight: .infinity)
                         Spacer(minLength: 0)
                         VStack(alignment: .trailing, spacing: 8) {
+                            ratingRow
+                            Spacer(minLength: 0)
                             Button("Edit Artwork…") { editingArtwork = true }
+                                .buttonStyle(.bordered)
                                 .help("The cover, the icon, and how generated ones look")
                             Button("Report Issue…") {
                                 ReportCenter.shared.show(ReportContext(item: item, mode: .title, profileText: builtText()))
                             }
                                 .help("Record a log while you reproduce a problem, for a bug report")
-                            Button("Submit Profile…") {
-                                if save() {
-                                    dismiss()
-                                    ReportCenter.shared.showProfileSubmission(ProfileSubmission(item: item, profileID: profileID, profiles: profiles))
-                                }
-                            }
-                                .disabled(!canSubmit)
-                                .help(canSubmit ? "Saves the profile, tests it and sends it to OverPass for review"
-                                      : "Change a setting first: a profile is submitted once it differs from what OverPass has")
                         }
                         .buttonStyle(.bordered)
                         .fixedSize()
@@ -255,6 +248,41 @@ struct ProfileEditor: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// How the title ran for this person, then the button that sends that with the profile.
+    private var ratingRow: some View {
+        HStack(spacing: 6) {
+            // A menu, not a Picker: a Picker's label would be the whole line and push the buttons out of the window.
+            Menu(rating?.title ?? "Rate…") {
+                Picker("Rating", selection: $rating) {
+                    ForEach(GameProfile.Rating.Tier.allCases.filter { $0 != .untested }, id: \.self) { tier in
+                        Text("\(tier.title): \(tier.summary)").tag(GameProfile.Rating.Tier?.some(tier))
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            .fixedSize()
+            Button("Submit Rating & Profile") {
+                // A title rated as it is keeps coming from OverPass's own profile.
+                if builtText() == text || save() { submitting = true }
+            }
+            .disabled(rating == nil || !started || identity == nil)
+            .help(submitHelp)
+        }
+        .onAppear { started = manager.hasStarted(item) }
+        .sheet(isPresented: $submitting) {
+            if let rating {
+                ProfileSubmitSheet(item: item, profileID: profileID, builtProfile: builtText(), rating: rating)
+            }
+        }
+    }
+
+    private var submitHelp: String {
+        if !started { return "Run \(item.app.name) at least once first, even if it doesn't start" }
+        if rating == nil { return "Rate how \(item.app.name) runs first" }
+        return "Saves the profile and sends it with your rating to OverPass for review"
     }
 
     /// Where the title comes from, how much room its install takes and how well it runs, between the icon

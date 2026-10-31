@@ -18,8 +18,6 @@ class BottleManager {
     private var appearanceWritten: [URL: Bool] = [:]
     /// Programs running with Wine's log on, for Collect Logs (LogCollector.swift).
     var logRecordings: [LogRecording] = []
-    /// A submitted profile's test run, while it lasts (ProfileSubmit.swift).
-    var profileTest: ProfileSubmission?
 
     struct RecipeTask: Identifiable {
         let id = UUID()
@@ -99,10 +97,6 @@ class BottleManager {
                     }
                     if let index = logRecordings.firstIndex(where: { $0.bottle.path == (bottle ?? $0.bottle).path }) {
                         logRecordings[index].crashed = true
-                        continue
-                    }
-                    if let test = profileTest, test.item.bottle.path == (bottle ?? test.item.bottle).path {
-                        test.crashed = true
                         continue
                     }
                     guard let item = bottle.flatMap({ self.lastRun[$0.path] }) ?? lastRunAnywhere else { continue }
@@ -539,6 +533,7 @@ class BottleManager {
 
     func launchApp(_ app: WineApp, in bottle: Bottle) throws {
         RecentTitles.add(LibraryItem(app: app, bottle: bottle).id)
+        StartedTitles.add(LibraryItem(app: app, bottle: bottle).id)
         lastRun[bottle.path] = LibraryItem(app: app, bottle: bottle)
         lastRunAnywhere = LibraryItem(app: app, bottle: bottle)
         if bottle.isMac { return MacApps.open(app) }

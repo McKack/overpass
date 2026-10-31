@@ -12,7 +12,7 @@
 // Only reports whose details block carries a valid checksum are accepted, at most HOURLY_LIMIT per address an
 // hour. The issue has the same sections as the app repository's forms, so its check workflow treats it the same.
 // A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
-// One with "kind: profile" is a submitted profile: the text in `profile`, a required screenshot, and no log either.
+// One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and no log either.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -56,14 +56,15 @@ async function report(request, env, url, app, repo) {
   const block = String(form.get("block") || "").replace(/\r\n/g, "\n").trim();
   const zip = file(form.get("zip"));
   const shot = file(form.get("screenshot"));
-  if (!title || !what) return json({ error: "The report needs a title and what happened." }, 400);
-  if (!(await validBlock(block))) return json({ error: "The details block is missing or was changed." }, 400);
   const feature = /^kind: feature$/m.test(block);
   const submitted = /^kind: profile$/m.test(block);
+  // A submitted profile's comment is optional.
+  if (!title || (!what && !submitted)) return json({ error: "The report needs a title and what happened." }, 400);
+  if (!(await validBlock(block))) return json({ error: "The details block is missing or was changed." }, 400);
   const profile = String(form.get("profile") || "").replace(/\r\n/g, "\n").trim().slice(0, 20000);
   const withoutLog = /^log: none$/m.test(block);
   if (!zip && !withoutLog) return json({ error: "The log zip is missing." }, 400);
-  if (submitted && (!profile || !shot)) return json({ error: "A submitted profile needs its text and a screenshot." }, 400);
+  if (submitted && !profile) return json({ error: "A submitted profile needs its text." }, 400);
   if (zip && zip.size > MAX_ZIP) return json({ error: "The log zip is larger than 20 MB." }, 413);
   if (shot && (shot.size > MAX_SHOT || shot.type !== "image/jpeg"))
     return json({ error: "The screenshot must be a JPEG of at most 4 MB." }, 413);
@@ -78,7 +79,7 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    feature ? "### What would you like?" : submitted ? "### What it does" : "### What happened", "", what, "",
+    ...(submitted ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
     ...(feature || submitted ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),

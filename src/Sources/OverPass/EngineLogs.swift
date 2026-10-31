@@ -1,6 +1,6 @@
 import Foundation
 
-// What a game's engine writes about itself, for a report: the engine is told from the files in the game's folder,
+// What a game's engine writes about itself, for a report: Detection tells the engine from the game's files,
 // and its own logs and crash reports are copied next to Wine's log (the ends of long logs, the newest crashes).
 // Logs any program leaves (*.log in its folder, Windows' crash dumps) are taken too.
 enum EngineLogs {
@@ -11,29 +11,13 @@ enum EngineLogs {
     enum Engine: String {
         case unity = "Unity", unreal = "Unreal Engine", godot = "Godot", renpy = "Ren'Py", source = "Source",
              cryengine = "CryEngine", gamemaker = "GameMaker", unknown = "not recognised"
-    }
 
-    // Read and filled while the library draws, on the main thread.
-    nonisolated(unsafe) private static var detected: [URL: Engine] = [:]
-
-    /// The engine's name for the library, looked for once per folder; "Unknown" when the files don't tell.
-    static func name(of folder: URL?) -> String {
-        guard let folder else { return "Unknown" }
-        let engine = detected[folder] ?? detect(folder)
-        detected[folder] = engine
-        return engine == .unknown ? "Unknown" : engine.rawValue
-    }
-
-    static func detect(_ folder: URL) -> Engine {
-        let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { $0.lowercased() })
-        if names.contains("unityplayer.dll") || names.contains(where: { $0.hasSuffix("_data") }) { return .unity }
-        if names.contains("engine") || unrealProject(in: folder) != nil { return .unreal }
-        if names.contains(where: { $0.hasSuffix(".pck") }) { return .godot }
-        if names.contains("renpy") { return .renpy }
-        if names.contains("hl2.exe") || names.contains("bin") && names.contains(where: { $0.hasSuffix(".vpk") }) { return .source }
-        if names.contains("game.log") || names.contains("system.cfg") { return .cryengine }
-        if names.contains("data.win") { return .gamemaker }
-        return .unknown
+        /// From a Detection engine name; nil for engines whose logs aren't collected.
+        init?(key: String) {
+            guard let engine = [Engine.unity, .unreal, .godot, .renpy, .source, .cryengine, .gamemaker]
+                .first(where: { Detection.displayName(key) == $0.rawValue }) else { return nil }
+            self = engine
+        }
     }
 
     /// Copies what's relevant into `folder` and writes engine.txt saying what was found.
@@ -52,9 +36,11 @@ enum EngineLogs {
         }
         let users = (try? FileManager.default.contentsOfDirectory(at: bottle.driveC.appendingPathComponent("users"),
                                                                     includingPropertiesForKeys: nil)) ?? []
-        let engine = installFolder.map(detect) ?? .unknown
+        let install = installFolder.flatMap(Detection.root)
+        let detected = install.map(Detection.scan) ?? Detection.Result()
+        let engine = detected.engines.compactMap(Engine.init(key:)).first ?? .unknown
 
-        if let install = installFolder {
+        if let install {
             switch engine {
             case .unity:
                 // <Game>_Data/app.info holds the company and product names Unity's folders are named after.
@@ -98,11 +84,13 @@ enum EngineLogs {
             case .cryengine, .source, .gamemaker, .unknown:
                 break
             }
-            // Logs any program keeps beside itself, written in the last two days.
-            for log in newest(in: install, ext: "log", count: 3) where modifiedRecently(log) {
+        }
+        // Logs any program keeps beside itself, written in the last two days.
+        for folder in Set([install, installFolder].compactMap { $0 }) {
+            for log in newest(in: folder, ext: "log", count: 3) where modifiedRecently(log) {
                 take(log, as: log.lastPathComponent)
             }
-            for dump in newest(in: install, ext: "dmp", count: 1) where modifiedRecently(dump) {
+            for dump in newest(in: folder, ext: "dmp", count: 1) where modifiedRecently(dump) {
                 take(dump, as: dump.lastPathComponent)
             }
         }
@@ -113,7 +101,9 @@ enum EngineLogs {
                 take(dump, as: "CrashDumps/" + dump.lastPathComponent)
             }
         }
-        let summary = ["Engine: \(engine.rawValue)", "Files: " + (found.isEmpty ? "none found" : found.joined(separator: ", "))]
+        let summary = ["Engine: " + (detected.engines.first.map(Detection.displayName) ?? engine.rawValue),
+                       "Also found: " + (detected.sdks + detected.antiCheats + detected.launchers).map(Detection.displayName).joined(separator: ", "),
+                       "Files: " + (found.isEmpty ? "none found" : found.joined(separator: ", "))]
         try? summary.joined(separator: "\n").appending("\n").write(to: folder.appendingPathComponent("engine.txt"),
                                                                     atomically: true, encoding: .utf8)
     }

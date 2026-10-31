@@ -29,6 +29,8 @@ class BottleManager {
     var busyProfiles: Set<String> = []
     /// Set by the app, so a launch can apply its bottle's profile options.
     var profiles: ProfileStore?
+    /// A Detection pass is running.
+    @ObservationIgnored var detecting = false
 
     struct Launch: Identifiable {
         let id = UUID()
@@ -239,6 +241,7 @@ class BottleManager {
         applyBottleSetup()
         syncAppearance()
         applyGameRecipes()
+        refreshDetection()
     }
 
     /// Bottles that follow the Mac's light or dark look get it written to their registry when it differs, at start and

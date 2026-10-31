@@ -69,6 +69,9 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
   run on macOS; OverPass marks those red.
 - **[Are We Anti-Cheat Yet?](https://areweanticheatyet.com)** collects which games use which anti-cheat (MIT).
   OverPass downloads its list to warn before a game with an anti-cheat starts.
+- **[SteamDB's FileDetectionRuleSets](https://github.com/SteamDatabase/FileDetectionRuleSets)** (MIT) tells a game's
+  engine, middleware and anti-cheat from its file names. OverPass ships the rules, with their licence, and follows
+  their detector's second pass.
 - **[ProtonDB](https://www.protondb.com)** collects community compatibility reports, the model for OverPass's
   open profile database.
 - **[Lutris](https://lutris.net)**, **[Bottles](https://usebottles.com)** and

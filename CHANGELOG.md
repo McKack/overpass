@@ -8,6 +8,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Games started from their Mac app open in front
 - Containers made from offline installers are named after the game
 - What's New: this list, after every update
+- OverPass recognises a game's engine from its files and uses settings known to help
 - Smaller bug fixes and improvements
 
 ### Details
@@ -18,6 +19,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Games**
 - Games started from their Mac app come to the front instead of opening behind Finder.
 - Containers made from offline installers are named after the game.
+- OverPass tells a game's engine and middleware from its files, using SteamDB's open rules. A game with no settings of its own gets the settings known to help its engine. Reports and the profile editor show what was found.
 - Starting no longer shows on every Steam game, only the one being started.
 - The report hotkey no longer asks for Screen Recording: the system prompt came up over the game.
 

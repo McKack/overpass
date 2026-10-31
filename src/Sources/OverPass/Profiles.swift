@@ -431,7 +431,6 @@ class ProfileStore {
     /// One rule per profile and preset it names: the profile's game (Steam app, program) with the preset's
     /// settings. Lines that pick programs in the preset itself stay out.
     static func presetRules(_ profiles: [GameProfile], presets: [String: URL]) -> String {
-        let matchKeys: Set<String> = ["program", "steam-app", "beside", "source"]
         var out = "# Made by OverPass from the profiles' `preset` lines; changes here are overwritten.\n"
         for profile in profiles {
             var matches: [String] = []
@@ -439,17 +438,23 @@ class ProfileStore {
             if let exe = profile.launch?.executable.split(separator: "\\").last { matches.append("program = \(exe)") }
             guard !matches.isEmpty else { continue }
             for name in profile.presets {
-                guard let url = presets[name], let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-                let settings = text.components(separatedBy: .newlines).filter { line in
-                    let t = line.trimmingCharacters(in: .whitespaces)
-                    guard !t.isEmpty, !t.hasPrefix("#"), !t.hasPrefix(";"), !t.hasPrefix("["),
-                          let eq = t.firstIndex(of: "=") else { return false }
-                    return !matchKeys.contains(t[..<eq].trimmingCharacters(in: .whitespaces).lowercased())
-                }
-                out += "\n[\(profile.name): preset \(name)]\n" + (matches + settings).joined(separator: "\n") + "\n"
+                guard let url = presets[name] else { continue }
+                out += "\n[\(profile.name): preset \(name)]\n" + (matches + presetSettings(url)).joined(separator: "\n") + "\n"
             }
         }
         return out
+    }
+
+    /// A preset file's settings, without its section header and the lines saying which programs it covers.
+    static func presetSettings(_ url: URL) -> [String] {
+        let matchKeys: Set<String> = ["program", "steam-app", "beside", "source"]
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return text.components(separatedBy: .newlines).filter { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty, !t.hasPrefix("#"), !t.hasPrefix(";"), !t.hasPrefix("["),
+                  let eq = t.firstIndex(of: "=") else { return false }
+            return !matchKeys.contains(t[..<eq].trimmingCharacters(in: .whitespaces).lowercased())
+        }
     }
 
     /// Bundled profiles replaced by an edited copy.
@@ -496,6 +501,7 @@ class ProfileStore {
             rules.append(UserProfiles.generatedRule("00-preset-\(name).ini", text: (try? String(contentsOf: url, encoding: .utf8)) ?? ""))
         }
         rules.append(UserProfiles.generatedRule("00-presets-of-profiles.ini", text: Self.presetRules(profiles, presets: presets)))
+        rules.append(UserProfiles.generatedRule("00-detected.ini", text: Detection.ruleText(presets: presets)))
         UserProfiles.syncRules(rules)
         CompatRules.reload()
     }

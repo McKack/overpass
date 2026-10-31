@@ -3,7 +3,7 @@ import Foundation
 // Which games use an anti-cheat, so OverPass can say so on the tile and before the first start. It never stops a
 // game from starting. The list is AreWeAntiCheatYet's (areweanticheatyet.com, MIT), downloaded once a day and
 // matched by Steam app ID, then by title (Epic, GOG and installed games). A game the list doesn't have is still
-// caught by the anti-cheat folders and launchers it ships next to its program.
+// caught by Detection, from the anti-cheat files it ships.
 @MainActor
 enum AntiCheat {
     struct Info: Equatable {
@@ -24,35 +24,13 @@ enum AntiCheat {
     }
 
     private static var list = parse((try? Data(contentsOf: cacheURL)) ?? Data())
-    private static var scanned: [String: Info?] = [:]
 
     /// The anti-cheat a title uses, if any is known.
     static func info(for item: LibraryItem) -> Info? {
         if item.app.launcher == "Steam", let id = item.app.storeID, let info = list.bySteamID[id] { return info }
         if let info = list.byTitle[titleKey(item.app.name)] { return info }
-        guard let target = item.app.target else { return nil }
-        let folder = BottleManager.hostPath(target, in: item.bottle).deletingLastPathComponent()
-        if let cached = scanned[folder.path] { return cached }
-        let found = scan(folder)
-        scanned[folder.path] = found
-        return found
-    }
-
-    /// Anti-cheats install a folder or a launcher next to the game (or one folder up, for games in a bin folder).
-    private static func scan(_ folder: URL) -> Info? {
-        let marks: [(String, String)] = [("easyanticheat", "Easy Anti-Cheat"), ("easyanticheat_eos", "Easy Anti-Cheat"),
-                                         ("start_protected_game.exe", "Easy Anti-Cheat"), ("battleye", "BattlEye"),
-                                         ("beservice.exe", "BattlEye"), ("beservice_x64.exe", "BattlEye")]
-        var names: [String] = []
-        for dir in [folder, folder.deletingLastPathComponent()] {
-            let entries = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-            for entry in entries.map({ $0.lowercased() }) {
-                for (mark, name) in marks where (entry == mark || entry.hasPrefix(mark + "_")) && !names.contains(name) {
-                    names.append(name)
-                }
-            }
-        }
-        return names.isEmpty ? nil : Info(names: names, fromDatabase: false)
+        guard let names = Detection.result(for: item)?.antiCheats.map(Detection.displayName), !names.isEmpty else { return nil }
+        return Info(names: names, blocked: names.contains(where: kernelOnly.contains), fromDatabase: false)
     }
 
     /// Titles compared without case, punctuation or trademark signs ("Halo: The Master Chief Collection").
@@ -84,7 +62,6 @@ enum AntiCheat {
         try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: cacheURL)
         list = parsed
-        scanned = [:]
         // The list used to come through Highball's database.
         try? FileManager.default.removeItem(at: cacheURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Highball"))
     }

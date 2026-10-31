@@ -485,7 +485,9 @@ extension LibraryItem {
 
     var graphicsName: String { bottle.isMac ? "Native" : bottle.graphics.displayName }
     /// The engine the profile names, or the one the game's files tell; "Unknown" otherwise.
-    var engineName: String { app.engine ?? EngineLogs.name(of: installFolder) }
+    var engineName: String {
+        app.engine ?? Detection.result(for: self)?.engines.first.map(Detection.displayName) ?? "Unknown"
+    }
 }
 
 extension BottleManager {

@@ -298,6 +298,12 @@ struct ProfileEditor: View {
                 Text(installSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
                      ?? (item.installFolder == nil ? "Unknown" : "Counting…"))
             }
+            if let detected = Detection.result(for: item)?.engines.first {
+                GridRow {
+                    Text("Detected").foregroundStyle(.secondary)
+                    Text(Detection.displayName(detected))
+                }
+            }
             GridRow {
                 Text("Rating").foregroundStyle(.secondary)
                 RatingLabel(rating: profile?.rating ?? GameProfile.Rating())

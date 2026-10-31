@@ -5,7 +5,7 @@ import Foundation
 // first line records which version of the bundled file it was copied from, so OverPass can tell when that
 // one has changed since. Deleting the file goes back to the bundled profile.
 enum UserProfiles {
-    private static var support: URL {
+    static var support: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/OverPass")
     }
     static var directory: URL { support.appendingPathComponent("Profiles") }

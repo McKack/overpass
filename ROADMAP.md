@@ -125,6 +125,7 @@ The whole refreshed interface arrives at once, to celebrate.
 
 | Type | What |
 |---|---|
+| Support | OverPass Runtime built in: nothing extra to install, and it still updates on its own |
 | Feature | Big Picture mode for your TV |
 | Feature | Navigate OverPass with a controller |
 | Feature | New Home: a big hero banner with rows like Continue Playing and New to Your Library |

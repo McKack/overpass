@@ -39,7 +39,7 @@ You shouldn't need to know how a game was built to play it.
 | Feature | OverPass recognises a game's engine and applies known settings for it |
 | Feature | Missing components are offered when a game needs them |
 | Feature | New game profiles arrive without an app update |
-| Feature | Hundreds more games get known settings, from the open Highball database |
+| Feature | More games get known settings, from reports in the open Highball database |
 | Feature | Clearer profile editor: Direct3D, Display, Sound, Input each in their own place |
 | Feature | Games with several launch options show them in one library entry |
 

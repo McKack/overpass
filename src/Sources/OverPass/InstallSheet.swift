@@ -236,7 +236,7 @@ struct InstallSheet: View {
     }
 }
 
-/// Shown when a profile asks for a graphics component that isn't installed yet.
+/// Shown when a profile asks for a component that isn't installed yet.
 struct ComponentPrompt: View {
     @Environment(ComponentManager.self) private var components
     let component: ComponentID
@@ -279,7 +279,7 @@ struct ComponentPrompt: View {
             HStack {
                 Button("Cancel", action: onCancel)
                 Spacer()
-                Button("Continue with Default Graphics") { onContinue(.auto) }
+                Button(component == .dxmt || component == .d3dmetal ? "Continue with Default Graphics" : "Continue Without It") { onContinue(.auto) }
             }
         }
         .padding(20)

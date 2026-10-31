@@ -72,6 +72,11 @@ struct ComponentCatalog: Codable {
 
 extension ComponentID {
     /// The component's folder name in overpass-components.
+    init?(catalogID: String) {
+        guard let id = Self.allCases.first(where: { $0.catalogID == catalogID }) else { return nil }
+        self = id
+    }
+
     var catalogID: String? {
         switch self {
         case .core: nil

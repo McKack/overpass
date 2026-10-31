@@ -26,6 +26,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
     var runtimes: [String] = []
     /// Winetricks verbs installed into the bottle before the installer runs, after `runtimes`.
     var dependencies: [String] = []
+    /// Shared components the program needs besides its graphics backends' (`component = runtime`, the catalog's names).
+    var components: [ComponentID] = []
     var environment: [String: String] = [:]
     /// Same syntax as WINEDLLOVERRIDES values, e.g. ["d3d11": "n,b"].
     var dllOverrides: [String: String] = [:]
@@ -213,6 +215,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         installer = try c.decodeIfPresent(InstallerSpec.self, forKey: .installer)
         runtimes = try c.decodeIfPresent([String].self, forKey: .runtimes) ?? []
         dependencies = try c.decodeIfPresent([String].self, forKey: .dependencies) ?? []
+        components = try c.decodeIfPresent([ComponentID].self, forKey: .components) ?? []
         environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         dllOverrides = try c.decodeIfPresent([String: String].self, forKey: .dllOverrides) ?? [:]
         graphics = try c.decodeIfPresent(GraphicsBackend.self, forKey: .graphics) ?? .auto
@@ -220,6 +223,11 @@ struct GameProfile: Codable, Identifiable, Hashable {
         launch = try c.decodeIfPresent(LaunchSpec.self, forKey: .launch)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         sources = try c.decodeIfPresent([Source].self, forKey: .sources) ?? []
+    }
+
+    /// Every component the program needs: its own list, then what the backends it asks for come from.
+    func neededComponents(graphics: GraphicsBackend) -> [ComponentID] {
+        (components + ([graphics] + ruleGraphics).compactMap(\.component)).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
 
     /// Reads a profile from its INI file; nil when the file has no [app] section (rules only).
@@ -280,6 +288,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         p.bottle.group = first(app, "container-group") ?? first(app, "bottle-group")
         p.runtimes = all(app, "runtime")
         p.dependencies = all(app, "dependency")
+        p.components = all(app, "component").compactMap(ComponentID.init(catalogID:))
         for e in all(app, "env") { if let (k, v) = pair(e, "=") { p.environment[k] = v } }
         for d in all(app, "dll") { if let (k, v) = pair(d, "=") { p.dllOverrides[k] = v } }
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto

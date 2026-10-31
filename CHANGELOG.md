@@ -7,6 +7,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Add ready-made settings to a game from its profile
 - The profile editor shows the settings a game already gets, and where each comes from
 - Older 32-bit games get faster math without any setting
+- OverPass offers to download what a game needs when you start it
 - Smaller bug fixes and improvements
 
 ### Details
@@ -19,6 +20,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Games**
 - Faster x87 math is on by default for 32-bit games, once OverPass has checked it works on your version of macOS. A game's profile can turn it off.
 - A game started from its own app icon now keeps a last-run log, like one started from the library.
+- Starting a program that needs a missing component now offers to get it first, instead of failing inside Windows. Installing one fetches it. Profiles can name these with `component =`.
+- Continuing an install with default graphics no longer asks again for a component.
 
 **Reports**
 - Reports and ratings name the graphics backend a game really loaded and whether it ran as 32-bit or 64-bit, not only the container's setting.

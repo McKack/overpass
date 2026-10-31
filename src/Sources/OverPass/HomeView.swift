@@ -198,7 +198,9 @@ struct HomeView: View {
             if let exe = profile.launch?.executable {
                 let path = manager.hostPath(exe, in: bottle)
                 if FileManager.default.fileExists(atPath: path.path) {
-                    try manager.runExe(path.path, in: bottle, arguments: profile.launch?.arguments ?? [], name: profile.name)
+                    try manager.whenReady(profile, in: bottle, name: profile.name) {
+                        try manager.runExe(path.path, in: bottle, arguments: profile.launch?.arguments ?? [], name: profile.name)
+                    }
                     return
                 }
             }

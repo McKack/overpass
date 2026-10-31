@@ -41,6 +41,7 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `bottle-group` | Apps with the same group share one container. `container-group` works too | no |
 | `runtime` | Runtime to install into the container: `vcrun`, `corefonts`, `d3dcompiler_47`, `cjkfonts` or `directx_jun2010` | yes |
 | `dependency` | Another profile this app needs | yes |
+| `component` | A shared component the app needs besides its graphics backend: `runtime`, `d3dmetal`, `winetricks`, `x87sidecar` or `dotnet-web`. A missing one is fetched at install and offered at launch. A `graphics` line asks for its own component, so it needs no `component` line | yes |
 | `env` | `NAME=value`, set for the app | yes |
 | `dll` | `name=mode` DLL override | yes |
 | `graphics` | `dxmt`, `d3dmetal`, `wined3d`, `dxvk` or `auto` (default) | no |

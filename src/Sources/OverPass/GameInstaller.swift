@@ -52,14 +52,15 @@ class GameInstaller {
             fail("Wine isn't installed. Install it from Components first.")
             return
         }
-        // OverPass Runtime is a plain download, so fetch it here; D3DMetal has to be imported, so ask.
-        let wanted = ([graphics] + (profile?.ruleGraphics ?? [])).compactMap(\.component)
-        for needed in Set(wanted) where !components.isInstalled(needed) {
-            if needed == .dxmt {
+        // Most components are plain downloads, so fetch them here; D3DMetal has to be imported, so ask. Someone who
+        // chose to go on without a component has answered already.
+        let wanted = graphicsOverride == nil ? profile?.neededComponents(graphics: graphics) ?? graphics.component.map { [$0] } ?? [] : []
+        for needed in wanted where !components.isInstalled(needed) {
+            if needed != .d3dmetal {
                 phase = .running
-                appendLog("Downloading OverPass Runtime…\n")
-                await components.install(.dxmt)
-                if components.isInstalled(.dxmt) { continue }
+                appendLog("Downloading \(needed.name)…\n")
+                await components.install(needed)
+                if components.isInstalled(needed) { continue }
             }
             phase = .needsComponent(needed)
             return

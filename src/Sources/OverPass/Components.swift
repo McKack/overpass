@@ -4,7 +4,7 @@ import CryptoKit
 
 // Shared components that live outside bottles, installed by the setup wizard or later from the Components window.
 // Per-bottle runtimes (vcrun, corefonts, .NET…) are winetricks verbs, see GameInstaller.
-enum ComponentID: String, CaseIterable, Identifiable {
+enum ComponentID: String, CaseIterable, Identifiable, Codable {
     case core, wine, dxmt, addons, winetricks, d3dmetal, x87sidecar, legendary, gogdl, xodus
     var id: String { rawValue }
 
@@ -638,11 +638,12 @@ class ComponentManager {
     }
 
     enum ComponentError: LocalizedError {
-        case noWine, badArchive, noD3DMetal
+        case noWine, badArchive, noD3DMetal, notInstalled(String)
         var errorDescription: String? {
             switch self {
             case .noWine: "Install Wine first."
             case .badArchive: "The download didn't contain the expected files."
+            case .notInstalled(let reason): reason
             case .noD3DMetal: "No D3DMetal found. Choose the Game Porting Toolkit .dmg from developer.apple.com (it contains redist/lib/external/D3DMetal.framework)."
             }
         }

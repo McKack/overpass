@@ -535,6 +535,56 @@ class BottleManager {
     }
 
     func launchApp(_ app: WineApp, in bottle: Bottle) throws {
+        let item = LibraryItem(app: app, bottle: bottle)
+        try whenReady(profiles?.profile(for: item), in: bottle, name: app.name) { [self] in try startApp(app, in: bottle) }
+    }
+
+    /// Runs `start` once what the title needs is here. A missing component is offered first, not left to fail
+    /// inside Wine. Wrappers can't get here: they start without the app.
+    func whenReady(_ profile: GameProfile?, in bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
+        guard !bottle.isMac, let components = ComponentManager.current else { return try start() }
+        let needed = (profile?.neededComponents(graphics: profile?.graphics ?? .auto) ?? []) + [bottle.graphics.component].compactMap { $0 }
+        var missing: [ComponentID] = []
+        for id in needed where !missing.contains(id) && !components.isInstalled(id) && components.blocker(for: id) == nil {
+            missing.append(id)
+        }
+        if missing.isEmpty { return try start() }
+
+        let names = missing.map(\.name).formatted(.list(type: .and))
+        let alert = NSAlert()
+        alert.messageText = "\(name) needs \(names)"
+        alert.informativeText = missing.map(\.summary).joined(separator: "\n")
+        alert.addButton(withTitle: missing == [.d3dmetal] ? "Import…" : "Download and Start")
+        alert.addButton(withTitle: "Start Without It")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate()
+        switch alert.runModal() {
+        case .alertSecondButtonReturn: return try start()
+        case .alertThirdButtonReturn: return
+        default: break
+        }
+
+        let task = RecipeTask(message: "Getting \(names)…")
+        recipeTasks.append(task)
+        Task {
+            // A component update running in the background would make install() do nothing.
+            while components.busy != nil { try? await Task.sleep(for: .milliseconds(200)) }
+            for id in missing { await components.install(id) }
+            do {
+                guard missing.allSatisfy(components.isInstalled) else {
+                    throw ComponentManager.ComponentError.notInstalled(components.lastError ?? "It wasn't installed.")
+                }
+                recipeTasks.removeAll { $0.id == task.id }
+                try start()
+            } catch {
+                if let i = recipeTasks.firstIndex(where: { $0.id == task.id }) {
+                    recipeTasks[i].failed = "\(name) couldn't start: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func startApp(_ app: WineApp, in bottle: Bottle) throws {
         RecentTitles.add(LibraryItem(app: app, bottle: bottle).id)
         StartedTitles.add(LibraryItem(app: app, bottle: bottle).id)
         lastRun[bottle.path] = LibraryItem(app: app, bottle: bottle)

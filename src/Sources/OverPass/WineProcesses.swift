@@ -53,8 +53,13 @@ struct WineProcess {
 
     /// The processes running in one bottle.
     static func all(under wineRoot: URL, in bottle: URL) -> [WineProcess] {
+        running(in: bottle, among: all(under: wineRoot))
+    }
+
+    /// Those of `processes` that run in one bottle.
+    static func running(in bottle: URL, among processes: [WineProcess]) -> [WineProcess] {
         let prefix = bottle.resolvingSymlinksInPath().path
-        return all(under: wineRoot).filter {
+        return processes.filter {
             let location = URL(fileURLWithPath: $0.location).resolvingSymlinksInPath().path
             return location == prefix || location.hasPrefix(prefix + "/")
         }

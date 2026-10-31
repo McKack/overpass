@@ -626,8 +626,9 @@ struct SidebarView: View {
         // Which clients have something running, so their play buttons can't start a second copy.
         .task {
             while !Task.isCancelled {
+                let processes = await manager.wineProcesses()
                 runningLaunchers = Set(manager.installedClients(from: profiles).compactMap { launcher in
-                    manager.bottle(for: launcher).flatMap { manager.runningPrograms(in: $0).isEmpty ? nil : launcher.id }
+                    manager.bottle(for: launcher).flatMap { manager.runningPrograms(in: $0, among: processes).isEmpty ? nil : launcher.id }
                 })
                 try? await Task.sleep(for: .seconds(2))
             }

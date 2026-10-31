@@ -527,7 +527,17 @@ class BottleManager {
     /// Windows programs running in the bottle, apart from Wine's own background services.
     func runningPrograms(in bottle: Bottle) -> [WineProcess] {
         guard let root = wineRoot else { return [] }
-        return WineProcess.all(under: root, in: bottle.path).filter { p in
+        return runningPrograms(in: bottle, among: WineProcess.all(under: root))
+    }
+
+    /// Every Wine process, read off the main thread: polling this every few seconds would otherwise hitch the UI.
+    func wineProcesses() async -> [WineProcess] {
+        guard let root = wineRoot else { return [] }
+        return await Task.detached { WineProcess.all(under: root) }.value
+    }
+
+    func runningPrograms(in bottle: Bottle, among processes: [WineProcess]) -> [WineProcess] {
+        WineProcess.running(in: bottle.path, among: processes).filter { p in
             let name = (p.commandLine.split(separator: " ").first.map(String.init) ?? "")
                 .replacingOccurrences(of: "\\", with: "/")
             return !Self.wineServices.contains((name as NSString).lastPathComponent.lowercased())

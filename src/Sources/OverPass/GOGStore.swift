@@ -454,7 +454,8 @@ final class GOGStore: StoreLibrary {
               let tasks = info["playTasks"] as? [[String: Any]] else { return [] }
         let primaryFirst = tasks.filter { $0["isPrimary"] as? Bool == true } + tasks.filter { $0["isPrimary"] as? Bool != true }
         return primaryFirst.compactMap { task in
-            guard task["type"] as? String == "FileTask", let name = task["name"] as? String, let path = task["path"] as? String,
+            guard task["type"] as? String == "FileTask", task["isHidden"] as? Bool != true,
+                  let name = task["name"] as? String, let path = task["path"] as? String,
                   let file = WindowsIcons.caseInsensitive(folder, path.replacingOccurrences(of: "\\", with: "/")) else { return nil }
             let program = file.pathExtension.lowercased() == "exe"
             let kind: LaunchOption.Kind = !program || task["category"] as? String == "document" ? .document

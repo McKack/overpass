@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         badgeTask = Task { [weak self] in
             while !Task.isCancelled {
                 if let self, let manager = self.manager {
-                    let count = self.running(in: manager).count
+                    let count = self.running(in: manager, among: await manager.wineProcesses()).count
                     NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
                 }
                 try? await Task.sleep(for: .seconds(5))
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let library = manager.library
 
         // Running titles: bring OverPass forward with them, or end one that hangs.
-        let running = running(in: manager)
+        let running = running(in: manager, among: manager.wineRoot.map(WineProcess.all(under:)) ?? [])
         if !running.isEmpty {
             menu.addItem(.sectionHeader(title: "Running"))
             for (item, processes) in running {
@@ -104,10 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Each library title with a program running in its bottle, matched by the program's name.
-    private func running(in manager: BottleManager) -> [(LibraryItem, [WineProcess])] {
+    private func running(in manager: BottleManager, among all: [WineProcess]) -> [(LibraryItem, [WineProcess])] {
         var found: [(LibraryItem, [WineProcess])] = []
         for bottle in manager.bottles where !bottle.isMac {
-            let processes = manager.runningPrograms(in: bottle)
+            let processes = manager.runningPrograms(in: bottle, among: all)
             guard !processes.isEmpty else { continue }
             for item in manager.library where item.bottle.path == bottle.path {
                 guard let target = item.app.target else { continue }

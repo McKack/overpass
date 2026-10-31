@@ -18,6 +18,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Components**
 - Updating Windows support removes old versions, keeping the current one and the one before it.
 
+**Game fixes**
+- Settings for 12 more games from community reports, such as the launch switch a game needs to start. Not tested on OverPass yet.
+
 ## 0.6.7 - 2026-10-31
 
 - Rate a game and send in its settings, with a comment if you like

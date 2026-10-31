@@ -66,7 +66,8 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
 - **[Highball](https://gethighball.com)** shares OverPass's goals. Its
   [credits page](https://gethighball.com/docs/credits/) inspired this one. Its
   [open compatibility database](https://github.com/gauthierpiarrette/highball-db) found which anti-cheats never
-  run on macOS; OverPass marks those red.
+  run on macOS; OverPass marks those red. A few presets also list games from its CC0 reports, marked in each
+  preset file.
 - **[Are We Anti-Cheat Yet?](https://areweanticheatyet.com)** collects which games use which anti-cheat (MIT).
   OverPass downloads its list to warn before a game with an anti-cheat starts.
 - **[SteamDB's FileDetectionRuleSets](https://github.com/SteamDatabase/FileDetectionRuleSets)** (MIT) tells a game's

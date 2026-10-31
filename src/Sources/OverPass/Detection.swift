@@ -227,9 +227,11 @@ enum Detection {
             }
             return out
         }.value
+        let before = store.scans.count
         store.scans.merge(scanned) { $1 }
         let current = Set(roots.map(\.path))
         store.scans = store.scans.filter { current.contains($0.key) }
+        let dropped = store.scans.count != before + scanned.keys.filter { known[$0] == nil }.count
         var rules: [Game] = []
         for item in games where !ruled(item) {
             guard let result = result(for: item), let target = item.app.target else { continue }
@@ -244,7 +246,7 @@ enum Detection {
         rules.sort { $0.name < $1.name }
         let changed = rules != store.games
         store.games = rules
-        if changed || !scanned.isEmpty, let data = try? JSONEncoder().encode(store) { try? data.write(to: storeURL, options: .atomic) }
+        if changed || dropped || !scanned.isEmpty, let data = try? JSONEncoder().encode(store) { try? data.write(to: storeURL, options: .atomic) }
         return changed
     }
 }

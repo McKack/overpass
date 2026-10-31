@@ -52,6 +52,16 @@ class SetupManager {
             isPresent: { BottleManager.findWine() != nil }
         ),
         Dependency(
+            id: "runtime",
+            name: "OverPass Runtime (recommended)",
+            description: "Lets Windows games draw with your Mac's graphics chip, for much better speed (~14 MB)",
+            required: false,
+            source: .component(.dxmt),
+            isPresent: {
+                FileManager.default.fileExists(atPath: ComponentManager.dxmtDir.appendingPathComponent("x86_64-windows/d3d11.dll").path)
+            }
+        ),
+        Dependency(
             id: "addons",
             name: "Wine Mono & Gecko",
             description: "Wine's .NET runtime and HTML engine, so containers don't ask to download them (~190 MB)",

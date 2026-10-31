@@ -21,6 +21,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Starting no longer shows on every Steam game, only the one being started.
 - The report hotkey no longer asks for Screen Recording: the system prompt came up over the game.
 
+**Setup**
+- The setup wizard offers OverPass Runtime, the recommended way to run game graphics.
+
 **Library**
 - Help › What's New shows the latest updates, and OverPass opens it once after each update.
 - The right-click menu keeps Add to Favorites and Add to Category together, with Hide after them.

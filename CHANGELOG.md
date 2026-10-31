@@ -16,6 +16,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - A GOG game stays on the page with its progress bar while it sets up after the download.
 - GOG games show once: their manuals, safe modes and other installer shortcuts no longer show as titles.
 - GOG games list their launch options from the game's own data: other modes and helpers under Launch Options, manuals too. Choose one for good with Always start this one.
+- Epic games with more than one way to start ask which one when you press Play, the same as GOG games.
 - Shortcuts to manuals and readmes no longer show as titles in any container.
 - Leaving the GOG page while it refreshes no longer shows "cancelled".
 

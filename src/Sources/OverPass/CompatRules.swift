@@ -31,6 +31,7 @@ struct CompatRule: Hashable {
     func matches(program path: String) -> Bool {
         let normalized = path.replacingOccurrences(of: "/", with: "\\").lowercased()
         let named = programs.contains { entry in
+            if entry == "*" { return true }
             let suffix = "\\" + entry.replacingOccurrences(of: "/", with: "\\")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\\")).lowercased()
             return ("\\" + normalized).hasSuffix(suffix)

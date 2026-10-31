@@ -132,8 +132,10 @@ enum LauncherGames {
         return EpicStore.installed().compactMap { game in
             guard game.path.standardizedFileURL.path.hasPrefix(root) else { return nil }
             let exe = game.path.appendingPathComponent(game.executable.replacingOccurrences(of: "\\", with: "/"))
-            return WineApp(name: game.title, executable: exe.path, launcher: EpicStore.launcherName,
-                           storeID: game.appName, target: windowsPath(exe, bottlePath: bottlePath), backend: .legendary)
+            var app = WineApp(name: game.title, executable: exe.path, launcher: EpicStore.launcherName,
+                              storeID: game.appName, target: windowsPath(exe, bottlePath: bottlePath), backend: .legendary)
+            app.launchOptions = EpicStore.launchOptions(game.appName, title: game.title, exe: exe)
+            return app
         }
     }
 

@@ -604,22 +604,24 @@ class BottleManager {
         lastRun[bottle.path] = LibraryItem(app: app, bottle: bottle)
         lastRunAnywhere = LibraryItem(app: app, bottle: bottle)
         if bottle.isMac { return MacApps.open(app) }
+        if app.backend == .legendary, let appName = app.storeID {
+            return launchEpic(app, appName: appName, extra: option?.arguments ?? [], in: bottle)
+        }
         if let option { return try runExe(option.path, in: bottle, arguments: option.arguments, name: app.name) }
-        if app.backend == .legendary, let appName = app.storeID { return launchEpic(app, appName: appName, in: bottle) }
         if app.backend == .xodus, let id = app.storeID { return launchXbox(app, id: id, in: bottle) }
         try runExe(app.executable, in: bottle, arguments: app.arguments, name: app.name)
     }
 
     /// An Epic game installed through Legendary: Legendary fetches a one-time launch token, then the game
     /// runs like any other program in the bottle.
-    private func launchEpic(_ app: WineApp, appName: String, in bottle: Bottle) {
+    private func launchEpic(_ app: WineApp, appName: String, extra: [String] = [], in bottle: Bottle) {
         let task = RecipeTask(message: "Getting \(app.name) ready to start…")
         recipeTasks.append(task)
         Task {
             do {
                 let launch = try await EpicStore.launchParameters(appName)
                 recipeTasks.removeAll { $0.id == task.id }
-                try runExe(launch.exe, in: bottle, arguments: app.arguments + launch.arguments, name: app.name,
+                try runExe(launch.exe, in: bottle, arguments: app.arguments + extra + launch.arguments, name: app.name,
                            extraEnv: launch.environment)
             } catch {
                 if let i = recipeTasks.firstIndex(where: { $0.id == task.id }) {

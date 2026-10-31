@@ -302,6 +302,24 @@ final class EpicStore: StoreLibrary {
 
     // MARK: Launch
 
+    /// Epic's list of other ways to start a game (`extraLaunchOption_001_Name` and `_Args` in the catalog data), after
+    /// the normal start. Empty when it lists none.
+    nonisolated static func launchOptions(_ appName: String, title: String, exe: URL) -> [LaunchOption] {
+        let file = configDir.appendingPathComponent("metadata/\(appName).json")
+        guard let data = try? Data(contentsOf: file),
+              let entry = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let metadata = entry["metadata"] as? [String: Any],
+              let attributes = metadata["customAttributes"] as? [String: [String: Any]] else { return [] }
+        let extra = attributes.keys.filter { $0.hasPrefix("extraLaunchOption_") && $0.hasSuffix("_Name") }.sorted().compactMap { key -> LaunchOption? in
+            let option = key.dropLast("_Name".count)
+            let platform = attributes["\(option)_PlatformRestriction"]?["value"] as? String
+            guard platform == nil || platform == "Windows", let name = attributes[key]?["value"] as? String else { return nil }
+            let arguments = (attributes["\(option)_Args"]?["value"] as? String ?? "").split(separator: " ").map(String.init)
+            return LaunchOption(name: name, path: exe.path, arguments: arguments, kind: .play)
+        }
+        return extra.isEmpty ? [] : [LaunchOption(name: title, path: exe.path, kind: .play)] + extra
+    }
+
     /// The program, arguments and environment for one start: Legendary asks Epic for a fresh one-time
     /// exchange code each time (`launch --json --no-wine` prints them without running anything).
     nonisolated static func launchParameters(_ appName: String) async throws -> (exe: String, arguments: [String], environment: [String: String]) {

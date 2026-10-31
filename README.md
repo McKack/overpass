@@ -43,7 +43,7 @@ Sign in to GOG or Epic Games and your whole library shows up:
 
 ## Open source
 
-OverPass is [GPL-3.0](LICENSE), made by [Arctic Imaginarium](https://arctim.no). Bug reports, test results and game profiles are welcome: see [CONTRIBUTING](CONTRIBUTING.md). What's coming is in the [ROADMAP](ROADMAP.md).
+OverPass is [GPL-3.0](LICENSE), made by [Arctic Imaginarium](https://arctim.no). Bug reports, test results and game profiles are welcome: see [CONTRIBUTING](CONTRIBUTING.md). What's coming is in the [ROADMAP](ROADMAP.md), what changed in the [CHANGELOG](CHANGELOG.md).
 
 It builds on [overpass-wine](https://github.com/McKack/overpass-wine), [overpass-runtime](https://github.com/McKack/overpass-runtime), Wine, DXMT and many other projects, which are free for anyone to use. See [CREDITS](CREDITS.md), which also lists trademarks, and please support those projects too.
 

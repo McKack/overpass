@@ -19,6 +19,8 @@ rm -rf "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 cp -R ../profiles "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 # The Credits window shows the repository's CREDITS.md.
 cp ../CREDITS.md "$APP/Contents/Resources/CREDITS.md"
+# The What's New window shows the plain lists from the repository's CHANGELOG.md.
+cp ../CHANGELOG.md "$APP/Contents/Resources/CHANGELOG.md"
 # Signed with the project's own certificate ("OverPass", self-signed, in the login keychain) when it's there:
 # macOS ties privacy permissions (Screen Recording, Desktop and Documents) to that certificate, so they last
 # across builds and updates. Without it the build is signed ad hoc and loses them on every build.

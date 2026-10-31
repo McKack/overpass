@@ -39,6 +39,7 @@ struct OverPassApp: App {
                     ContentView()
                 } else {
                     SetupWizardView {
+                        WhatsNew.markSeen()
                         hasCompletedSetup = true
                     }
                 }
@@ -83,6 +84,11 @@ struct OverPassApp: App {
         }
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
+
+        Window("What's New", id: WhatsNew.windowID) {
+            WhatsNewView()
+        }
+        .windowResizability(.contentSize)
 
         Window("Credits", id: "credits") {
             CreditsView()
@@ -145,6 +151,7 @@ struct ContentView: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var selection: SidebarItem? = .home
     /// The page open when OverPass last closed, opened again at the next start while it still exists.
     @AppStorage("lastPage") private var lastPage = "home"
@@ -411,7 +418,10 @@ struct ContentView: View {
             }
         }
         .navigationTitle("OverPass")
-        .task { UpdateCheck.openComponents = { SettingsTab.open(.components, with: openSettings) } }
+        .task {
+            UpdateCheck.openComponents = { SettingsTab.open(.components, with: openSettings) }
+            WhatsNew.openAfterUpdate(with: openWindow)
+        }
         .sheet(item: $connecting) { connection in
             if let store = BuiltInLibrary.store(for: connection.group) {
                 StoreConnectSheet(store: store) { signedIn in
@@ -460,6 +470,7 @@ struct ContentView: View {
         // Games installed through Steam or Epic while OverPass was in the background show up on return.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             manager.loadBottles()
+            WhatsNew.openAfterUpdate(with: openWindow)
         }
     }
 }

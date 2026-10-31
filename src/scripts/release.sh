@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds OverPass, zips it and publishes it as a GitHub release, which the app's update check finds.
 #   release.sh <version> [notes file]
+# The notes default to the version's section of CHANGELOG.md, which must exist: the app shows it after updating.
 # Publishes to McKack/overpass as overpass-<version>.zip. The lowercase name matters: OverPass 0.3.0 and older
 # look for "OverPass…zip" and can't take the new bundle ID, so they skip this repo and update to 0.3.2 in
 # McKack/overpass-releases instead (see AppUpdate.swift). Set OVERPASS_RELEASE_REPO to publish elsewhere.
@@ -12,7 +13,8 @@ NOTES=${2:-}
 REPO=${OVERPASS_RELEASE_REPO:-McKack/overpass}
 BUILD=$(git rev-list --count HEAD)
 
-[ -z "$(git status --porcelain -- .)" ] || { echo "Commit your changes first." >&2; exit 1; }
+[ -z "$(git status --porcelain -- . ../CHANGELOG.md)" ] || { echo "Commit your changes first." >&2; exit 1; }
+grep -q "^## $VERSION " ../CHANGELOG.md || { echo "No $VERSION section in CHANGELOG.md" >&2; exit 1; }
 [ -z "$NOTES" ] || [ -f "$NOTES" ] || { echo "No notes file at $NOTES" >&2; exit 1; }
 
 # A run that stopped after tagging (say, at the upload) picks up from the upload.
@@ -22,21 +24,27 @@ fi
 
 if [ -z "${RESUME:-}" ]; then
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $BUILD" Support/Info.plist
+sed -i '' "s/^## $VERSION - Unreleased$/## $VERSION - $(date +%F)/" ../CHANGELOG.md
 scripts/build-app.sh
 
 ZIP=build/overpass-$VERSION.zip
 rm -f "$ZIP"
 ditto -c -k --keepParent build/OverPass.app "$ZIP"
 
-if [ -n "$(git status --porcelain -- Support/Info.plist)" ]; then
-    git commit -q -m "OverPass $VERSION" -- Support/Info.plist
+if [ -n "$(git status --porcelain -- Support/Info.plist ../CHANGELOG.md)" ]; then
+    git commit -q -m "OverPass $VERSION" -- Support/Info.plist ../CHANGELOG.md
 fi
 git tag "v$VERSION"
 git push -q origin HEAD "v$VERSION"
 fi
 ZIP=build/overpass-$VERSION.zip
 
+if [ -z "$NOTES" ]; then
+    NOTES=build/notes-$VERSION.md
+    awk -v v="$VERSION" '$1 == "##" { on = ($2 == v); next } on' ../CHANGELOG.md > "$NOTES"
+fi
+
 ARGS=(--repo "$REPO" --title "OverPass $VERSION")
-if [ -n "$NOTES" ]; then ARGS+=(--notes-file "$NOTES"); else ARGS+=(--notes "OverPass $VERSION"); fi
+ARGS+=(--notes-file "$NOTES")
 gh release create "v$VERSION" "$ZIP" "${ARGS[@]}"
 echo "Released OverPass $VERSION (build $BUILD) to $REPO"

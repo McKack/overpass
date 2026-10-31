@@ -477,6 +477,7 @@ struct OverPassCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
+            Button("What's New") { openWindow(id: WhatsNew.windowID) }
             Button("Check for Updates…") { UpdateCheck.checkNow(with: openSettings) }
             Divider()
             Link("OverPass Releases", destination: URL(string: "https://github.com/McKack/overpass/releases")!)

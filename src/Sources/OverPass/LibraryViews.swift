@@ -535,7 +535,6 @@ struct LibraryItemMenu: View {
         Button(Favorites.ids(favorites).contains(item.id) ? "Remove from Favorites" : "Add to Favorites") {
             favorites = Favorites.toggled(item.id, in: favorites)
         }
-        Button(Hidden.ids(hidden).contains(item.id) ? "Unhide" : "Hide") { hidden = Hidden.toggled(item.id, in: hidden) }
         Menu("Add to Category") {
             ForEach(UserCategories.list(categories)) { category in
                 Toggle(category.name, isOn: Binding(
@@ -549,6 +548,7 @@ struct LibraryItemMenu: View {
                 }
             }
         }
+        Button(Hidden.ids(hidden).contains(item.id) ? "Unhide" : "Hide") { hidden = Hidden.toggled(item.id, in: hidden) }
         Divider()
         if item.bottle.isMac {
             Button("Show in Finder") { NSWorkspace.shared.selectFile(item.app.executable, inFileViewerRootedAtPath: "") }

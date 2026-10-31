@@ -23,9 +23,11 @@ The order can change as we test real games. Want to help it along? [Support Over
 | Type | What |
 |---|---|
 | Feature | Rate a game and send its settings in, with an optional comment |
+| Feature | What's New: a short list after every update, and a full changelog |
 | Fix | "Epic Games" spelled out on covers and labels |
 | Fix | Containers from offline installers are named after the game |
 | Fix | Games started from their Mac app open in front |
+| Fix | Tidier right-click menu: Favorites and Category together, Hide after them |
 
 ## 0.7: Just Works
 

@@ -30,6 +30,8 @@ const KINDS = {
 const BACKENDS = 'wined3d|dxmt|d3dmetal|dxvk';
 // OverPass up to 0.6.4 writes `auto (auto)` when the Runtime isn't installed: Automatic then means Wine's own.
 const GRAPHICS = new RegExp(`^(?:auto \\((${BACKENDS}|auto)\\)|(${BACKENDS}))$`);
+// What the game's process really loaded, in newer reports: "mtld3d, 32-bit", "dxmt wined3d, 64-bit". First loaded first.
+const REAL_BACKEND = /^([a-z0-9]+)(?: [a-z0-9]+)*, (?:32|64)-bit$/;
 // Profile IDs keep any letter or digit (a game's name can be in any script). "(changed)" and "(own)" are the app's.
 const RATINGS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const PROFILE = /^(none|[\p{L}\p{N}][\p{L}\p{N}._-]*( \((changed|own)\))?)$/u;
@@ -87,7 +89,10 @@ async function check(rawBody, released) {
 
   const graphics = (facts.graphics || '').match(GRAPHICS);
   if (given('graphics') && !graphics) odd.push(`The graphics ${shown(facts.graphics)} aren't one OverPass has.`);
-  if (graphics) {
+  const real = (facts.backend || '').match(REAL_BACKEND);
+  if (given('backend') && !real) odd.push(`The backend ${shown(facts.backend)} isn't understood.`);
+  if (real) labels.push([`graphics ${real[1]}`, '1d76db']);
+  else if (graphics) {
     const backend = graphics[2] || graphics[1];
     labels.push([`graphics ${backend === 'auto' ? 'wined3d' : backend}`, '1d76db']);
   }

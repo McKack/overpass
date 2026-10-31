@@ -32,7 +32,7 @@ library and choose **Edit Profile…**.
 If none of this helps and the program works on Windows:
 
 1. Right-click the program and choose **Report Issue…**. **Start** runs it with Wine's log on: do what causes the
-   problem, then quit it. **Send Last Logs** uses the log of its last run instead (errors only, no new run).
+   problem, then quit it. **Send Last Logs** uses the log of its last run instead (errors and loaded DLLs, no new run).
    Either way the log is saved in a zip on your Desktop, without your name in it. In the crash dialog,
    **Show Details → Save As…** saves the crash details too.
 2. OverPass opens a new issue with your Mac, macOS, OverPass, Wine and graphics details filled in. Say what

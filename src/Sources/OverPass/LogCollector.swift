@@ -6,7 +6,7 @@ import CryptoKit
 // Report Issue (ReportCenter.swift): can start an app with Wine's log on, and when it has quit puts that log
 // together with what's needed to make sense of it — the Mac, the Wine and runtime versions, the app's profile,
 // its bottle's settings and its engine's own logs — in one zip, with the user's name taken out. Every ordinary
-// run also keeps Wine's errors in a last-run log, so a report can be sent without running the app again. The
+// run also keeps Wine's errors and loaded DLLs in a last-run log, so a report can be sent without running the app again. The
 // report block carries a checksum the report repository's issue check recomputes.
 
 struct LogRecording: Identifiable {
@@ -50,8 +50,9 @@ enum LogCollector {
     /// (Windows' own or Wine's), and exceptions, with times and thread IDs.
     nonisolated static let defaultChannels = "+timestamp,+pid,+tid,err+all,+loaddll,+seh,fixme-all"
 
-    /// What an ordinary run keeps in its last-run log: errors only, which costs next to nothing.
-    nonisolated static let lastRunChannels = "err+all,fixme-all"
+    /// What an ordinary run keeps in its last-run log: errors and which DLLs each process loads, which costs next
+    /// to nothing and tells a report what a game really ran on (`backendFact`).
+    nonisolated static let lastRunChannels = "+pid,err+all,+loaddll,fixme-all"
 
     /// What a run keeps instead when its bottle has the detailed log on (container.conf [OverPass] DebugLog).
     nonisolated static func lastRunChannels(for bottle: Bottle) -> String {
@@ -124,6 +125,79 @@ enum LogCollector {
     static var overpassFact: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build" }
     static var wineFact: String { WineInstaller.installedTag.map(WineInstaller.shortVersion) ?? WineInstaller.installedVersion ?? "not found" }
     static var runtimeFact: String { ComponentManager.runtimeVersion ?? "not installed" }
+    /// The Direct3D a title's process really loaded, from its run's log: "mtld3d, 32-bit", or "dxmt wined3d, 64-bit"
+    /// when it loaded both, first loaded first. "unknown" when no log shows it: the settings only say what was
+    /// asked for, and a backend can step aside for a program's bitness or Direct3D version.
+    nonisolated static func backendFact(program: String, logs: [URL]) -> String {
+        for (index, log) in logs.enumerated() {
+            let processes = loadedDLLs(in: log)
+            let own = processes.filter { $0.program.caseInsensitiveCompare(program) == .orderedSame }
+            // A launcher hands over to the game in its own log; another log is some other program's run.
+            let candidates = own.reversed() + (index == 0 ? processes.reversed() : [])
+            if let found = candidates.lazy.compactMap({ backend(of: $0) }).first { return found }
+        }
+        return "unknown"
+    }
+
+    private struct LoadedProcess {
+        let program: String
+        let dlls: [String]
+    }
+
+    /// Every process in a log and the DLLs it loaded in order, from the `loaddll` lines.
+    nonisolated private static func loadedDLLs(in log: URL) -> [LoadedProcess] {
+        guard let data = try? Data(contentsOf: log, options: .alwaysMapped) else { return [] }
+        let marker = Data(":trace:loaddll:".utf8), newline = UInt8(ascii: "\n")
+        var pids: [String] = [], dlls: [String: [String]] = [:]
+        var from = data.startIndex
+        while let hit = data.range(of: marker, in: from..<data.endIndex) {
+            let start = (data[from..<hit.lowerBound].lastIndex(of: newline) ?? (from - 1)) + 1
+            let end = data[hit.upperBound...].firstIndex(of: newline) ?? data.endIndex
+            from = end
+            // "[time:]pid:tid:trace:loaddll:… Loaded L"C:\\path\\name.dll" at …"; thread IDs alone without +pid.
+            guard let line = String(data: data[start..<end], encoding: .utf8),
+                  let open = line.range(of: "Loaded L\""), let close = line.range(of: "\" at ", options: .backwards)
+            else { continue }
+            let path = line[open.upperBound..<close.lowerBound]
+            let fields = line[..<line.range(of: ":trace:")!.lowerBound].split(separator: ":").map(String.init)
+            guard fields.count >= 2 else { continue }
+            let pid = fields[fields.count - 2]
+            if dlls[pid] == nil { pids.append(pid) }
+            dlls[pid, default: []].append(path.replacingOccurrences(of: "\\\\", with: "\\").lowercased())
+        }
+        return pids.compactMap { pid in
+            // A 32-bit program's DLLs say system32 too, and ntdll comes before the program; wow64.dll tells.
+            guard let paths = dlls[pid], let exe = paths.first(where: { $0.hasSuffix(".exe") }) else { return nil }
+            return LoadedProcess(program: String(exe.split(separator: "\\").last ?? ""),
+                                 dlls: paths.map { String($0.split(separator: "\\").last ?? "") })
+        }
+    }
+
+    /// Which backend a process's DLLs show, and its bitness; nil when it loaded no graphics DLL.
+    nonisolated private static func backend(of process: LoadedProcess) -> String? {
+        let names = process.dlls
+        func graphics(_ name: String) -> String? {
+            switch name {
+            case "mtld3d.dll": "mtld3d"
+            case "winemetal.dll": "dxmt"
+            case "wined3d.dll": "wined3d"
+            default: nil
+            }
+        }
+        var found: [String] = []
+        for name in names { if let backend = graphics(name), !found.contains(backend) { found.append(backend) } }
+        if found.isEmpty {
+            // No DLL of its own to tell these apart by, so by what they sit on.
+            let vulkan = names.contains("winevulkan.dll")
+            if names.contains("d3d12.dll") { found = [vulkan ? "vkd3d" : "d3dmetal"] }
+            else if names.contains(where: { ["d3d11.dll", "dxgi.dll", "d3d10core.dll"].contains($0) }) { found = [vulkan ? "dxvk" : "d3dmetal"] }
+            else if vulkan { found = ["vulkan"] }
+            else if names.contains("opengl32.dll") { found = ["opengl"] }
+            else { return nil }
+        }
+        return found.joined(separator: " ") + (names.contains("wow64.dll") ? ", 32-bit" : ", 64-bit")
+    }
+
     static var macOSFact: String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(sysctl("kern.osversion") ?? "?"))"
@@ -248,6 +322,8 @@ extension BottleManager {
         var submission: [(String, String)] = []
         if let rating { submission += [("kind", "profile"), ("rating", rating)] }
         if let frames { submission.append(("frames", frames)) }
+        let program = URL(fileURLWithPath: (item.app.target ?? item.app.executable).replacingOccurrences(of: "\\", with: "/")).lastPathComponent
+        let logs = recording.flatMap { $0.lastRun ? nil : [$0.logURL] } ?? LogCollector.lastRunLogs(for: item)
         return LogCollector.reportBlock(submission + [
             ("app", item.app.name),
             ("profile", profile ?? "none"),
@@ -256,6 +332,7 @@ extension BottleManager {
             ("wine", LogCollector.wineFact),
             ("runtime", LogCollector.runtimeFact),
             ("graphics", graphics == .auto ? "auto (\(automatic.rawValue))" : graphics.rawValue),
+            ("backend", LogCollector.backendFact(program: program, logs: logs)),
             ("windows", item.bottle.template.rawValue),
             ("macos", LogCollector.macOSFact),
             ("mac", LogCollector.macFact),
@@ -272,7 +349,7 @@ extension BottleManager {
         let rosetta = FileManager.default.fileExists(atPath: "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
         var lines = [
             "App: \(recording.name)",
-            "Started: \(recording.started.formatted(.iso8601))" + (recording.lastRun ? " (last run, errors only)" : ""),
+            "Started: \(recording.started.formatted(.iso8601))" + (recording.lastRun ? " (last run: errors and loaded DLLs)" : ""),
             "",
             "OverPass: \(info["CFBundleShortVersionString"] as? String ?? "development build") (\(info["CFBundleVersion"] as? String ?? "-"))",
             "Wine: \(WineInstaller.installedVersion ?? wineRoot?.path ?? "not found")",

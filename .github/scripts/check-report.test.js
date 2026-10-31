@@ -251,3 +251,15 @@ test('a fixed report loses the mark and the comment', async () => {
   const removed = f.calls.filter(([n]) => n === 'removeLabel').map(([, a]) => a.name).sort();
   assert.deepStrictEqual(removed, ['invalid', 'wine 11.0-2']);
 });
+
+test('the backend the game really loaded gives the label, over the setting', async () => {
+  const { labels, odd } = await check(relayed(game({ graphics: 'auto (dxmt)', backend: 'mtld3d, 32-bit' })), released);
+  assert.deepEqual(odd, []);
+  assert.ok(labels.some(([n]) => n === 'graphics mtld3d'));
+  assert.ok(!labels.some(([n]) => n === 'graphics dxmt'));
+  const unknown = await check(relayed(game({ backend: 'unknown' })), released);
+  assert.deepEqual(unknown.odd, []);
+  assert.ok(unknown.labels.some(([n]) => n === 'graphics dxmt'));
+  const strange = await check(relayed(game({ backend: 'Bad Value' })), released);
+  assert.ok(strange.odd.some(o => o.includes('backend')));
+});

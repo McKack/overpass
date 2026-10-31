@@ -18,6 +18,10 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 **Games**
 - Faster x87 math is on by default for 32-bit games, once OverPass has checked it works on your version of macOS. A game's profile can turn it off.
+- A game started from its own app icon now keeps a last-run log, like one started from the library.
+
+**Reports**
+- Reports and ratings name the graphics backend a game really loaded and whether it ran as 32-bit or 64-bit, not only the container's setting.
 
 **Library**
 - A title's size counts its whole game folder, not only the folder its program sits in.

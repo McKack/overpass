@@ -1055,8 +1055,8 @@ struct BottleSettings: View {
             } header: {
                 Text("Logs")
             } footer: {
-                Text("Every program's last run is kept in a log. Normally it holds errors only; the detailed log also "
-                     + "records which DLLs load and any crashes, which slows programs a little. For the next start.")
+                Text("Every program's last run is kept in a log. Normally it holds errors and which DLLs load; the detailed log also "
+                     + "records times and any crashes, which slows programs a little. For the next start.")
             }
             Section {
                 HStack {

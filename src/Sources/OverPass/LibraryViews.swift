@@ -77,7 +77,8 @@ struct LibraryView: View {
         let search = searchText.trimmingCharacters(in: .whitespaces)
         let hiddenIDs = showHidden ? [] : Hidden.ids(hidden)
         return store.games.filter { game in
-            !store.isInstalled(game) && !hiddenIDs.contains(LibraryEntry.store(game).id)
+            // A game still setting up is in installed.json but not in the library yet: it stays with its progress bar.
+            (!store.isInstalled(game) || store.progress[game.id] != nil) && !hiddenIDs.contains(LibraryEntry.store(game).id)
                 && (search.isEmpty || game.title.localizedStandardContains(search))
         }
         .map(LibraryEntry.store).sorted(using: sortOrder.wrappedValue)

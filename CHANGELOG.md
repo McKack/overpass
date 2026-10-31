@@ -12,6 +12,11 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 ### Details
 
+**Library**
+- A GOG game stays on the page with its progress bar while it sets up after the download.
+- Installers' helper shortcuts in a Tools folder, like GOG's Language Setup, no longer show as titles.
+- Leaving the GOG page while it refreshes no longer shows "cancelled".
+
 **Profiles**
 - Advanced › Presets in the profile editor: ready-made settings that help some games, grouped in a menu.
 - The profile editor shows values from a game's profile, presets, detection and rules instead of the default, each with a coloured dot; hover for the source. Saving keeps only what you set yourself.

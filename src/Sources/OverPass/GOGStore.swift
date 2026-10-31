@@ -190,6 +190,8 @@ final class GOGStore: StoreLibrary {
             refreshed = .now
             SavedLibrary.save(games, to: Self.configDir)
         } catch {
+            // Leaving the page cancels this refresh; that's no error.
+            if (error as? URLError)?.code == .cancelled { return }
             self.error = error.localizedDescription
         }
     }

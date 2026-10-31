@@ -1038,6 +1038,8 @@ class BottleManager {
                 let name = file.deletingPathExtension().lastPathComponent
                 let lower = name.lowercased()
                 if lower.contains("uninstall") || lower.hasPrefix("unins") { continue }
+                // Installers' helpers, like GOG's Language Setup.
+                if file.deletingLastPathComponent().lastPathComponent.lowercased() == "tools" { continue }
                 guard seen.insert(lower).inserted else { continue }
                 let target = file.pathExtension.lowercased() == "lnk"
                     ? ShellLink(url: file).flatMap { $0.localBasePath ?? $0.unicodeTarget }

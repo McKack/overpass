@@ -2,7 +2,7 @@
 
 What changed in each release of OverPass, newest first. The short list at the top of each version is what OverPass shows after an update.
 
-## 0.6.7 - Unreleased
+## 0.6.7 - 2026-10-31
 
 - Rate a game and send in its settings, with a comment if you like
 - Games started from their Mac app open in front

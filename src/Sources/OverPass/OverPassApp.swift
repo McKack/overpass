@@ -57,6 +57,7 @@ struct OverPassApp: App {
                     ReportCenter.shared.showAppCrash(report, summary: summary)
                 }
                 delegate.components = components
+                Task { await components.prepareX87Sidecar() }
                 manager.profiles = profiles
                 // Wrappers made before the profiles loaded lack their names and backgrounds.
                 manager.loadBottles()

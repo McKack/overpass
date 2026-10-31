@@ -160,6 +160,7 @@ class SetupManager {
             }
         }
 
+        await components.prepareX87Sidecar()
         isInstalling = false
         installFinished = true
         await recheck()

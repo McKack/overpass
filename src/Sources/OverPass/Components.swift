@@ -38,7 +38,7 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .dxmt: "Open-source Direct3D 9 to 12 → Metal translation, with NVAPI and DLSS through MetalFX. Built on DXMT and mtld3d."
         case .d3dmetal: "Apple's Direct3D 11/12 → Metal translation, from the Game Porting Toolkit. Optional: an alternative to OverPass Runtime for games that run better on it."
         case .winetricks: "Installs Windows runtimes (Visual C++, .NET, fonts…) that games depend on."
-        case .x87sidecar: "Much faster floating-point math for 32-bit games, in place of Rosetta's slow x87 translation. Used only by games whose profile turns on Faster x87 math."
+        case .x87sidecar: "Much faster floating-point math for 32-bit games, in place of Rosetta's slow x87 translation. Used by every 32-bit game unless its profile turns Faster x87 math off."
         case .legendary: "Signs in to Epic Games and downloads, updates and starts your Epic games, without the Epic Games Launcher."
         case .gogdl: "Signs in to GOG and downloads and updates your GOG games, without GOG Galaxy."
         case .xodus: "Signs in to your Microsoft account and downloads, licenses and starts your Xbox PC and Game Pass games. Opt-in: see Settings › Advanced."
@@ -69,7 +69,7 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .addons: "Apps that need .NET or show web pages work without asking to download more."
         case .winetricks: "Installs Windows pieces some games need, such as Visual C++ and .NET."
         case .d3dmetal: "Apple's own version of game graphics. Optional: some games run better with it."
-        case .x87sidecar: "Speeds up the math in older 32-bit games. Only games you turn it on for use it."
+        case .x87sidecar: "Speeds up the math in older 32-bit games. Installed for you."
         case .legendary: "Your Epic games in OverPass, without installing the Epic Games Launcher."
         case .gogdl: "Your GOG games in OverPass, without installing GOG Galaxy."
         case .xodus: "Your Xbox PC and Game Pass games in OverPass. You turned this on yourself."
@@ -85,7 +85,7 @@ enum ComponentID: String, CaseIterable, Identifiable {
         case .addons: "Wine's .NET Framework (Wine Mono) and MSHTML (Wine Gecko) replacements, cached in the versions this Wine asks for."
         case .winetricks: "Shell script that installs redistributables (vcrun, dotnet, corefonts, d3dx9…) into a container as native DLLs."
         case .d3dmetal: "Apple's Direct3D 11/12 → Metal (D3DMetal.framework, libd3dshared) from the Game Porting Toolkit, imported from Apple's download; found through CX_APPLEGPTK_LIBD3DSHARED_PATH."
-        case .x87sidecar: "Native arm64 JIT that replaces Rosetta 2's x87 translation, attached cooperatively (no entitlements): 32-bit processes re-exec under it when their profile sets OVERPASS_X87=1. Pinned to 1.9.0, checksum-verified."
+        case .x87sidecar: "Native arm64 JIT that replaces Rosetta 2's x87 translation, attached cooperatively (no entitlements): 32-bit processes re-exec under it once `--probe` has passed on this macOS build; a profile opts out with OVERPASS_X87=0. Pinned to 1.9.0, checksum-verified."
         case .legendary: "Open-source Epic Games Store client (Python, PyInstaller build), run as a separate program: OAuth sign-in, library, manifest/chunk downloads, updates and the launch token. OverPass starts the games with its own Wine. Pinned to 0.21.1, checksum-verified; its data is in Application Support/OverPass/Stores/Epic."
         case .gogdl: "Open-source GOG downloader from Heroic Games Launcher (Python, PyInstaller build), run as a separate program: OAuth tokens, Galaxy content-system downloads, updates, repairs and GOG's shared redistributables. OverPass lists the library from GOG's web services, runs the install scripts in the bottle and starts the games itself. Pinned to 1.3.1, checksum-verified; its data is in Application Support/OverPass/Stores/GOG."
         case .xodus: "Open-source Xbox PC client (Rust), xodus-cli and xodus-service, with the Xodus Nexus/MACxus patch set; run as separate programs: Microsoft account sign-in (tokens in the Keychain), entitlements, MSIXVC streaming downloads, licences and the launch view our Wine loads through WINE_DLL_FILE_MAP. xodus-service answers the game's Xbox runtime (xgameruntime) over a Unix socket. Opt-in, see Settings › Advanced."
@@ -203,6 +203,17 @@ class ComponentManager {
     static let x87sidecarVersion = "1.9.0"
     static let x87sidecarSHA256 = "104098b0ba8baed37d4d63cf62ab3b55493889b8fe9ee225cad8febcd6bc1e78"
     nonisolated static var x87sidecarPath: URL { toolsDir.appendingPathComponent("x87sidecar/x87sidecar") }
+
+    /// Fetches x87sidecar once on an Apple Silicon Mac (removing it afterwards sticks), then checks it works here.
+    func prepareX87Sidecar() async {
+        let key = "x87sidecarFetched"
+        if Self.isArm64, BottleManager.findWine() != nil, !isInstalled(.x87sidecar),
+           !UserDefaults.standard.bool(forKey: key) {
+            await install(.x87sidecar)
+            if isInstalled(.x87sidecar) { UserDefaults.standard.set(true, forKey: key) }
+        }
+        await X87Sidecar.probe()
+    }
 
     /// Legendary, pinned: OverPass reads its output, which isn't a stable interface, so each version is tried
     /// before OverPass moves to it. Upstream's own macOS builds, one per architecture.

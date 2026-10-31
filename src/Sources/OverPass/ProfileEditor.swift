@@ -65,8 +65,8 @@ struct ProfileEditor: View {
     @State private var direct3D9: Direct3D9Backend?
     @State private var xaudio = XAudioChoice.wine
     @State private var shaders = ShaderCompileChoice.background
-    /// x87sidecar for this game's 32-bit programs (env OVERPASS_X87=1).
-    @State private var fasterX87 = false
+    /// x87sidecar for this game's 32-bit programs: on everywhere it works, off with env OVERPASS_X87=0.
+    @State private var fasterX87 = true
     @State private var maxResolution = ""
     @State private var environment = ""
     @State private var dlls = ""
@@ -457,9 +457,9 @@ struct ProfileEditor: View {
             Section {
                 Toggle("Faster x87 math", isOn: $fasterX87)
             } footer: {
-                Text(ComponentManager.current?.isInstalled(.x87sidecar) == false
-                     ? "Needs x87sidecar: install it under Settings › Components › Extras. Until then this does nothing."
-                     : "For 32-bit games, mostly from the Direct3D 9 era and older: x87sidecar replaces Rosetta's slow translation of their floating-point math.")
+                Text(X87Sidecar.isReady
+                     ? "On by default for 32-bit games: x87sidecar replaces Rosetta's slow translation of their floating-point math. Turn it off if this game misbehaves."
+                     : "Not available on this Mac yet: x87sidecar is missing or doesn't support this version of macOS.")
             }
             Section {
                 MaxResolutionPicker(value: $maxResolution, inherited: MaxResolution.global)
@@ -627,7 +627,7 @@ struct ProfileEditor: View {
         maxResolution = envLines.last { $0.hasPrefix(maxPrefix) }
             .flatMap { MaxResolution.normalized(String($0.dropFirst(maxPrefix.count))) } ?? ""
         envLines.removeAll { $0.hasPrefix(maxPrefix) }
-        fasterX87 = envLines.contains("OVERPASS_X87=1")
+        fasterX87 = !envLines.contains("OVERPASS_X87=0")
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
         environment = envLines.joined(separator: "\n")
         let overrides = mine.filter { $0.key == "dll" }.map(\.value)
@@ -684,7 +684,7 @@ struct ProfileEditor: View {
         envLines.removeAll { $0.hasPrefix(MaxResolution.variable + "=") }
         if let value = MaxResolution.normalized(maxResolution) { envLines.append("\(MaxResolution.variable)=\(value)") }
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
-        if fasterX87 { envLines.append("OVERPASS_X87=1") }
+        if !fasterX87 { envLines.append("OVERPASS_X87=0") }
         settings += envLines.map { "env = \($0)" }
         var overrides = dlls.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if xaudio == .microsoft { overrides += XAudioChoice.overrides.filter { !overrides.contains($0) } }

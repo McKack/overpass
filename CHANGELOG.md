@@ -5,12 +5,16 @@ What changed in each release of OverPass, newest first. The short list at the to
 ## Unreleased
 
 - Add ready-made settings to a game from its profile
+- Older 32-bit games get faster math without any setting
 - Smaller bug fixes and improvements
 
 ### Details
 
 **Profiles**
 - Advanced › Presets in the profile editor: ready-made settings that help some games, grouped in a menu.
+
+**Games**
+- Faster x87 math is on by default for 32-bit games, once OverPass has checked it works on your version of macOS. A game's profile can turn it off.
 
 **Library**
 - A title's size counts its whole game folder, not only the folder its program sits in.

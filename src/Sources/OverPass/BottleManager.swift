@@ -917,9 +917,10 @@ class BottleManager {
         // For a game's `d3d9 =` rule, which moves this folder into or out of the DLL path.
         if Direct3D9Backend.isInstalled { env["OVERPASS_D3D9_MTLD3D"] = Direct3D9Backend.directory.path }
         env[MaxResolution.variable] = MaxResolution.global
-        // Where OverPass Wine finds x87sidecar for games whose profile sets OVERPASS_X87=1.
-        if FileManager.default.isExecutableFile(atPath: ComponentManager.x87sidecarPath.path) {
+        // x87sidecar for 32-bit programs, once it has passed its probe here; a profile opts out with OVERPASS_X87=0.
+        if X87Sidecar.isReady {
             env["OVERPASS_X87SIDECAR"] = ComponentManager.x87sidecarPath.path
+            env["OVERPASS_X87"] = "1"
         }
         env.merge(bottle.environment) { $1 }
         env.merge(CompatRules.environment()) { $1 }

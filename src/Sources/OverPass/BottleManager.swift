@@ -534,9 +534,13 @@ class BottleManager {
         }
     }
 
-    func launchApp(_ app: WineApp, in bottle: Bottle) throws {
+    /// Starts a title, through `option` when one of its launch options was picked, else the one chosen for good if any.
+    func launchApp(_ app: WineApp, option: LaunchOption? = nil, in bottle: Bottle) throws {
         let item = LibraryItem(app: app, bottle: bottle)
-        try whenReady(profiles?.profile(for: item), in: bottle, name: app.name) { [self] in try startApp(app, in: bottle) }
+        let option = option ?? LaunchChoice.remembered(for: item)
+        try whenReady(profiles?.profile(for: item), in: bottle, name: app.name) { [self] in
+            try startApp(app, option: option, in: bottle)
+        }
     }
 
     /// Runs `start` once what the title needs is here. A missing component is offered first, not left to fail
@@ -584,12 +588,13 @@ class BottleManager {
         }
     }
 
-    private func startApp(_ app: WineApp, in bottle: Bottle) throws {
+    private func startApp(_ app: WineApp, option: LaunchOption? = nil, in bottle: Bottle) throws {
         RecentTitles.add(LibraryItem(app: app, bottle: bottle).id)
         StartedTitles.add(LibraryItem(app: app, bottle: bottle).id)
         lastRun[bottle.path] = LibraryItem(app: app, bottle: bottle)
         lastRunAnywhere = LibraryItem(app: app, bottle: bottle)
         if bottle.isMac { return MacApps.open(app) }
+        if let option { return try runExe(option.path, in: bottle, arguments: option.arguments, name: app.name) }
         if app.backend == .legendary, let appName = app.storeID { return launchEpic(app, appName: appName, in: bottle) }
         if app.backend == .xodus, let id = app.storeID { return launchXbox(app, id: id, in: bottle) }
         try runExe(app.executable, in: bottle, arguments: app.arguments, name: app.name)
@@ -1054,6 +1059,8 @@ class BottleManager {
                 let target = file.pathExtension.lowercased() == "lnk"
                     ? ShellLink(url: file).flatMap { $0.localBasePath ?? $0.unicodeTarget }
                     : LauncherGames.windowsPath(file, bottlePath: bottlePath)
+                // Manuals and readmes aren't titles.
+                if let target, ["pdf", "txt", "htm", "html", "rtf", "url", "doc"].contains(((target.replacingOccurrences(of: "\\", with: "/")) as NSString).pathExtension.lowercased()) { continue }
                 apps.append(WineApp(name: name, executable: file.path, target: target))
             }
         }

@@ -445,6 +445,25 @@ final class GOGStore: StoreLibrary {
         return (exe, arguments)
     }
 
+    /// The game's whole task list from the same file, in its order. Primary and `game` tasks, launchers and uncategorised
+    /// programs are ways to play; `tool` tasks are helpers; `document` tasks and anything that's no program are documents.
+    /// GOG's support links are left out.
+    nonisolated static func launchOptions(_ id: String, in folder: URL) -> [LaunchOption] {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("goggame-\(id).info")),
+              let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tasks = info["playTasks"] as? [[String: Any]] else { return [] }
+        let primaryFirst = tasks.filter { $0["isPrimary"] as? Bool == true } + tasks.filter { $0["isPrimary"] as? Bool != true }
+        return primaryFirst.compactMap { task in
+            guard task["type"] as? String == "FileTask", let name = task["name"] as? String, let path = task["path"] as? String,
+                  let file = WindowsIcons.caseInsensitive(folder, path.replacingOccurrences(of: "\\", with: "/")) else { return nil }
+            let program = file.pathExtension.lowercased() == "exe"
+            let kind: LaunchOption.Kind = !program || task["category"] as? String == "document" ? .document
+                : task["category"] as? String == "tool" ? .tool : .play
+            return LaunchOption(name: name, path: file.path,
+                                arguments: (task["arguments"] as? String ?? "").split(separator: " ").map(String.init), kind: kind)
+        }
+    }
+
     // MARK: Running gogdl
 
     nonisolated static var gogdl: URL { ComponentManager.gogdlPath }

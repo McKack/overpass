@@ -166,6 +166,10 @@ enum LauncherGames {
                                  launcher: GOGStore.launcherName, storeID: id,
                                  target: windowsPath(task.exe, bottlePath: bottlePath), backend: .gogdl))
         }
+        for index in games.indices {
+            guard let id = games[index].storeID, let game = ours[id] else { continue }
+            games[index].launchOptions = GOGStore.launchOptions(id, in: URL(fileURLWithPath: game.path))
+        }
         return games
     }
 

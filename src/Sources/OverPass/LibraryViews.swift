@@ -28,6 +28,7 @@ struct LibraryView: View {
     @State private var launchError: String?
     /// A title with an anti-cheat, waiting for the person to confirm the first start.
     @State private var antiCheatItem: LibraryItem?
+    @State private var launchChooser: LibraryItem?
     @AppStorage(LibrarySort.key) private var sortKey: LibrarySort = .name
     @AppStorage(LibrarySort.ascendingKey) private var sortAscending = true
     /// GOG and Epic: only the installed games, without the rest of the account's library.
@@ -225,6 +226,15 @@ struct LibraryView: View {
             Button("OK") {}
         } message: {
             Text(launchError ?? "")
+        }
+        .sheet(item: $launchChooser) { item in
+            LaunchChooser(item: item) { option in
+                do {
+                    try manager.launchApp(item.app, option: option, in: item.bottle)
+                } catch {
+                    launchError = error.localizedDescription
+                }
+            }
         }
         .alert("This Game Uses an Anti-Cheat", isPresented: Binding(get: { antiCheatItem != nil }, set: { if !$0 { antiCheatItem = nil } }),
                presenting: antiCheatItem) { item in
@@ -437,6 +447,10 @@ struct LibraryView: View {
     }
 
     private func start(_ item: LibraryItem) {
+        if LaunchChoice.shouldAsk(for: item) {
+            launchChooser = item
+            return
+        }
         do {
             try manager.launchApp(item.app, in: item.bottle)
         } catch {
@@ -523,6 +537,77 @@ struct AppIcon: View {
     }
 }
 
+/// Asked by Play when a game has several ways to start.
+struct LaunchChooser: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var always = false
+    let item: LibraryItem
+    let start: (LaunchOption) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Start \(item.app.name)").font(.headline)
+            ForEach(Array(item.app.playOptions.enumerated()), id: \.element.id) { index, option in
+                Button {
+                    if always { LaunchChoice.remember(option, for: item) }
+                    dismiss()
+                    start(option)
+                } label: {
+                    Text(option.name).frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .keyboardShortcut(index == 0 ? .defaultAction : nil)
+            }
+            Toggle("Always start this one", isOn: $always)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+    }
+}
+
+/// Every entry of a game's launch list, for the title's context menu.
+struct LaunchOptionsMenu: View {
+    @Environment(BottleManager.self) private var manager
+    let item: LibraryItem
+
+    private func options(_ kind: LaunchOption.Kind) -> [LaunchOption] { item.app.launchOptions.filter { $0.kind == kind } }
+
+    var body: some View {
+        let remembered = LaunchChoice.remembered(for: item)
+        Menu("Launch Options") {
+            ForEach(options(.play)) { option in
+                Toggle(option.name, isOn: Binding(get: { option == remembered }, set: { _ in run(option) }))
+            }
+            if !options(.tool).isEmpty {
+                Divider()
+                ForEach(options(.tool)) { option in Button(option.name) { run(option) } }
+            }
+            if !options(.document).isEmpty {
+                Divider()
+                ForEach(options(.document)) { option in
+                    Button(option.name) { NSWorkspace.shared.open(URL(fileURLWithPath: option.path)) }
+                }
+            }
+            if remembered != nil {
+                Divider()
+                Button("Ask When Starting") { LaunchChoice.remember(nil, for: item); manager.loadBottles() }
+            }
+        }
+    }
+
+    private func run(_ option: LaunchOption) {
+        do {
+            try manager.launchApp(item.app, option: option, in: item.bottle)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+}
+
 struct LibraryItemMenu: View {
     @Environment(BottleManager.self) private var manager
     @Environment(\.openItemSheet) private var openItemSheet
@@ -535,6 +620,7 @@ struct LibraryItemMenu: View {
     var body: some View {
         let opening = manager.isOpening(item.app, in: item.bottle)
         Button(opening ? "Starting…" : item.app.runLabel) { launch() }.disabled(opening)
+        if item.app.launchOptions.count > 1 { LaunchOptionsMenu(item: item) }
         Button(Favorites.ids(favorites).contains(item.id) ? "Remove from Favorites" : "Add to Favorites") {
             favorites = Favorites.toggled(item.id, in: favorites)
         }

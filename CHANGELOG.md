@@ -15,6 +15,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Library**
 - A GOG game stays on the page with its progress bar while it sets up after the download.
 - GOG games show once: their manuals, safe modes and other installer shortcuts no longer show as titles.
+- GOG games list their launch options from the game's own data: other modes and helpers under Launch Options, manuals too. Choose one for good with Always start this one.
+- Shortcuts to manuals and readmes no longer show as titles in any container.
 - Leaving the GOG page while it refreshes no longer shows "cancelled".
 
 **Profiles**
@@ -47,6 +49,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Containers made from offline installers are named after the game
 - What's New: this list, after every update
 - OverPass recognises a game's engine from its files and uses settings known to help
+- Games with several ways to start ask when you press Play; Launch Options in the title's menu has the rest
 - Smaller bug fixes and improvements
 
 ### Details

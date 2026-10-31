@@ -55,6 +55,10 @@ struct WineApp: Identifiable, Hashable {
     var backend: StoreBackend? = nil
     /// The game engine its profile names (`engine`), when it does.
     var engine: String? = nil
+    /// Every way the store lists to start the game, and the files that come with it. Empty when it lists none.
+    var launchOptions: [LaunchOption] = []
+    /// What Play chooses between.
+    var playOptions: [LaunchOption] { launchOptions.filter { $0.kind == .play } }
 
     /// File name of the program that runs ("notepad++.exe"), what compatibility rules match on.
     var programName: String? {
@@ -62,6 +66,36 @@ struct WineApp: Identifiable, Hashable {
     }
     // Every Steam game runs steam.exe, so the arguments are part of what tells apps apart.
     var id: String { ([executable] + arguments).joined(separator: "|") }
+}
+
+/// One entry of a game's launch list: another way to start it, a helper program, or a document.
+struct LaunchOption: Identifiable, Hashable {
+    enum Kind { case play, tool, document }
+    let name: String
+    /// Host path.
+    let path: String
+    var arguments: [String] = []
+    let kind: Kind
+    var id: String { name }
+}
+
+/// The option someone chose to always start, by title; only the name is kept, so it survives a game update.
+enum LaunchChoice {
+    private static func key(_ item: LibraryItem) -> String { "launchChoice." + item.id }
+
+    static func remembered(for item: LibraryItem) -> LaunchOption? {
+        guard let name = UserDefaults.standard.string(forKey: key(item)) else { return nil }
+        return item.app.playOptions.first { $0.name == name }
+    }
+
+    static func remember(_ option: LaunchOption?, for item: LibraryItem) {
+        UserDefaults.standard.set(option?.name, forKey: key(item))
+    }
+
+    /// Play asks when a game has several ways to start and none was chosen for good.
+    static func shouldAsk(for item: LibraryItem) -> Bool {
+        item.app.playOptions.count > 1 && remembered(for: item) == nil
+    }
 }
 
 enum StoreBackend: String, Hashable {

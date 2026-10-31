@@ -35,6 +35,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
     var playStationControllers = false
     /// Presets (Profiles/Presets/<name>.ini) whose settings this profile's game also gets.
     var presets: [String] = []
+    /// Programs and Steam apps the editor's own settings cover: `program = x`, `steam-app = 1`. Presets reach these too.
+    var ownMatches: [String] = []
     /// Backends the profile's rules select for some of its programs.
     var ruleGraphics: [GraphicsBackend] = []
     var launch: LaunchSpec?
@@ -225,6 +227,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
         var sections: [String: [(key: String, value: String)]] = [:]
         var current: String?
         var inRule = false
+        var inOwn = false
+        var ownMatches: [String] = []
         var ruleGraphics: [GraphicsBackend] = []
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FEFF}")))
@@ -233,7 +237,13 @@ struct GameProfile: Codable, Identifiable, Hashable {
                 let name = String(line.dropFirst().dropLast()).lowercased()
                 current = CompatRules.recipeSections.contains(name) ? name : nil
                 inRule = current == nil
+                inOwn = name == UserProfiles.settingsSection.lowercased()
                 continue
+            }
+            if inOwn, let eq = line.firstIndex(of: "=") {
+                let key = line[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+                if key == "program" || key == "steam-app" { ownMatches.append("\(key) = \(value)") }
             }
             // Rules can ask for a graphics backend per program; the installer needs to know about those too.
             if inRule, let eq = line.firstIndex(of: "="),
@@ -275,6 +285,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto
         p.playStationControllers = first(app, "controllers")?.lowercased() == "playstation"
         p.presets = all(app, "preset")
+        p.ownMatches = ownMatches
         p.notes = first(app, "notes")
         p.engine = first(app, "engine")
         p.icon = first(app, "icon")
@@ -427,6 +438,8 @@ class ProfileStore {
 
     /// Names of the presets in effect, bundled and the user's own.
     private(set) var presets: [String] = []
+    /// What each preset does, from the top of its file; empty for one that doesn't say.
+    private(set) var presetSummaries: [String: String] = [:]
 
     /// One rule per profile and preset it names: the profile's game (Steam app, program) with the preset's
     /// settings. Lines that pick programs in the preset itself stay out.
@@ -436,6 +449,7 @@ class ProfileStore {
             var matches: [String] = []
             if let app = profile.steamAppID { matches.append("steam-app = \(app)") }
             if let exe = profile.launch?.executable.split(separator: "\\").last { matches.append("program = \(exe)") }
+            matches += profile.ownMatches.filter { !matches.contains($0) }
             guard !matches.isEmpty else { continue }
             for name in profile.presets {
                 guard let url = presets[name] else { continue }
@@ -443,6 +457,15 @@ class ProfileStore {
             }
         }
         return out
+    }
+
+    /// The first line of a preset file, "# Preset <name>: what it does", as a label.
+    static func presetSummary(_ url: URL, name: String) -> String {
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let header = "# Preset \(name): "
+        guard let line = text.components(separatedBy: .newlines).first(where: { $0.hasPrefix(header) }) else { return "" }
+        let summary = line.dropFirst(header.count).trimmingCharacters(in: CharacterSet.whitespaces.union(["."]))
+        return (summary.first?.uppercased() ?? "") + summary.dropFirst()
     }
 
     /// A preset file's settings, without its section header and the lines saying which programs it covers.
@@ -496,6 +519,7 @@ class ProfileStore {
         let presets = Self.iniFiles(in: Self.bundledDirectory?.appendingPathComponent("Presets"))
             .merging(Self.iniFiles(in: UserProfiles.directory.appendingPathComponent("Presets"))) { $1 }
         self.presets = presets.keys.sorted()
+        presetSummaries = presets.reduce(into: [:]) { $0[$1.key] = Self.presetSummary($1.value, name: $1.key) }
         var rules = Array(effective.values)
         for (name, url) in presets {
             rules.append(UserProfiles.generatedRule("00-preset-\(name).ini", text: (try? String(contentsOf: url, encoding: .utf8)) ?? ""))

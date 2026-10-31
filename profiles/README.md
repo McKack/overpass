@@ -46,7 +46,7 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `graphics` | `dxmt`, `d3dmetal`, `wined3d`, `dxvk` or `auto` (default) | no |
 | `prefer-graphics` | Like `graphics`, but only while the program's container is on Automatic: a backend chosen for the container wins | no |
 | `controllers` | `playstation`: DualShock 4 and DualSense reach the container as PlayStation controllers (Sony's PC ports: haptics, adaptive triggers) instead of Xbox pads (default `xbox`). Applied when the container is made; changed later in the container's settings | no |
-| `preset` | A preset's name (`Presets/<name>.ini`): the app's game (its `steam-app`, or its `[launch]` program) also gets that preset's settings, before the profile's own rules | yes |
+| `preset` | A preset's name (`Presets/<name>.ini`): the app's game (its `steam-app`, its `[launch]` program, or the programs in `[My settings]`) also gets that preset's settings, before the profile's own rules | yes |
 | `icon` | File name of an image in your Profiles/Icons folder (`~/Library/Application Support/OverPass/Profiles/Icons`), shown instead of the app's Windows icon. Set by the profile editor | no |
 | `notes` | Free text shown with the app | no |
 | `engine` | Game engine shown in the library's Engine column, e.g. `Unity` or `Unreal Engine`. Without it, OverPass tells the engine from the game's files, or shows Unknown | no |

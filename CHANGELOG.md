@@ -4,9 +4,13 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 ## Unreleased
 
+- Add ready-made settings to a game from its profile
 - Smaller bug fixes and improvements
 
 ### Details
+
+**Profiles**
+- Advanced › Presets in the profile editor: ready-made settings that help some games, grouped in a menu.
 
 **Library**
 - A title's size counts its whole game folder, not only the folder its program sits in.

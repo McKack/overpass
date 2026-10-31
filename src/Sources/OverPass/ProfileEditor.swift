@@ -99,6 +99,7 @@ struct ProfileEditor: View {
         return "\(title) — \(Self.tabs.first { $0.tab == tab }?.title ?? "")"
     }
 
+    @State private var presets: [String] = []
     @State private var rating: GameProfile.Rating.Tier?
     @State private var started = false
     @State private var submitting = false
@@ -511,6 +512,7 @@ struct ProfileEditor: View {
 
     private var advanced: some View {
         Form {
+            presetsSection
             if detail == .simple {
                 // Shader compiling, the maximum resolution and x87 have their own controls on other tabs.
                 SimpleSettingsEditor(environment: $environment, dlls: $dlls,
@@ -532,6 +534,42 @@ struct ProfileEditor: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var presetsSection: some View {
+        Section {
+            ForEach(presets, id: \.self) { name in
+                HStack {
+                    Text(presetTitle(name)).help(name)
+                    Spacer()
+                    Button("Remove", systemImage: "minus.circle") { presets.removeAll { $0 == name } }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                }
+            }
+            Menu("Add Preset…") {
+                ForEach(PresetGroup.allCases, id: \.self) { group in
+                    let names = profiles.presets.filter { PresetGroup(preset: $0) == group && !presets.contains($0) }
+                    if !names.isEmpty {
+                        Menu(group.title) {
+                            ForEach(names, id: \.self) { name in
+                                Button(presetTitle(name)) { presets.append(name) }
+                            }
+                        }
+                    }
+                }
+            }
+            .fixedSize()
+            .disabled(identity == nil)
+        } header: {
+            Text("Presets")
+        } footer: {
+            Text("Ready-made settings that help some games. Anything set for this title itself wins where they differ.")
+        }
+    }
+
+    private func presetTitle(_ name: String) -> String {
+        profiles.presetSummaries[name]?.nilIfEmpty ?? name
     }
 
     @ViewBuilder
@@ -569,6 +607,7 @@ struct ProfileEditor: View {
         }
         let profileText = ProfileText(text: text)
         name = profileText.first("name", in: "app") ?? item.app.name
+        presets = profileText.values(in: "app").filter { $0.key == "preset" }.map(\.value)
         let mine = profileText.values(in: UserProfiles.settingsSection)
         arguments = mine.filter { $0.key == "add-arguments" }.map(\.value).joined(separator: " ")
         graphics = mine.last { $0.key == "graphics" }.flatMap { GraphicsBackend(rawValue: $0.value) }
@@ -622,6 +661,7 @@ struct ProfileEditor: View {
         if art.generatedCover { profileText.set("cover", ArtStyle.generatedCover, in: "app") }
         profileText.set("cover-style", art.coverStyle == .cover ? nil : art.coverStyle.value, in: "app")
         profileText.set("icon-style", art.iconStyle == .icon ? nil : art.iconStyle.value, in: "app")
+        profileText.set("preset", all: presets, in: "app")
 
         var settings: [String] = []
         if !arguments.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -655,7 +695,7 @@ struct ProfileEditor: View {
             .filter { $0.key == "program" || $0.key == "steam-app" }.map { "\($0.key) = \($0.value)" }
         if let identity, !covers.contains(identity) { covers.append(identity) }
         profileText.replace(section: UserProfiles.settingsSection, comment: "Set in OverPass's profile editor.",
-                            with: settings.isEmpty ? [] : covers + settings)
+                            with: settings.isEmpty && presets.isEmpty ? [] : covers + settings)
         return profileText.text
     }
 
@@ -1283,6 +1323,32 @@ struct ProfileWindow: View {
             Text("This title isn't in the library any more.")
                 .foregroundStyle(.secondary)
                 .frame(width: 400, height: 160)
+        }
+    }
+}
+
+/// The Add Preset menu's submenus, told from the preset's name.
+private enum PresetGroup: CaseIterable {
+    case arguments, graphics, components, chromium, other
+
+    init(preset: String) {
+        switch preset {
+        case _ where preset.hasPrefix("arguments-"): self = .arguments
+        case _ where preset.hasPrefix("chromium-"): self = .chromium
+        case _ where preset.hasPrefix("microsoft-"), "builtin-msxml": self = .components
+        case "overpass-runtime", "dxvk", "wined3d", "moltenvk-core-extensions", "opengl-forward-compatible",
+             "qt-software-rendering": self = .graphics
+        default: self = .other
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .arguments: "Start Options"
+        case .graphics: "Graphics"
+        case .components: "Windows Components"
+        case .chromium: "Chromium Switches"
+        case .other: "Other"
         }
     }
 }

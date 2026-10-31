@@ -127,6 +127,13 @@ struct ProfileText {
         text = lines.joined(separator: "\n")
     }
 
+    /// Sets a key that can repeat: one `key = value` line per value.
+    mutating func set(_ key: String, all values: [String], in section: String) {
+        set(key, nil, in: section)
+        guard !values.isEmpty else { return }
+        set(key, values.joined(separator: "\n\(key) = "), in: section)
+    }
+
     /// Replaces a section (or adds it at the end) with these lines; an empty list removes it.
     mutating func replace(section: String, comment: String, with body: [String]) {
         var lines = lines

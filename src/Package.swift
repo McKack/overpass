@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "OverPass",
             path: "Sources/OverPass",
-            resources: [.copy("Profiles"), .copy("Logos"), .copy("Schema")],
+            resources: [.copy("Logos"), .copy("Schema")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]

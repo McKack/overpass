@@ -12,8 +12,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp "$BIN/OverPass" "$APP/Contents/MacOS/OverPass"
-# SwiftPM resource bundle (profiles); Bundle.module looks for it in Contents/Resources.
+# SwiftPM resource bundle; Bundle.module looks for it in Contents/Resources.
 cp -R "$BIN/OverPass_OverPass.bundle" "$APP/Contents/Resources/"
+# The profiles live at the top of the repository, where they're easy to find and edit.
+rm -rf "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
+cp -R ../profiles "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 # The Credits window shows the repository's CREDITS.md.
 cp ../CREDITS.md "$APP/Contents/Resources/CREDITS.md"
 # Signed with the project's own certificate ("OverPass", self-signed, in the login keychain) when it's there:

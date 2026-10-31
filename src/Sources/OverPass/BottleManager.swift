@@ -1004,12 +1004,24 @@ class BottleManager {
         return manifest
     }
 
+    /// The Windows folder of a game OverPass installed through gogdl, lowercased, ending in a backslash:
+    /// `c:\\gog games\\<folder>\\`, however deep its program sits.
+    nonisolated private static func installFolder(of game: WineApp) -> String? {
+        guard game.backend == .gogdl, let parts = game.target?.lowercased().split(separator: "\\"), parts.count > 3 else { return nil }
+        return parts.prefix(3).joined(separator: "\\") + "\\"
+    }
+
     nonisolated private static func mergeApps(_ shortcuts: [WineApp], _ games: [WineApp]) -> [WineApp] {
         var games = games
         var kept: [WineApp] = []
         for shortcut in shortcuts {
-            if let i = games.firstIndex(where: { $0.name.caseInsensitiveCompare(shortcut.name) == .orderedSame }) {
+            // By letters and digits: file names can't hold a colon, so "FTL: Advanced Edition" has "FTL - Advanced Edition".
+            let plain = shortcut.name.lowercased().filter { $0.isLetter || $0.isNumber }
+            if let i = games.firstIndex(where: { $0.name.lowercased().filter { $0.isLetter || $0.isNumber } == plain }) {
                 games[i].shortcut = shortcut.executable
+            } else if let i = games.firstIndex(where: { installFolder(of: $0).map { shortcut.target?.lowercased().hasPrefix($0) == true } ?? false }) {
+                // The game's installer made it: a manual, a safe mode, the main shortcut under another name.
+                if shortcut.target?.caseInsensitiveCompare(games[i].target ?? "") == .orderedSame { games[i].shortcut = shortcut.executable }
             } else {
                 kept.append(shortcut)
             }
@@ -1038,8 +1050,6 @@ class BottleManager {
                 let name = file.deletingPathExtension().lastPathComponent
                 let lower = name.lowercased()
                 if lower.contains("uninstall") || lower.hasPrefix("unins") { continue }
-                // Installers' helpers, like GOG's Language Setup.
-                if file.deletingLastPathComponent().lastPathComponent.lowercased() == "tools" { continue }
                 guard seen.insert(lower).inserted else { continue }
                 let target = file.pathExtension.lowercased() == "lnk"
                     ? ShellLink(url: file).flatMap { $0.localBasePath ?? $0.unicodeTarget }

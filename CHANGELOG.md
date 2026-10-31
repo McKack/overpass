@@ -14,7 +14,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 **Library**
 - A GOG game stays on the page with its progress bar while it sets up after the download.
-- Installers' helper shortcuts in a Tools folder, like GOG's Language Setup, no longer show as titles.
+- GOG games show once: their manuals, safe modes and other installer shortcuts no longer show as titles.
 - Leaving the GOG page while it refreshes no longer shows "cancelled".
 
 **Profiles**

@@ -18,7 +18,10 @@ enum XAudioChoice: String, CaseIterable, Identifiable {
         }
     }
 
-    static let overrides = ["xaudio2_6", "xaudio2_7", "x3daudio1_6", "x3daudio1_7"].map { "\($0)=n,b" }
+    private static let dlls = ["xaudio2_6", "xaudio2_7", "x3daudio1_6", "x3daudio1_7"]
+    static let overrides = dlls.map { "\($0)=n,b" }
+    /// Back to Wine's own over a rule that sets Microsoft's: the last entry for a DLL wins.
+    static let wineOverrides = dlls.map { "\($0)=b" }
 }
 
 /// How OverPass Runtime compiles a Direct3D 12 game's pipelines, set through DXMT_CONFIG.
@@ -45,6 +48,11 @@ enum ShaderCompileChoice: String, CaseIterable, Identifiable {
 
     static let keys = ["d3d12.skipDrawsWhileCompiling", "d3d12.asyncPipelineCompile"]
 
+    /// The choice a list of DXMT_CONFIG options amounts to.
+    static func choice(in options: [String]) -> ShaderCompileChoice {
+        allCases.first { !$0.options.isEmpty && $0.options.allSatisfy(options.contains) } ?? .background
+    }
+
     static func isOwn(_ option: String) -> Bool {
         keys.contains { option.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix($0.lowercased() + "=") }
     }
@@ -70,6 +78,8 @@ struct ProfileEditor: View {
     @State private var maxResolution = ""
     @State private var environment = ""
     @State private var dlls = ""
+    /// What the rules set for this title; the fields above hold only what the person set.
+    @State private var inherited = InheritedSettings()
     @State private var art = ArtworkDraft()
     @State private var editingArtwork = false
     @State private var storeCover: NSImage?
@@ -225,7 +235,9 @@ struct ProfileEditor: View {
                     }
                 }
                 if isSteam, let id = item.app.storeID { LabeledContent("Steam app", value: id) }
-                TextField("Extra arguments", text: $arguments, prompt: Text("e.g. -windowed"))
+                TextField(text: $arguments, prompt: Text(inherited.arguments.map(\.value).joined(separator: " ").nilIfEmpty ?? "e.g. -windowed")) {
+                    SettingLabel("Extra arguments", arguments.isEmpty ? inherited.arguments.first?.source : .you)
+                }
             } footer: {
                 if identity == nil {
                     Text("OverPass can't tell which program this shortcut starts, so it can't keep settings for it.")
@@ -441,34 +453,48 @@ struct ProfileEditor: View {
     private var graphicsAndSound: some View {
         Form {
             Section {
-                Picker("Direct3D 10–12", selection: $graphics) {
-                    Text("Same as the container (\(item.bottle.graphics.displayName))").tag(GraphicsBackend?.none)
+                Picker(selection: $graphics) {
+                    Text(inherited.graphics.map { "\($0.source.title): \($0.value.displayName)" }
+                         ?? "Same as the container (\(item.bottle.graphics.displayName))").tag(GraphicsBackend?.none)
                     Divider()
                     ForEach(GraphicsBackend.allCases.filter { $0 != .auto }) { Text($0.displayName).tag(Optional($0)) }
+                } label: {
+                    SettingLabel("Direct3D 10–12", graphics != nil ? .you : inherited.graphics?.source)
                 }
-                Picker("Direct3D 9", selection: $direct3D9) {
-                    Text("Same as the container (\(item.bottle.direct3D9.displayName))").tag(Direct3D9Backend?.none)
+                Picker(selection: $direct3D9) {
+                    Text(inherited.direct3D9.map { "\($0.source.title): \($0.value.displayName)" }
+                         ?? "Same as the container (\(item.bottle.direct3D9.displayName))").tag(Direct3D9Backend?.none)
                     Divider()
                     ForEach(Direct3D9Backend.allCases.filter { $0 != .auto }) { Text($0.displayName).tag(Optional($0)) }
+                } label: {
+                    SettingLabel("Direct3D 9", direct3D9 != nil ? .you : inherited.direct3D9?.source)
                 }
             } footer: {
                 Text("OverPass Runtime suits most Direct3D 10 to 12 games, mtld3d most Direct3D 9 games. Direct3D 8 and older always use WineD3D.")
             }
             Section {
-                Toggle("Faster x87 math", isOn: $fasterX87)
+                Toggle(isOn: $fasterX87) {
+                    SettingLabel("Faster x87 math", fasterX87 == !inheritedX87Off ? (inheritedX87Off ? inherited.variable("OVERPASS_X87")?.source : nil) : .you)
+                }
             } footer: {
                 Text(X87Sidecar.isReady
                      ? "On by default for 32-bit games: x87sidecar replaces Rosetta's slow translation of their floating-point math. Turn it off if this game misbehaves."
                      : "Not available on this Mac yet: x87sidecar is missing or doesn't support this version of macOS.")
             }
             Section {
-                MaxResolutionPicker(value: $maxResolution, inherited: MaxResolution.global)
+                let rule = inherited.variable(MaxResolution.variable)
+                MaxResolutionPicker(value: $maxResolution, inherited: rule?.value ?? MaxResolution.global,
+                                    inheritedFrom: rule?.source, source: maxResolution.isEmpty ? rule?.source : .you)
             } footer: {
                 Text("The largest resolution this game can pick. Sizes above the desktop are scaled down to fit.")
             }
             Section {
-                Picker("Compile shaders", selection: $shaders) {
+                // The default writes nothing, so it leaves a rule's choice in place.
+                Picker(selection: Binding(get: { shaders == .background ? inherited.shaders?.value ?? .background : shaders },
+                                          set: { shaders = $0 })) {
                     ForEach(ShaderCompileChoice.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingLabel("Compile shaders", shaders != .background ? .you : inherited.shaders?.source)
                 }
             } header: {
                 Text("Direct3D 12")
@@ -478,8 +504,10 @@ struct ProfileEditor: View {
                      + "first time. Applies to OverPass Runtime.")
             }
             Section {
-                Picker("XAudio2", selection: $xaudio) {
+                Picker(selection: $xaudio) {
                     ForEach(XAudioChoice.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingLabel("XAudio2", xaudio == (inherited.xaudio == nil ? .wine : .microsoft) ? inherited.xaudio : .you)
                 }
                 if xaudio == .microsoft && !microsoftXAudioInstalled {
                     HStack {
@@ -501,6 +529,8 @@ struct ProfileEditor: View {
         .formStyle(.grouped)
     }
 
+    private var inheritedX87Off: Bool { inherited.variable("OVERPASS_X87")?.value == "0" }
+
     private var microsoftXAudioInstalled: Bool {
         let windows = item.bottle.driveC.appendingPathComponent("windows")
         return ["system32", "syswow64"].contains { dir in
@@ -513,6 +543,7 @@ struct ProfileEditor: View {
     private var advanced: some View {
         Form {
             presetsSection
+            inheritedSection
             if detail == .simple {
                 // Shader compiling, the maximum resolution and x87 have their own controls on other tabs.
                 SimpleSettingsEditor(environment: $environment, dlls: $dlls,
@@ -568,6 +599,22 @@ struct ProfileEditor: View {
         }
     }
 
+    /// Variables and DLLs the rules set, which have no control of their own.
+    @ViewBuilder
+    private var inheritedSection: some View {
+        if !inherited.others.isEmpty {
+            Section {
+                ForEach(inherited.others, id: \.self) { entry in
+                    SettingLabel(entry.value, entry.source).font(.callout.monospaced())
+                }
+            } header: {
+                Text("Set by Rules")
+            } footer: {
+                Text("These apply to this title along with your own settings below.")
+            }
+        }
+    }
+
     private func presetTitle(_ name: String) -> String {
         profiles.presetSummaries[name]?.nilIfEmpty ?? name
     }
@@ -608,6 +655,7 @@ struct ProfileEditor: View {
         let profileText = ProfileText(text: text)
         name = profileText.first("name", in: "app") ?? item.app.name
         presets = profileText.values(in: "app").filter { $0.key == "preset" }.map(\.value)
+        inherited = CompatRules.inherited(by: item, profileID: profileID, presetTitle: presetTitle)
         let mine = profileText.values(in: UserProfiles.settingsSection)
         arguments = mine.filter { $0.key == "add-arguments" }.map(\.value).joined(separator: " ")
         graphics = mine.last { $0.key == "graphics" }.flatMap { GraphicsBackend(rawValue: $0.value) }
@@ -617,8 +665,7 @@ struct ProfileEditor: View {
         shaders = .background
         if let i = envLines.lastIndex(where: { $0.hasPrefix("DXMT_CONFIG=") }) {
             let options = envLines[i].dropFirst("DXMT_CONFIG=".count).split(separator: ";").map(String.init)
-            shaders = ShaderCompileChoice.allCases.first { !$0.options.isEmpty && $0.options.allSatisfy(options.contains) }
-                ?? .background
+            shaders = ShaderCompileChoice.choice(in: options)
             let rest = options.filter { !ShaderCompileChoice.isOwn($0) }
             if rest.isEmpty { envLines.remove(at: i) } else { envLines[i] = "DXMT_CONFIG=" + rest.joined(separator: ";") }
         }
@@ -627,12 +674,15 @@ struct ProfileEditor: View {
         maxResolution = envLines.last { $0.hasPrefix(maxPrefix) }
             .flatMap { MaxResolution.normalized(String($0.dropFirst(maxPrefix.count))) } ?? ""
         envLines.removeAll { $0.hasPrefix(maxPrefix) }
-        fasterX87 = !envLines.contains("OVERPASS_X87=0")
+        fasterX87 = envLines.contains("OVERPASS_X87=0") ? false : envLines.contains("OVERPASS_X87=1") || !inheritedX87Off
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
         environment = envLines.joined(separator: "\n")
         let overrides = mine.filter { $0.key == "dll" }.map(\.value)
-        xaudio = Set(XAudioChoice.overrides).isSubset(of: overrides) ? .microsoft : .wine
-        dlls = overrides.filter { xaudio == .wine || !XAudioChoice.overrides.contains($0) }.joined(separator: "\n")
+        let microsoft = Set(XAudioChoice.overrides).isSubset(of: overrides)
+        let wine = Set(XAudioChoice.wineOverrides).isSubset(of: overrides)
+        xaudio = microsoft ? .microsoft : wine ? .wine : inherited.xaudio == nil ? .wine : .microsoft
+        dlls = overrides.filter { !(microsoft && XAudioChoice.overrides.contains($0)) && !(wine && XAudioChoice.wineOverrides.contains($0)) }
+            .joined(separator: "\n")
         art = ArtworkDraft(generatedCover: profileText.first("cover", in: "app") == ArtStyle.generatedCover,
                            coverStyle: ArtStyle(profileText.first("cover-style", in: "app"), default: .cover),
                            iconStyle: ArtStyle(profileText.first("icon-style", in: "app"), default: .icon))
@@ -684,10 +734,11 @@ struct ProfileEditor: View {
         envLines.removeAll { $0.hasPrefix(MaxResolution.variable + "=") }
         if let value = MaxResolution.normalized(maxResolution) { envLines.append("\(MaxResolution.variable)=\(value)") }
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
-        if !fasterX87 { envLines.append("OVERPASS_X87=0") }
+        if fasterX87 == inheritedX87Off { envLines.append("OVERPASS_X87=\(fasterX87 ? 1 : 0)") }
         settings += envLines.map { "env = \($0)" }
         var overrides = dlls.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if xaudio == .microsoft { overrides += XAudioChoice.overrides.filter { !overrides.contains($0) } }
+        if xaudio == .microsoft, inherited.xaudio == nil { overrides += XAudioChoice.overrides.filter { !overrides.contains($0) } }
+        if xaudio == .wine, inherited.xaudio != nil { overrides += XAudioChoice.wineOverrides.filter { !overrides.contains($0) } }
         settings += overrides.map { "dll = \($0)" }
 
         // Keep every program the section already covered (a game can have a Steam and a GOG copy), and add this one.

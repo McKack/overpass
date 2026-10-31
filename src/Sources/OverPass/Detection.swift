@@ -270,11 +270,6 @@ extension BottleManager {
     /// A profile of its own, or a rule that names it: then detection stays out of it.
     private func hasOwnRules(_ item: LibraryItem, profiles: ProfileStore?) -> Bool {
         if profiles?.profile(for: item) != nil { return true }
-        let path = item.app.target.map { BottleManager.hostPath($0, in: item.bottle).path } ?? item.app.executable
-        return CompatRules.all.contains { rule in
-            guard !rule.name.hasPrefix("Detected: ") else { return false }
-            if item.app.launcher == "Steam", let id = item.app.storeID, rule.steamAppIDs.contains(id) { return true }
-            return rule.matches(program: path)
-        }
+        return CompatRules.all.contains { !$0.name.hasPrefix("Detected: ") && $0.covers(item) }
     }
 }

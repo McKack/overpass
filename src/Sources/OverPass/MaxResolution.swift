@@ -63,6 +63,9 @@ enum MaxResolution {
 struct MaxResolutionPicker: View {
     @Binding var value: String
     var inherited: String?
+    /// Where `inherited` comes from, when that isn't Settings.
+    var inheritedFrom: SettingSource?
+    var source: SettingSource?
 
     @State private var choice = ""
     @State private var width = ""
@@ -73,9 +76,9 @@ struct MaxResolutionPicker: View {
 
     var body: some View {
         Group {
-            Picker("Max resolution", selection: $choice) {
+            Picker(selection: $choice) {
                 if let inherited {
-                    Text("Same as Settings: \(MaxResolution.title(inherited))").tag("")
+                    Text("\(inheritedFrom?.title ?? "Same as Settings"): \(MaxResolution.title(inherited))").tag("")
                     Divider()
                 }
                 Text(MaxResolution.title(MaxResolution.desktop)).tag(MaxResolution.desktop)
@@ -84,6 +87,8 @@ struct MaxResolutionPicker: View {
                 ForEach(sizes.map { "\($0.width)x\($0.height)" }, id: \.self) { Text(MaxResolution.title($0)).tag($0) }
                 Divider()
                 Text("Custom…").tag(Self.custom)
+            } label: {
+                SettingLabel("Max resolution", source)
             }
             if choice == Self.custom {
                 LabeledContent("Custom size") {

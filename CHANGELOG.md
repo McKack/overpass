@@ -5,6 +5,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 ## Unreleased
 
 - Add ready-made settings to a game from its profile
+- The profile editor shows the settings a game already gets, and where each comes from
 - Older 32-bit games get faster math without any setting
 - Smaller bug fixes and improvements
 
@@ -12,6 +13,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 **Profiles**
 - Advanced › Presets in the profile editor: ready-made settings that help some games, grouped in a menu.
+- The profile editor shows values from a game's profile, presets, detection and rules instead of the default, each with a coloured dot; hover for the source. Saving keeps only what you set yourself.
+- Picking Wine's XAudio2 now also works for a game where a preset sets Microsoft's.
 
 **Games**
 - Faster x87 math is on by default for 32-bit games, once OverPass has checked it works on your version of macOS. A game's profile can turn it off.

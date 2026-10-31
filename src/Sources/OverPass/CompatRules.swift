@@ -7,6 +7,8 @@ import Foundation
 // OverPass applies the same rules to the program it starts itself, which Wine doesn't see being created.
 struct CompatRule: Hashable {
     var name: String
+    /// The file in the rules folder this rule came from.
+    var file = ""
     var programs: [String] = []
     var steamAppIDs: [String] = []
     /// File names that, found in the program's folder, make the rule cover it (libcef.dll: a Chromium program).
@@ -43,6 +45,13 @@ struct CompatRule: Hashable {
             return FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path)
         }
     }
+
+    /// Whether the rule covers a library title: by its Steam app, as OverPass Wine does, or by its program.
+    @MainActor
+    func covers(_ item: LibraryItem) -> Bool {
+        if item.app.launcher == "Steam", let id = item.app.storeID, steamAppIDs.contains(id) { return true }
+        return matches(program: item.app.target.map { BottleManager.hostPath($0, in: item.bottle).path } ?? item.app.executable)
+    }
 }
 
 enum CompatRules {
@@ -65,7 +74,13 @@ enum CompatRules {
         else { return [] }
         return files.filter { $0.pathExtension.lowercased() == "ini" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .flatMap { (try? String(contentsOf: $0, encoding: .utf8)).map(parse) ?? [] }
+            .flatMap { url in
+                ((try? String(contentsOf: url, encoding: .utf8)).map(parse) ?? []).map { rule in
+                    var rule = rule
+                    rule.file = url.lastPathComponent
+                    return rule
+                }
+            }
     }
 
     static func parse(_ text: String) -> [CompatRule] {

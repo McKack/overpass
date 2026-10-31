@@ -2,6 +2,15 @@
 
 What changed in each release of OverPass, newest first. The short list at the top of each version is what OverPass shows after an update.
 
+## Unreleased
+
+- Smaller bug fixes and improvements
+
+### Details
+
+**Library**
+- A title's size counts its whole game folder, not only the folder its program sits in.
+
 ## 0.6.7 - 2026-10-31
 
 - Rate a game and send in its settings, with a comment if you like

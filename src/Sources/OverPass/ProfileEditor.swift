@@ -311,7 +311,8 @@ struct ProfileEditor: View {
         }
         .font(.callout)
         .task(id: item.id) {
-            guard let folder = item.installFolder else { return }
+            guard let installed = item.installFolder else { return }
+            let folder = Detection.root(of: installed) ?? installed
             installSize = await Task.detached(priority: .utility) { Self.size(of: folder) }.value
         }
     }

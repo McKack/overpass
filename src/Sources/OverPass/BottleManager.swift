@@ -1039,7 +1039,9 @@ class BottleManager {
             } else if let i = games.firstIndex(where: { installFolder(of: $0).map { shortcut.target?.lowercased().hasPrefix($0) == true } ?? false }) {
                 // The game's installer made it: a manual, a safe mode, the main shortcut under another name.
                 if shortcut.target?.caseInsensitiveCompare(games[i].target ?? "") == .orderedSame { games[i].shortcut = shortcut.executable }
-            } else {
+            } else if shortcut.target?.hasSuffix("\\") != true {
+                // Not a folder: with no Galaxy to name, GOG's installers aim the Start-menu shortcut at `C:\`, which
+                // only opens Explorer. It still gives a game its icon above, once the names match.
                 kept.append(shortcut)
             }
         }

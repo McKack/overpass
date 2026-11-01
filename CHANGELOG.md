@@ -30,6 +30,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 **Games**
 - Outcast: the intro video plays instead of a black screen.
+- A GOG game no longer shows an extra tile while it sets up. That tile only opened a Windows file window.
 
 ## 0.6.8 - 2026-11-01
 

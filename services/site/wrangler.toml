@@ -24,7 +24,7 @@ MODERATORS = "5e5b27e4-7922-44ad-ac52-b2515e7a2fc8"
 # People's pictures. Stays out of the static site's way: /pictures/* above.
 [[kv_namespaces]]
 binding = "PICTURES"
-id = "NAMESPACE_ID"
+id = "498de0440dd94cf4b78906fc8e203437"
 
 [[d1_databases]]
 binding = "DB"

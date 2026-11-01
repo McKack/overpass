@@ -115,7 +115,7 @@ source = https://...
 | `dll` | DLL override in `WINEDLLOVERRIDES` syntax, e.g. `xaudio2_7=n,b` | yes |
 | `graphics` | `dxmt`, `d3dmetal`, `wined3d`, `dxvk` or `auto` | no |
 | `d3d9` | `mtld3d` or `wined3d`: Direct3D 9 for the program, after any `graphics` line | no |
-| `replace-path` | `from => to`: start another program instead. The part of the program's path matching `from` (any case) is replaced by `to`, or the whole path when `to` is absolute (`C:\...`). The arguments stay. Skipped when the new program doesn't exist | yes |
+| `replace-path` | `from => to`: start another program instead. The part of the program's path matching `from` (any case) is replaced by `to`, or the whole path when `to` is absolute (`C:\...`). The arguments stay. Skipped when the new program doesn't exist. `C:\windows\system32\donothing.exe` (OverPass Wine 11.0-14 and newer) exits at once with success, to skip a launcher step | yes |
 | `source` | Where the fix comes from: bug report, test, forum thread | yes |
 
 A rule applies when any of its `program`, `steam-app` or `beside` lines match. Matching rules apply in file-name

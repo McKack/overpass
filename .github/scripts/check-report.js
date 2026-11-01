@@ -10,6 +10,8 @@
 // The checksum only shows the block wasn't edited by hand: OverPass is open source, so it can't prove a report came
 // from the app.
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const TOLERATED = 3;
 const MARKER = '<!-- overpass-report-check -->';
@@ -50,7 +52,7 @@ const shown = s => '`' + String(s).replace(/[`@\n]/g, '').slice(0, 80) + '`';
 
 /// Reads an issue's body. `released(repository, tag)` answers true, false, or null when GitHub couldn't say.
 /// Returns what's wrong (`broken`: no intact block; `odd`: everything else) and the labels the details give.
-async function check(rawBody, released) {
+async function check(rawBody, released, profileExists = () => null) {
   const body = (rawBody || '').replace(/\r\n/g, '\n');
   const broken = [], odd = [], facts = {}, labels = [];
   let kind = KINDS.game;
@@ -101,6 +103,8 @@ async function check(rawBody, released) {
   }
   if (given('windows') && !WINDOWS.test(facts.windows)) odd.push(`The Windows version ${shown(facts.windows)} isn't one OverPass has.`);
   if (given('profile') && !PROFILE.test(facts.profile)) odd.push(`The profile ${shown(facts.profile)} isn't a profile ID.`);
+  else if (given('profile', 'none') && !facts.profile.endsWith(' (own)') && profileExists(facts.profile.replace(/ \(changed\)$/, '')) === false)
+    odd.push(`The profile ${shown(facts.profile)} isn't one OverPass has.`);
   const store = (facts.store || '').match(STORE);
   if (given('store') && !store) odd.push(`The store ${shown(facts.store)} isn't understood.`);
   if (store && store[2] && store[2] !== 'Store') labels.push([`store ${store[2].toLowerCase()}`.slice(0, 50), '0e8a16']);
@@ -141,7 +145,8 @@ async function run({ github, context }) {
     try { await github.rest.repos.getReleaseByTag({ owner, repo: repository, tag }); return true; }
     catch (e) { return e.status === 404 ? false : null; }
   }
-  const { kind, broken, odd, labels } = await check(issue.body, released);
+  const profileExists = id => fs.existsSync(path.join(__dirname, '..', '..', 'profiles', `${id}.ini`));
+  const { kind, broken, odd, labels } = await check(issue.body, released, profileExists);
 
   const text = comment(broken, odd, issue.user?.type !== 'Bot');
   const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number });

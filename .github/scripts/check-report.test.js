@@ -288,3 +288,14 @@ test('the backend the game really loaded gives the label, over the setting', asy
   const strange = await check(relayed(game({ backend: 'Bad Value' })), released);
   assert.ok(strange.odd.some(o => o.includes('backend')));
 });
+
+test('a profile OverPass has passes, one it lacks is odd, and own profiles are not looked up', async () => {
+  const exists = id => id === 'astroneer';
+  const oddFor = async profile => (await check(relayed(game({ profile })), released, exists)).odd;
+  assert.deepStrictEqual(await oddFor('astroneer'), []);
+  assert.deepStrictEqual(await oddFor('astroneer (changed)'), []);
+  assert.deepStrictEqual(await oddFor('made-up (own)'), []);
+  assert.deepStrictEqual(await oddFor('none'), []);
+  assert.match((await oddFor('made-up'))[0], /isn't one OverPass has/);
+  assert.match((await oddFor('made-up (changed)'))[0], /isn't one OverPass has/);
+});

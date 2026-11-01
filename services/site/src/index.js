@@ -11,7 +11,8 @@
 //   GET  /account                the signed-in person's page
 //   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
 //   POST /account/picture, /account/picture/delete   set or remove one's picture; GET /pictures/<key>.jpg
-//   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
+//   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment or reply, delete one's own
+//   POST /games/<id>/comments/<comment>/vote   upvote a comment, or take that back
 //   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
 //   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for Admins and Mods
 //   POST /moderation/mods, /moderation/mods/<user>/remove   Admins make an account a Mod, or stop it being one
@@ -54,7 +55,7 @@ export default {
       if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
-      const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
+      const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/(delete|vote))?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
@@ -85,6 +86,7 @@ export default {
           return rated[2] ? await deleteOwnRating(env, user, rated[1]) : await addOwnRating(request, env, user, rated[1]);
         }
         if (commented) {
+          if (commented[3] === 'vote') return await vote(env, user, commented[1], commented[2]);
           return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
         }
         if (path === '/account/picture') return await savePicture(request, env, user);
@@ -400,6 +402,8 @@ async function deleteAccount(env, user) {
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1) OR target IN (SELECT id FROM ratings WHERE install = ?2)')
       .bind(user.id, accountRater(user)),
+    env.DB.prepare('DELETE FROM votes WHERE user_id = ?1 OR comment_id IN (SELECT id FROM comments WHERE user_id = ?1)').bind(user.id),
+    env.DB.prepare('UPDATE comments SET parent_id = NULL WHERE parent_id IN (SELECT id FROM comments WHERE user_id = ?)').bind(user.id),
     env.DB.prepare('DELETE FROM comments WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM ratings WHERE install = ?').bind(accountRater(user)),
     env.DB.prepare('UPDATE ratings SET user_id = NULL WHERE user_id = ?').bind(user.id),
@@ -561,36 +565,69 @@ async function changeCover(request, env, id, action) {
 const COMMENT_LENGTH = 2000;
 const COMMENTS_A_DAY = 20;
 
-/// A hidden comment still shows to the person who wrote it, so they can delete it.
+/// A hidden comment still shows to the person who wrote it, so they can delete it. Most upvoted first, each with its
+/// replies in the order they were written. A reply whose comment isn't shown stands on its own.
 async function comments(env, id, user) {
   const { results } = await env.DB.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture, ${badgeOf('users')} FROM comments
-     JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND (comments.hidden = 0 OR comments.user_id = ?)
-     ORDER BY comments.created_at DESC LIMIT 200`,
+    `SELECT comments.id, comments.parent_id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture, ${badgeOf('users')},
+       (SELECT COUNT(*) FROM votes WHERE comment_id = comments.id) AS votes,
+       EXISTS (SELECT 1 FROM votes WHERE comment_id = comments.id AND user_id = ?2) AS voted
+     FROM comments JOIN users ON users.id = comments.user_id WHERE comments.game_id = ?1 AND (comments.hidden = 0 OR comments.user_id = ?2)
+     ORDER BY comments.created_at DESC LIMIT 500`,
   ).bind(id, user?.id ?? null).all();
-  return results;
+  const shown = new Map(results.map((comment) => [comment.id, { ...comment, replies: [] }]));
+  const top = [];
+  for (const comment of shown.values()) {
+    const parent = shown.get(comment.parent_id);
+    if (parent) parent.replies.unshift(comment); else top.push(comment);
+  }
+  return top.sort((a, b) => b.votes - a.votes || b.created_at - a.created_at);
 }
 
+/// Replies go one level deep: a reply to a reply joins the same comment.
 async function addComment(request, env, user, id) {
   const back = `/games/${id}`;
   const exists = await env.DB.prepare('SELECT id FROM games WHERE id = ?').bind(id).first('id');
   if (!exists) return html(missingPage(), 404);
   if (!user.name) return redirect('/account');
-  const body = String((await request.formData()).get('body') || '').replace(/\r\n/g, '\n').trim();
+  const form = await request.formData();
+  const body = String(form.get('body') || '').replace(/\r\n/g, '\n').trim();
   if (!body || body.length > COMMENT_LENGTH) return redirect(`${back}?error=comment#comments`);
+  const answered = form.get('parent')
+    ? await env.DB.prepare('SELECT id, parent_id FROM comments WHERE id = ? AND game_id = ?').bind(String(form.get('parent')), id).first()
+    : null;
+  if (form.get('parent') && !answered) return redirect(`${back}?error=gone#comments`);
   const now = Date.now();
   const today = await env.DB.prepare('SELECT COUNT(*) AS n FROM comments WHERE user_id = ? AND created_at > ?')
     .bind(user.id, now - 24 * 3600 * 1000).first('n');
   if (today >= COMMENTS_A_DAY) return redirect(`${back}?error=limit#comments`);
-  await env.DB.prepare('INSERT INTO comments (id, game_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), id, user.id, body, now).run();
-  return redirect(`${back}#comments`);
+  const comment = crypto.randomUUID();
+  await env.DB.prepare('INSERT INTO comments (id, game_id, parent_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(comment, id, answered ? answered.parent_id ?? answered.id : null, user.id, body, now).run();
+  return redirect(`${back}#comment-${comment}`);
 }
 
+/// Its replies stay, as comments of their own.
 async function deleteComment(env, user, id, comment) {
   const { meta } = await env.DB.prepare('DELETE FROM comments WHERE id = ? AND user_id = ?').bind(comment, user.id).run();
-  if (meta.changes) await env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(comment).run();
+  if (meta.changes) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(comment),
+      env.DB.prepare('DELETE FROM votes WHERE comment_id = ?').bind(comment),
+      env.DB.prepare('UPDATE comments SET parent_id = NULL WHERE parent_id = ?').bind(comment),
+    ]);
+  }
   return redirect(`/games/${id}#comments`);
+}
+
+/// One upvote per account, not on one's own comment or a hidden one. Pressing again takes it back.
+async function vote(env, user, id, comment) {
+  const anchor = `/games/${id}#comment-${comment}`;
+  const target = await env.DB.prepare('SELECT user_id FROM comments WHERE id = ? AND game_id = ? AND hidden = 0').bind(comment, id).first();
+  if (!target || target.user_id === user.id) return redirect(anchor);
+  const { meta } = await env.DB.prepare('DELETE FROM votes WHERE comment_id = ? AND user_id = ?').bind(comment, user.id).run();
+  if (!meta.changes) await env.DB.prepare('INSERT OR IGNORE INTO votes (comment_id, user_id, created_at) VALUES (?, ?, ?)').bind(comment, user.id, Date.now()).run();
+  return redirect(anchor);
 }
 
 // Ratings from a moderator
@@ -802,7 +839,8 @@ function cover(game) {
   return `<div class="cover" style="--hue:${hue(game.name)}"><span>${escape(initials(game.name))}</span>${art}</div>`;
 }
 
-function shell(title, description, body, moderator = false) {
+/// `tab` is the header's tab this page belongs to.
+function shell(title, description, body, moderator = false, tab = null) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -812,12 +850,19 @@ function shell(title, description, body, moderator = false) {
 <meta name="description" content="${escape(description)}">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/cards.css">
+<link rel="stylesheet" href="/nav.css">
 <link rel="stylesheet" href="/games.css">
+<script src="/nav.js" defer></script>
 </head>
 <body>
 <nav class="top">
-  <a class="brand" href="/"><img src="/icon.svg" alt="">OverPass</a>
-  <span class="links"><a href="/games">Games</a>${moderator ? '<a href="/moderation">Moderation</a>' : ''}<a href="/account">Account</a></span>
+  <a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>
+  <div class="tabs"><a href="/">OverPass</a><a href="/games"${tab === 'games' ? ' aria-current="page"' : ''}>Games</a></div>
+  <div class="side">
+    ${moderator ? `<a class="round" href="/moderation" aria-label="Moderation" title="Moderation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Zm-1.100 14-3.600-3.600 1.400-1.400 2.200 2.200 4.800-4.800 1.400 1.400-6.200 6.200Z"/></svg></a>` : ''}
+    <a class="round" href="/account" aria-label="Account" title="Account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a3.500 3.500 0 1 1 0 7 3.500 3.500 0 0 1 0-7Zm0 14a8 8 0 0 1-6-2.700C6.900 15.600 9.300 15 12 15s5.100.6 6 2.300A8 8 0 0 1 12 20Z"/></svg></a>
+    <a class="get" href="${REPOSITORY}/releases/latest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-8 15a1 1 0 0 1 1 1v1h14v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg><span>Download</span></a>
+  </div>
 </nav>
 <main>${body}</main>
 <footer>
@@ -954,7 +999,7 @@ function gamesPage(games, moderator) {
   heads.addEventListener('click', (event) => { const head = event.target.closest('button'); if (head) sortBy(head.dataset.sort); });
   for (const view of views) view.addEventListener('click', () => { state.view = view.dataset.view; arrange(); });
   arrange();
-</script>`, moderator);
+</script>`, moderator, 'games');
 }
 
 /// One bar a tier, as wide as its share of the ratings.
@@ -985,13 +1030,39 @@ function ratingCard(game, rating, user, reports, own) {
 </article>`;
 }
 
+/// A count anyone can see; pressing it needs an account, and it's not for one's own comment or a hidden one.
+function voteButton(game, comment, user) {
+  const back = encodeURIComponent(`/games/${game.id}#comment-${comment.id}`);
+  const label = `<span>${comment.votes}</span>`;
+  if (!user) return `<a class="vote" href="/auth/google?next=${back}" aria-label="Sign in to upvote, ${comment.votes} so far">${label}</a>`;
+  if (comment.user_id === user.id || comment.hidden) return `<span class="vote" aria-label="${comment.votes} upvotes">${label}</span>`;
+  return `<form method="post" action="/games/${game.id}/comments/${comment.id}/vote"><button class="vote" type="submit" aria-label="Upvote" aria-pressed="${Boolean(comment.voted)}">${label}</button></form>`;
+}
+
+function replyForm(game, comment, user) {
+  const back = encodeURIComponent(`/games/${game.id}#comment-${comment.id}`);
+  if (!user) return `<a class="link" href="/auth/google?next=${back}">Reply</a>`;
+  if (!user.name) return '<a class="link" href="/account">Reply</a>';
+  return `<details><summary>Reply</summary><form class="write" method="post" action="/games/${game.id}/comments">
+  <input type="hidden" name="parent" value="${comment.id}">
+  <label for="reply-${comment.id}">Reply as ${escape(user.name)}</label>
+  <textarea id="reply-${comment.id}" name="body" rows="2" required maxlength="${COMMENT_LENGTH}"></textarea>
+  <button class="button" type="submit">Post Reply</button>
+</form></details>`;
+}
+
 function commentCard(game, comment, user, reports) {
   const mine = comment.user_id === user?.id;
   return `<article class="rating" id="comment-${comment.id}">
   <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${escape(comment.name)}${roleBadge(comment.badge)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
   <p class="comment">${escape(comment.body)}</p>
   ${comment.hidden ? '<p class="muted">Hidden after reports. Only you can see this.</p>' : ''}
-  ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
+  <div class="answers">
+    ${voteButton(game, comment, user)}
+    ${replyForm(game, comment, user)}
+    ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
+  </div>
+  ${comment.replies?.length ? `<div class="replies">${comment.replies.map((reply) => commentCard(game, reply, user, reports)).join('\n')}</div>` : ''}
 </article>`;
 }
 
@@ -1067,6 +1138,7 @@ const RATING_ERRORS = {
 
 const COMMENT_ERRORS = {
   comment: `A comment has 1 to ${COMMENT_LENGTH} characters.`,
+  gone: 'That comment is gone, so your reply wasn\'t posted.',
   limit: `That's ${COMMENTS_A_DAY} comments in a day, the most you can post. Try again tomorrow.`,
   reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
 };
@@ -1151,7 +1223,19 @@ ${settings}
   ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
   ${commentForm(game, user)}
   ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
-</section>`, moderator);
+</section>
+<script>
+  // Upvotes without leaving the place on the page. The form still works by itself.
+  document.getElementById('comments').addEventListener('submit', (event) => {
+    const button = event.target.querySelector('button.vote');
+    if (!button) return;
+    event.preventDefault();
+    const on = button.getAttribute('aria-pressed') !== 'true', count = button.querySelector('span');
+    button.setAttribute('aria-pressed', on);
+    count.textContent = Number(count.textContent) + (on ? 1 : -1);
+    fetch(event.target.action, { method: 'POST' }).then((answer) => { if (!answer.ok) location.reload(); }, () => location.reload());
+  });
+</script>`, moderator, 'games');
 }
 
 const ACCOUNT_ERRORS = {
@@ -1296,7 +1380,8 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 </section>
 <section>
   <h2>Comments</h2>
-  <p>A comment is public on the game's page, with your username and the date. You can delete your own at any time.</p>
+  <p>A comment or reply is public on the game's page, with your username and the date. You can delete your own at any time; replies others wrote to it stay.</p>
+  <p>Signed-in people can upvote a comment. The number is public. Who gave which upvote is never shown, and it's kept only so each person counts once. You can take an upvote back, and yours go when your account does.</p>
   <p>Signed-in people can report a comment or a rating. Three reports hide it until it's reviewed. Who reported what is never shown, and it's removed when the report is settled or the account is deleted.</p>
 </section>
 <section>
@@ -1374,7 +1459,7 @@ const reportGonePage = () => shell('Report not found · OverPass', 'This report 
 <header class="page"><h1>This report is gone</h1><p>It was already sent, or a day went by without it being sent. To rate the game again, use How Did It Run? in OverPass.</p></header>`);
 
 const missingPage = () => shell('Game not found · OverPass', 'This game has no page yet.', `
-<header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`);
+<header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`, false, 'games');
 const failedPage = () => shell('Something went wrong · OverPass', 'The games list could not be loaded.', `
 <header class="page"><h1>Something went wrong</h1><p>The games list could not be loaded. Try again in a moment.</p></header>`);
 

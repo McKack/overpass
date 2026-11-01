@@ -7,6 +7,7 @@
 <meta name="description" content="Run Windows games on your Mac. OverPass sets up Wine, the runtimes and the graphics for each game, free and open source.">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="cards.css">
+<link rel="stylesheet" href="nav.css">
 <style>
   :root {
     --bg: #f5f5f7;
@@ -42,7 +43,7 @@
     font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 980px; margin: 0 auto; padding: 72px 16px 40px; }
+  main { max-width: 980px; margin: 0 auto; padding: 56px 16px 40px; }
   header { text-align: center; }
   .icon { width: 148px; height: 148px; filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.22)); }
   h1 { font: 700 56px/1.07 -apple-system, "SF Pro Display", sans-serif; letter-spacing: -0.015em; margin: 20px 0 8px; }
@@ -116,7 +117,7 @@
   .maker { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
   .maker img { width: 20px; height: 20px; }
   @media (max-width: 600px) {
-    main { padding-top: 48px; }
+    main { padding-top: 40px; }
     h1 { font-size: 40px; }
     .tagline { font-size: 20px; }
     .icon { width: 112px; height: 112px; }
@@ -124,6 +125,14 @@
 </style>
 </head>
 <body>
+<nav class="top">
+  <a class="home" href="/" aria-label="OverPass"><img src="icon.svg" alt=""></a>
+  <div class="tabs"><a href="/" aria-current="page">OverPass</a><a href="/games">Games</a></div>
+  <div class="side">
+    <a class="round" href="/account" aria-label="Account" title="Account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a3.500 3.500 0 1 1 0 7 3.500 3.500 0 0 1 0-7Zm0 14a8 8 0 0 1-6-2.700C6.900 15.600 9.300 15 12 15s5.100.6 6 2.300A8 8 0 0 1 12 20Z"/></svg></a>
+    <a class="get" href="https://github.com/McKack/overpass/releases/latest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-8 15a1 1 0 0 1 1 1v1h14v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg><span>Download</span></a>
+  </div>
+</nav>
 <main>
   <header>
     <img class="icon" src="icon.svg" alt="">
@@ -217,6 +226,7 @@
   <span aria-hidden="true">·</span> <a href="https://ko-fi.com/arctim">Ko-fi</a>
   <span aria-hidden="true">·</span> <a href="/privacy">Privacy</a>
 </footer>
+<script src="nav.js" defer></script>
 <script>
   // Recently rated games, from the games database.
   fetch("/api/recent").then((response) => response.json()).then((games) => {

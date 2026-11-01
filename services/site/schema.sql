@@ -3,6 +3,8 @@
 --   ALTER TABLE users ADD COLUMN public INTEGER NOT NULL DEFAULT 0;
 --   CREATE INDEX ratings_user ON ratings (user_id);
 --   ALTER TABLE users ADD COLUMN role TEXT;
+--   ALTER TABLE comments ADD COLUMN parent_id TEXT;
+--   CREATE INDEX comments_parent ON comments (parent_id);
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
 -- The games database (D1 "overpass-games"), shared by the site's worker, which reads it and stores the list of games
@@ -105,6 +107,7 @@ CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
   game_id TEXT NOT NULL,
+  parent_id TEXT,                    -- the comment this replies to; replies go one level deep
   user_id TEXT NOT NULL,
   body TEXT NOT NULL,
   hidden INTEGER NOT NULL DEFAULT 0,
@@ -112,6 +115,16 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS comments_game ON comments (game_id, created_at);
 CREATE INDEX IF NOT EXISTS comments_user ON comments (user_id, created_at);
+CREATE INDEX IF NOT EXISTS comments_parent ON comments (parent_id);
+
+-- Upvotes on comments, one per account. Only the count is shown.
+CREATE TABLE IF NOT EXISTS votes (
+  comment_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (comment_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS votes_user ON votes (user_id);
 
 -- Who reported a comment or a rating; `target` is its ID. Gone once a moderator has decided, or with either side's deletion.
 CREATE TABLE IF NOT EXISTS reports (

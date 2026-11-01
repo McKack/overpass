@@ -166,8 +166,46 @@ footer a { color: inherit; }
   font-size: 12px; font-weight: 600; color: #ffffff; background: hsl(var(--hue) 45% 42%);
 }
 .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.picture { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0; }
-.picture .avatar { width: 64px; height: 64px; font-size: 22px; }
+.profile { display: flex; align-items: center; gap: 20px; padding: 24px 0 8px; margin-bottom: 20px; }
+.portrait { position: relative; flex: none; width: 96px; height: 96px; }
+.portrait label { position: relative; display: block; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; cursor: pointer; }
+.portrait .avatar { display: grid; width: 100%; height: 100%; font-size: 34px; }
+.upload {
+  position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #ffffff;
+  background: rgba(0, 0, 0, .5); opacity: 0; transition: opacity .15s;
+}
+.portrait label:hover .upload, .portrait label:focus-within .upload { opacity: 1; }
+.portrait label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.portrait form { position: absolute; right: 0; bottom: 0; }
+.clear {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator), 0 1px 3px rgba(0, 0, 0, .25);
+}
+.clear:hover { color: #ffffff; background: #d70015; }
+.clear svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+.naming { flex: 1; min-width: 0; }
+.naming p { margin: 0; font-size: 19px; color: var(--secondary); }
+.name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.name h1 { display: inline-grid; min-width: 0; max-width: 100%; margin: 0 0 0 -6px; }
+.name h1::after, .name input { grid-area: 1 / 1; padding: 2px 6px; }
+.name h1::after { content: attr(data-value) " "; visibility: hidden; white-space: pre; overflow: hidden; }
+.name input {
+  width: 100%; min-width: 0; border: 0; border-radius: 10px; font: inherit; letter-spacing: inherit; color: var(--text); background: none;
+}
+.name input:focus { outline: 2px solid var(--accent); }
+.pen { display: grid; place-items: center; width: 28px; height: 28px; color: var(--secondary); opacity: .35; cursor: pointer; transition: opacity .15s; }
+.pen svg { width: 20px; height: 20px; fill: currentColor; }
+.name:hover .pen, .name:focus-within .pen { opacity: 1; }
+.name:focus-within .pen { display: none; }
+.save { display: none; }
+.name:focus-within .save, .name:has(input:placeholder-shown) .save { display: inline-block; }
+@media (max-width: 480px) {
+  .profile { gap: 14px; }
+  .portrait { width: 72px; height: 72px; }
+  .portrait .avatar { font-size: 26px; }
+  .name h1 { font-size: 32px; }
+}
 .link { margin-top: 8px; padding: 0; border: 0; font: inherit; font-size: 13px; color: var(--secondary); background: none; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 .reported { margin: 8px 0 0; font-size: 13px; color: var(--secondary); }

@@ -1305,15 +1305,39 @@ ${team ? `<section id="mods">
   </form>
 </section>` : ''}`, true);
 
-/// Crops to a square and shrinks it here, so only a small JPEG is ever sent.
-function pictureForm(user) {
-  return `<section class="picture">
-  ${avatar(user.name, user.picture)}
-  <label class="button quiet">Choose Picture…<input id="picture" type="file" accept="image/*" hidden></label>
-  ${user.picture ? '<form method="post" action="/account/picture/delete"><button class="button quiet" type="submit">Remove Picture</button></form>' : ''}
-</section>
+/// The top of the account page: the picture, which changes on a click, and the name, which is edited where it stands.
+/// A person with no username yet only gets the name, as a picture needs a name to go with it.
+function profileHeader(user) {
+  const pen = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.500 3.500a2.100 2.100 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
+  return `<header class="profile">
+${user.name ? `<div class="portrait">
+  <label title="Change Picture">
+    ${avatar(user.name, user.picture)}
+    <span class="upload">Upload</span>
+    <input id="picture" class="hidden-input" type="file" accept="image/*" aria-label="Change Picture">
+  </label>
+  ${user.picture ? '<form method="post" action="/account/picture/delete"><button class="clear" type="submit" aria-label="Remove Picture" title="Remove Picture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form>' : ''}
+</div>` : ''}
+<div class="naming">
+  <form class="name" method="post" action="/account">
+    <h1 data-value="${escape(user.name || 'Choose a username')}"><input id="name" name="name" required minlength="2" maxlength="30" size="1" value="${escape(user.name)}" placeholder="Choose a username" aria-label="Username" autocomplete="username"${user.name ? '' : ' autofocus'}></h1>
+    <label class="pen" for="name" title="Change Username">${pen}</label>
+    <button class="button save" type="submit">Save</button>
+  </form>
+  ${user.name ? '' : '<p>This is the name others will see.</p>'}
+</div>
+</header>
 <script>
-  document.getElementById('picture').addEventListener('change', async (event) => {
+  const field = document.getElementById('name'), saved = field.value;
+  const fit = () => { field.parentElement.dataset.value = field.value || field.placeholder; };
+  field.addEventListener('input', fit);
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    field.value = saved;
+    fit();
+    field.blur();
+  });
+  document.getElementById('picture')?.addEventListener('change', async (event) => {
     const image = await createImageBitmap(event.target.files[0]).catch(() => null);
     if (!image) return location.assign('/account?error=picture');
     const side = Math.min(image.width, image.height), canvas = document.createElement('canvas');
@@ -1352,15 +1376,9 @@ ${problem}
 <p class="muted">OverPass keeps Google's ID for your account, the username you choose and a picture if you add one, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
   }
   return shell('Your account · OverPass', 'Your OverPass account.', `
-<header class="page"><h1>${user.name ? escape(user.name) : 'Choose a username'}</h1>${user.name ? '' : '<p>This is the name others will see.</p>'}</header>
+${profileHeader(user)}
 ${problem}
-${user.name ? pictureForm(user) : ''}
 ${user.name ? publicForm(user) : ''}
-<form class="account" method="post" action="/account">
-  <label for="name">Username</label>
-  <input id="name" name="name" required minlength="2" maxlength="30" value="${escape(user.name)}" autocomplete="username">
-  <button class="button" type="submit">Save</button>
-</form>
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
 <section>
   <h2>Delete account</h2>

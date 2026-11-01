@@ -9,7 +9,7 @@ enum ViewOptions {
     static let installedOnlyKey = "storeInstalledOnly"
     /// Offer the stores' own Windows clients (Epic Games Launcher, GOG Galaxy) beside the built-in libraries.
     static let legacyClientsKey = "legacyGameClients"
-    /// Show Home's other recommended apps (Utilities, Music & Media...) beside the Gaming Services.
+    /// Show Home's other recommended apps (Software) beside the Gaming Services.
     static let otherAppsKey = "otherRecommendedApps"
     static let favoritesKey = "favorites"
     /// Titles and store games the person hid (Hide in their menu), and whether View shows them anyway.
@@ -48,7 +48,7 @@ enum Hidden {
 enum BuiltInCategory: String, CaseIterable, Identifiable {
     /// Mac apps added to the library.
     case mac
-    /// Windows titles no game client installed: apps from Home's Utilities and programs installed on their own.
+    /// Windows titles no game client installed: apps from Home's Software and programs installed on their own.
     case other
 
     var id: String { rawValue }

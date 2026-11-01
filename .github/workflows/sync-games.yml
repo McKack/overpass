@@ -10,6 +10,7 @@ on:
   push:
     branches: [main]
     paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', '.github/scripts/find-covers.mjs', '.github/scripts/link-issues.mjs', 'services/site/src/profile-check.js']
+  # The report relay starts this every half hour as well (its wrangler.toml): GitHub skips most scheduled runs.
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:

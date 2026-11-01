@@ -5,8 +5,9 @@
 // image goes first and stays. Store pages found on the way go on the game's page.
 //
 // Art a game already has stays. A game missing a cover, hero or icon is looked at again once a month, the longest
-// unchecked first, spread out over the runs. The queue goes ahead of that, up to NEW_A_RUN at a time: titles the app has
-// just asked about and anything else not checked yet. TheGamesDB's monthly allowance is shared out the same way.
+// unchecked first, spread out over the runs. The queue goes ahead of that, up to NEW_A_RUN at a time: games someone has
+// just rated, first, as their page is being looked at, then titles the app has asked about and anything else not checked
+// yet. TheGamesDB's monthly allowance is shared out the same way.
 //
 //   SITE=... SYNC_TOKEN=... node find-covers.mjs
 
@@ -35,7 +36,8 @@ export function sameName(a, b) {
 /// and programs that aren't games keep their tiles.
 export function due(games, now = Date.now()) {
   const turns = games.filter((game) => !game.brand && [null, undefined, 'Games'].includes(game.category));
-  const fresh = turns.filter((game) => !game.checked_at).slice(0, NEW_A_RUN);
+  const waiting = turns.filter((game) => !game.checked_at);
+  const fresh = [...waiting.filter((game) => game.source === 'rated'), ...waiting.filter((game) => game.source !== 'rated')].slice(0, NEW_A_RUN);
   const missing = turns.filter((game) => game.checked_at && !(game.cover && game.hero && game.icon && game.about));
   const ready = missing.filter((game) => now - game.checked_at >= MONTH_SECONDS * 1000).sort((a, b) => a.checked_at - b.checked_at);
   const picked = [...fresh, ...ready.slice(0, Math.ceil(missing.length / RUNS_A_MONTH))];

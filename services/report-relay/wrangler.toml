@@ -8,6 +8,10 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [{ pattern = "reports.arctim.no", custom_domain = true }]
 
+# Starts sync-games.yml; the GitHub App needs Actions: write for it.
+[triggers]
+crons = ["*/30 * * * *"]
+
 [vars]
 # Each app's path and the repository its reports go to.
 APPS = '{"overpass": "McKack/overpass"}'

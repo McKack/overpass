@@ -53,7 +53,21 @@ export default {
       return json({ error: "The relay failed: " + error.message }, 500);
     }
   },
+
+  // GitHub's own schedule skips most runs, and art and issue links only move when sync-games.yml runs.
+  async scheduled(controller, env, context) {
+    context.waitUntil(startSync(env));
+  },
 };
+
+async function startSync(env) {
+  const repo = JSON.parse(env.APPS || "{}").overpass;
+  const response = await github(env, `/repos/${repo}/actions/workflows/sync-games.yml/dispatches`, await issueToken(env, repo), {
+    method: "POST",
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (!response.ok) throw new Error(`GitHub wouldn't start the sync (${response.status}): ${await response.text()}`);
+}
 
 /// Counts one more report from the sender's address, or answers that there have been too many.
 async function counted(request, env) {

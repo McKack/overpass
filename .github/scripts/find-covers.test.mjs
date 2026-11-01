@@ -28,6 +28,7 @@ test('the queue goes first, then those missing art, a month after their last loo
   assert.deepEqual(due(many, now).map((game) => game.id), ['g1499', 'g1498']);
   const queued = Array.from({ length: 30 }, (_, index) => ({ id: `n${index}`, category: null, checked_at: 0, ...complete }));
   assert.equal(due(queued, now).length, 20);
+  assert.equal(due([...queued, { id: 'rated', name: 'A', source: 'rated' }], now)[0].id, 'rated');
   assert.deepEqual(due([{ id: 'a', category: 'Games', brand: '112233' }, { id: 'b', category: 'Utilities' }], now), []);
   const wanted = { id: 'c', category: 'Utilities', wanted: 'https://x', ...looked };
   assert.deepEqual(due([{ ...wanted, category: 'Utilities', checked_at: now }], now).map((game) => game.id), ['c']);

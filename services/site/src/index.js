@@ -721,7 +721,7 @@ async function serveCover(request, env, file) {
 async function artList(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at, COALESCE(a.file, a.origin) AS cover, a.hero, a.icon, a.about
+    `SELECT g.id, g.name, g.source, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at, COALESCE(a.file, a.origin) AS cover, a.hero, a.icon, a.about
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
   ).all();
   const { results: asked } = await env.DB.prepare(`SELECT game_id AS id, name, checked_at, COALESCE(file, origin) AS cover, hero, icon FROM game_art WHERE game_id LIKE '%:%'`).all();

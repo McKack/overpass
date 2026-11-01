@@ -22,7 +22,14 @@ struct HomeView: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 12) {
                         BrandLogo().frame(width: 52, height: 52)
-                        Text("OverPass").font(.system(size: 40, weight: .bold, design: .rounded))
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("OverPass").font(.system(size: 40, weight: .bold, design: .rounded))
+                            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                                Text("v\(version)")
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
                     }
                     .padding(.bottom, 8)
                     Button {

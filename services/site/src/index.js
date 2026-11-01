@@ -1511,6 +1511,7 @@ ${user.name ? `<div class="portrait">
 </div>` : ''}
 <div class="naming">
   <form class="name" method="post" action="/account">
+    ${roleBadge(user.role === 'admin' && user.public ? 'Admin' : user.role && 'Mod')}
     <h1 data-value="${escape(user.name || 'Choose a username')}"><input id="name" name="name" required minlength="2" maxlength="30" size="1" value="${escape(user.name)}" placeholder="Choose a username" aria-label="Username" autocomplete="username"${user.name ? '' : ' autofocus'}></h1>
     <label class="pen" for="name" title="Change Username">${pen}</label>
     <button class="button save" type="submit">Save</button>

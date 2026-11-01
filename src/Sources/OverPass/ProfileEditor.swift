@@ -198,7 +198,7 @@ struct ProfileEditor: View {
                     HStack(alignment: .bottom, spacing: 16) {
                         Button { editingArtwork = true } label: { coverWell }
                             .buttonStyle(.plain)
-                            .help("The cover shown when titles are shown as covers; a 2:3 picture (600 × 900) fits best")
+                            .help("The cover shown when titles are shown as covers; a 5:7 picture (700 × 980) fits best")
                         facts
                             .frame(maxHeight: .infinity)
                         Spacer(minLength: 0)
@@ -405,7 +405,7 @@ struct ProfileEditor: View {
     private func drawGeneratedCover() async {
         let file = await art.iconFile(profileIcon: profile?.icon, item: item)
         let style = art.coverStyle.withClient(manager.clientColor(for: item.bottle, in: profiles))
-        let size = CGSize(width: 200, height: 300)
+        let size = CoverArt.backdropSize
         let images = await Task.detached(priority: .utility) { () -> (NSImage, NSImage?)? in
             guard let icon = file.flatMap(NSImage.init(contentsOf:)) else { return nil }
             return (icon, style.background(for: icon, size: size).map { NSImage(cgImage: $0, size: size) })

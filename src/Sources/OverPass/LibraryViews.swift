@@ -923,7 +923,7 @@ struct BottlesView: View {
         .bottomFade()
     }
 
-    /// A plain cover with the box on it, the same 2:3 shape as the library's covers.
+    /// A plain cover with the box on it, the same shape as the library's covers.
     private var covers: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: coverSize), spacing: 20)], spacing: 24) {
@@ -944,7 +944,7 @@ struct BottlesView: View {
                                 }
                             }
                         }
-                        .frame(width: coverSize, height: coverSize * 1.5)
+                        .frame(width: coverSize, height: coverSize * CoverArt.ratio)
                         .clipShape(shape)
                         .overlay { shape.strokeBorder(Color.accentColor, lineWidth: 3).opacity(selection == bottle.id ? 1 : 0) }
                         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)

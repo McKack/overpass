@@ -204,7 +204,7 @@ final class GOGStore: StoreLibrary {
         let game = release["game"] as? [String: Any] ?? [:]
         let title = (release["title"] as? [String: Any])?["*"] as? String
             ?? (game["title"] as? [String: Any])?["*"] as? String ?? id
-        // The 2:3 cover.
+        // The tall cover.
         let cover = ((game["vertical_cover"] as? [String: Any])?["url_format"] as? String)?
             .replacingOccurrences(of: "{formatter}", with: "").replacingOccurrences(of: "{ext}", with: "jpg")
         let icon = ((game["square_icon"] as? [String: Any])?["url_format"] as? String)?

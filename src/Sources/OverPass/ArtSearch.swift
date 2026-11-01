@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What the art search looks for: a 2:3 cover or a square icon.
+/// What the art search looks for: a cover or a square icon.
 enum ArtKind: Identifiable {
     case cover, icon
     var id: Self { self }
@@ -149,7 +149,7 @@ struct ArtSearchSheet: View {
                             } placeholder: {
                                 Rectangle().fill(.quaternary)
                             }
-                            .frame(width: tileWidth, height: kind == .cover ? tileWidth * 1.5 : tileWidth)
+                            .frame(width: tileWidth, height: kind == .cover ? tileWidth * CoverArt.ratio : tileWidth)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay { if downloading == result.url { ProgressView() } }
                             Text(result.title).font(.caption).lineLimit(2).multilineTextAlignment(.center)

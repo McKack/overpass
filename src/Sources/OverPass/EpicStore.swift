@@ -149,7 +149,7 @@ final class EpicStore: StoreLibrary {
         "realityscan", "realitycapture", "quixel bridge", "unreal engine",
     ]
 
-    /// The 2:3 box art from a catalog item's keyImages.
+    /// The tall box art from a catalog item's keyImages.
     nonisolated static func cover(in metadata: [String: Any]) -> URL? {
         image(in: metadata, types: ["DieselGameBoxTall", "OfferImageTall", "DieselStoreFrontTall"])
     }

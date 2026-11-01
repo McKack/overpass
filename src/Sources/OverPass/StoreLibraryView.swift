@@ -147,7 +147,7 @@ struct StoreConnectSheet: View {
 /// download's progress. One view per library layout, drawn like the installed titles beside it.
 struct StoreGameArt: View {
     let game: LibraryGame
-    /// The square icon (Icons, List, Rows) or the 2:3 cover (Covers).
+    /// The square icon (Icons, List, Rows) or the cover (Covers).
     var cover = false
 
     var body: some View {
@@ -269,7 +269,7 @@ struct StoreGameCover: View {
         VStack(spacing: 8) {
             StyledCover(platform: platform, width: width, selected: selected, dimmed: true) { corner in
                 StoreGameArt(game: game, cover: true)
-                    .frame(width: width, height: width * 1.5)
+                    .frame(width: width, height: width * CoverArt.ratio)
                     .clipShape(RoundedRectangle(cornerRadius: corner))
             }
             CoverCaption(title: game.title, platform: platform, width: width, dimmed: true, icon: false)

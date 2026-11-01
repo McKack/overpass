@@ -303,7 +303,7 @@ enum LibraryLayout: String, CaseIterable, Identifiable {
 
 extension LibraryLayout {
     /// Each layout keeps its own size, set with the status bar's slider: the icon edge, or a cover's width
-    /// (covers are 2:3 like Steam's library capsules).
+    /// (a cover's height follows from CoverArt.ratio).
     var sizeKey: String { "librarySize." + rawValue }
 
     var sizeRange: ClosedRange<Double> {

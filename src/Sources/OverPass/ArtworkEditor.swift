@@ -50,10 +50,10 @@ struct GeneratedCover: View {
                 Image(nsImage: icon).resizable().interpolation(.high)
                     .frame(width: width * CGFloat(style.scale) / 100, height: width * CGFloat(style.scale) / 100)
                     .shadow(color: .black.opacity(0.35), radius: width / 30, y: width / 50)
-                    .offset(x: width * CGFloat(style.x) / 100, y: width * 1.5 * CGFloat(style.y) / 100)
+                    .offset(x: width * CGFloat(style.x) / 100, y: width * CoverArt.ratio * CGFloat(style.y) / 100)
             }
         }
-        .frame(width: width, height: width * 1.5)
+        .frame(width: width, height: width * CoverArt.ratio)
         .clipped()
     }
 }
@@ -148,7 +148,7 @@ struct ArtworkEditor: View {
                         @ViewBuilder picture: () -> some View, @ViewBuilder style: () -> some View) -> some View {
         VStack(spacing: 10) {
             Text(title).font(.headline)
-            preview().frame(height: Self.previewWidth * 1.5)
+            preview().frame(height: Self.previewWidth * CoverArt.ratio)
             Text(caption).font(.caption).foregroundStyle(.secondary)
             picture().fixedSize()
             style()
@@ -174,7 +174,7 @@ struct ArtworkEditor: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
         .contentShape(Rectangle())
-        .gesture(moving($draft.coverStyle, frame: CGSize(width: Self.previewWidth, height: Self.previewWidth * 1.5)))
+        .gesture(moving($draft.coverStyle, frame: CGSize(width: Self.previewWidth, height: Self.previewWidth * CoverArt.ratio)))
     }
 
     /// The Dock icon as the wrapper will have it; the plate is drawn once, so dragging only redraws the icon.
@@ -253,7 +253,7 @@ struct ArtworkEditor: View {
     private func render() async {
         let file = await draft.iconFile(profileIcon: profileIcon, item: item)
         let (coverStyle, iconStyle) = (draft.coverStyle.withClient(clientColor), draft.iconStyle.withClient(clientColor))
-        let size = CGSize(width: 200, height: 300)
+        let size = CoverArt.backdropSize
         let drawn = await Task.detached(priority: .userInitiated) { () -> (NSImage, NSImage?, CGImage?, Bool)? in
             guard let icon = file.flatMap(NSImage.init(contentsOf:)) else { return nil }
             let background = coverStyle.background(for: icon, size: size).map { NSImage(cgImage: $0, size: size) }

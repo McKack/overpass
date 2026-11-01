@@ -1,7 +1,7 @@
 import SwiftUI
 import CoreImage
 
-/// A game's cover in the cover grid: 2:3 art like Steam's library capsules, or a generated one with the app's
+/// A game's cover in the cover grid: store art at CoverArt.ratio, or a generated one with the app's
 /// icon when no art is found.
 struct CoverTile: View {
     @Environment(BottleManager.self) private var manager
@@ -48,7 +48,7 @@ struct CoverTile: View {
                 generated(width: width)
             }
         }
-        .frame(width: width, height: width * 1.5)
+        .frame(width: width, height: width * CoverArt.ratio)
         .overlay(alignment: .topTrailing) { AntiCheatBadge(item: item, size: max(16, width * 0.14)).padding(6) }
         .clipShape(RoundedRectangle(cornerRadius: corner))
     }
@@ -64,12 +64,12 @@ struct CoverTile: View {
             }
             AppIcon(item: item, size: width * CGFloat(style.scale) / 100)
                 .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
-                .offset(x: width * CGFloat(style.x) / 100, y: width * 1.5 * CGFloat(style.y) / 100)
+                .offset(x: width * CGFloat(style.x) / 100, y: width * CoverArt.ratio * CGFloat(style.y) / 100)
         }
         .task(id: "\(item.id)\(item.app.icon ?? "")\(style)") {
             let (app, bottle) = (item.app, item.bottle)
             background = await Task.detached(priority: .utility) {
-                let size = CGSize(width: 200, height: 300)
+                let size = CoverArt.backdropSize
                 return WindowsIcons.icoFile(for: app, in: bottle).flatMap(NSImage.init(contentsOf:))
                     .flatMap { style.background(for: $0, size: size) }
                     .map { NSImage(cgImage: $0, size: size) }
@@ -86,7 +86,7 @@ struct StyledPicture: View {
     @State private var backdrop: NSImage?
 
     var body: some View {
-        let frame = CGRect(x: 0, y: 0, width: width, height: width * 1.5)
+        let frame = CGRect(x: 0, y: 0, width: width, height: width * CoverArt.ratio)
         let rect = style.pictureRect(picture.size, in: frame)
         ZStack(alignment: .topLeading) {
             if style.showsBackdrop {
@@ -106,7 +106,7 @@ struct StyledPicture: View {
             guard style.showsBackdrop, let cg = picture.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
             let style = style
             backdrop = await Task.detached(priority: .utility) {
-                let size = CGSize(width: 200, height: 300)
+                let size = CoverArt.backdropSize
                 return style.background(for: cg, size: size).map { NSImage(cgImage: $0, size: size) }
             }.value
         }
@@ -381,6 +381,11 @@ extension Comparable {
 /// it, or from the game's store when it has none yet.
 @MainActor
 enum CoverArt {
+    /// Height over width of every cover. Stores differ (Epic 1.33, GOG 1.41, Steam 1.5) and all share one grid, so this
+    /// is GOG's shape, between the others: Epic loses 5% of its width, Steam 7% of its height.
+    static let ratio: CGFloat = 1.4
+    static let backdropSize = CGSize(width: 200, height: 200 * ratio)
+
     private static let memory = NSCache<NSString, NSImage>()
     /// Downloads under way, so a cover shown twice (All Titles and a client's category) loads once.
     private static var loading: [String: Task<NSImage?, Never>] = [:]
@@ -462,7 +467,7 @@ enum CoverArt {
         return (await json(url)?["cover"] as? String).flatMap(URL.init(string:))
     }
 
-    /// Where to look for a title's 2:3 art, best first.
+    /// Where to look for a title's cover art, best first.
     private static func sources(for item: LibraryItem) async -> [URL] {
         guard let id = item.app.storeID else { return [] }
         switch item.app.launcher {
@@ -516,7 +521,7 @@ struct CasePlatform {
 }
 
 /// A cover as the View menu's Cover View says: bare, or in a game case (flat, or tilting toward the pointer).
-/// `art` draws the 2:3 picture at the cover's width, clipped to the corner radius it's given.
+/// `art` draws the picture at the cover's width, clipped to the corner radius it's given.
 struct StyledCover<Art: View>: View {
     let platform: CasePlatform?
     let width: CGFloat

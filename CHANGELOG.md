@@ -8,6 +8,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Rating a game no longer sends a profile you haven't changed
 - Game profiles update between OverPass releases
 - After a Wine update, the status bar says when a container is being prepared before a game starts
+- Covers are a little wider, so less of the art is cut off at the sides
 - Smaller bug fixes and improvements
 
 ### Details

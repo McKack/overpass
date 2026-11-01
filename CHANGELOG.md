@@ -19,6 +19,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Home**
 - Home shows which version of OverPass you're on.
 
+**Games**
+- Outcast: the intro video plays instead of a black screen.
+
 ## 0.6.8 - 2026-11-01
 
 - Add ready-made settings to a game from its profile

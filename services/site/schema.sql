@@ -51,12 +51,14 @@ CREATE INDEX IF NOT EXISTS ratings_install ON ratings (install, game_id);
 CREATE INDEX IF NOT EXISTS ratings_game ON ratings (game_id, created_at);
 CREATE INDEX IF NOT EXISTS ratings_recent ON ratings (created_at);
 
--- An account: the provider's ID for the person and the username they chose. No e-mail, no name from the provider.
+-- An account: the provider's ID for the person, the username they chose and maybe a picture. No e-mail, no name from
+-- the provider.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
   provider_id TEXT NOT NULL,
   name TEXT COLLATE NOCASE,
+  picture TEXT,                      -- its key in the PICTURES store, when they added one
   created_at INTEGER NOT NULL,
   UNIQUE (provider, provider_id)
 );

@@ -10,14 +10,17 @@
 //   GET  /auth/google, /auth/google/callback   sign-in with Google (GOOGLE_CLIENT_ID, secret GOOGLE_CLIENT_SECRET)
 //   GET  /account                the signed-in person's page
 //   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
+//   POST /account/picture, /account/picture/delete   set or remove one's picture; GET /pictures/<key>.jpg
 //   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
 //   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
 //   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for the accounts in MODERATORS
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
+//   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
 //   GET  /privacy                what's kept, and for how long
 //
-// An account holds the provider's ID for the person and the username they choose, nothing else: no e-mail, no name
-// from Google. A session is a random token in a cookie; the database keeps only its hash.
+// An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
+// else: no e-mail, no name from Google. A session is a random token in a cookie; the database keeps only its hash.
+// Pictures are small JPEGs, cropped and shrunk in the browser, in the PICTURES store.
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
@@ -33,7 +36,9 @@ export default {
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
-      if (request.method === 'POST' && (commented || reported || moderated || rated || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
+      const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
+      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured
+        || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
@@ -41,6 +46,7 @@ export default {
         if (!user) return redirect('/account');
         if (reported) return await report(env, user, ...reported.slice(1));
         if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
+        if (unpictured) return isModerator(env, user) ? await takeDownPicture(env, unpictured[1]) : redirect('/account');
         if (rated) {
           if (!isModerator(env, user)) return redirect('/account');
           return rated[2] ? await deleteOwnRating(env, user, rated[1]) : await addOwnRating(request, env, user, rated[1]);
@@ -48,9 +54,13 @@ export default {
         if (commented) {
           return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
         }
+        if (path === '/account/picture') return await savePicture(request, env, user);
+        if (path === '/account/picture/delete') return await deletePicture(env, user);
         return path === '/account' ? await rename(request, env, user) : await deleteAccount(env, user);
       }
       if (request.method === 'GET' || request.method === 'HEAD') {
+        const picture = path.match(/^\/pictures\/([0-9a-f-]+)\.jpg$/);
+        if (picture) return await servePicture(env, picture[1]);
         if (path === '/auth/google') return await startGoogle(url, env);
         if (path === '/auth/google/callback') return await finishGoogle(request, url, env);
         if (path === '/account') {
@@ -232,7 +242,7 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.picture FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -305,6 +315,7 @@ async function rename(request, env, user) {
 }
 
 async function deleteAccount(env, user) {
+  if (user.picture) await env.PICTURES.delete(user.picture);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1) OR target IN (SELECT id FROM ratings WHERE install = ?2)')
@@ -316,6 +327,43 @@ async function deleteAccount(env, user) {
   return redirect('/account', setCookie('overpass_session', '', 0));
 }
 
+// Pictures
+
+const PICTURE_BYTES = 64 * 1024;
+const PICTURE_SIDE = 160;
+
+async function savePicture(request, env, user) {
+  if (Number(request.headers.get('Content-Length')) > PICTURE_BYTES) return redirect('/account?error=picture');
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (!jpeg || bytes.length > PICTURE_BYTES) return redirect('/account?error=picture');
+  const key = crypto.randomUUID();
+  await env.PICTURES.put(key, bytes);
+  await env.DB.prepare('UPDATE users SET picture = ? WHERE id = ?').bind(key, user.id).run();
+  if (user.picture) await env.PICTURES.delete(user.picture);
+  return redirect('/account');
+}
+
+async function deletePicture(env, user) {
+  if (user.picture) await takeDownPicture(env, user.picture);
+  return redirect('/account');
+}
+
+async function takeDownPicture(env, key) {
+  await env.DB.prepare('UPDATE users SET picture = NULL WHERE picture = ?').bind(key).run();
+  await env.PICTURES.delete(key);
+  return redirect('/moderation');
+}
+
+/// A key is never reused, so a picture can be cached for good; a new one has a new address.
+async function servePicture(env, key) {
+  const bytes = await env.PICTURES.get(key, 'arrayBuffer');
+  if (!bytes) return new Response('No such picture.', { status: 404 });
+  return new Response(bytes, {
+    headers: { 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
 // Comments
 
 const COMMENT_LENGTH = 2000;
@@ -324,7 +372,7 @@ const COMMENTS_A_DAY = 20;
 /// A hidden comment still shows to the person who wrote it, so they can delete it.
 async function comments(env, id, user) {
   const { results } = await env.DB.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name FROM comments
+    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture FROM comments
      JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND (comments.hidden = 0 OR comments.user_id = ?)
      ORDER BY comments.created_at DESC LIMIT 200`,
   ).bind(id, user?.id ?? null).all();
@@ -424,12 +472,12 @@ async function report(env, user, id, kind, entry) {
 async function queue(env) {
   const { results } = await env.DB.prepare(
     `SELECT 'comments' AS kind, comments.id, comments.body AS text, NULL AS tier, comments.hidden, comments.created_at AS created_at, comments.game_id,
-       users.name AS author, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = comments.id) AS reports
+       users.name AS author, users.picture, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = comments.id) AS reports
      FROM comments JOIN users ON users.id = comments.user_id LEFT JOIN games ON games.id = comments.game_id
      WHERE comments.hidden = 1 OR comments.id IN (SELECT target FROM reports)
      UNION ALL
      SELECT 'ratings', ratings.id, ratings.comment, ratings.tier, ratings.hidden, ratings.created_at, ratings.game_id,
-       NULL, games.name, (SELECT COUNT(*) FROM reports WHERE target = ratings.id)
+       NULL, NULL, games.name, (SELECT COUNT(*) FROM reports WHERE target = ratings.id)
      FROM ratings LEFT JOIN games ON games.id = ratings.game_id
      WHERE ratings.hidden = 1 OR ratings.id IN (SELECT target FROM reports)
      ORDER BY reports DESC, created_at DESC LIMIT 200`,
@@ -456,6 +504,12 @@ const initials = (name) => name.replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).fil
 function medal(tier, large = false) {
   if (!tier) return '<span class="medal none">Not rated</span>';
   return `<span class="medal ${tier}${large ? ' large' : ''}">${TITLES[tier]}</span>`;
+}
+
+/// The person's picture when there is one, over their initials.
+function avatar(name, picture) {
+  const art = picture ? `<img src="/pictures/${picture}.jpg" alt="" loading="lazy" onerror="this.remove()">` : '';
+  return `<span class="avatar" style="--hue:${hue(name)}">${escape(initials(name))}${art}</span>`;
 }
 
 /// The Steam cover when there is one, over a tile made from the name that shows when there isn't.
@@ -571,7 +625,7 @@ function ratingCard(game, rating, user, reports, own) {
 function commentCard(game, comment, user, reports) {
   const mine = comment.user_id === user?.id;
   return `<article class="rating" id="comment-${comment.id}">
-  <div class="line"><span class="who"><span class="avatar" style="--hue:${hue(comment.name)}">${escape(initials(comment.name))}</span>${escape(comment.name)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
+  <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${escape(comment.name)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
   <p class="comment">${escape(comment.body)}</p>
   ${comment.hidden ? '<p class="muted">Hidden after reports. Only you can see this.</p>' : ''}
   ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
@@ -659,6 +713,7 @@ const ACCOUNT_ERRORS = {
   signin: 'Signing in didn\'t work. Try again.',
   name: 'A username has 2 to 30 letters, digits, spaces, dots, dashes or underscores, and starts with a letter or digit.',
   taken: 'That username is taken.',
+  picture: 'That picture didn\'t work. Try a JPEG or PNG.',
 };
 
 function moderationCard(entry) {
@@ -666,16 +721,41 @@ function moderationCard(entry) {
     ? [['show', 'Show', 'quiet']]
     : [['hide', 'Hide', 'danger'], ['show', 'Keep', 'quiet']];
   return `<article class="rating">
-  <div class="line"><span class="who">${entry.tier ? medal(entry.tier) : escape(entry.author)}</span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
+  <div class="line"><span class="who">${entry.tier ? medal(entry.tier) : `${avatar(entry.author, entry.picture)}${escape(entry.author)}`}</span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
   ${entry.text ? `<p class="comment">${escape(entry.text)}</p>` : ''}
   <p class="muted"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a> · ${entry.hidden ? 'Hidden' : 'Showing'} · ${entry.reports === 1 ? '1 report' : `${entry.reports} reports`}</p>
-  <div class="decide">${buttons.map(([action, title, style]) => `<form method="post" action="/moderation/${entry.kind}/${entry.id}/${action}"><button class="button ${style}" type="submit">${title}</button></form>`).join('')}</div>
+  <div class="decide">${buttons.map(([action, title, style]) => `<form method="post" action="/moderation/${entry.kind}/${entry.id}/${action}"><button class="button ${style}" type="submit">${title}</button></form>`).join('')}${entry.picture ? `<form method="post" action="/moderation/pictures/${entry.picture}/remove"><button class="button quiet" type="submit">Remove Picture</button></form>` : ''}</div>
 </article>`;
 }
 
 const moderationPage = (entries) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings.', `
 <header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
 ${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}`, true);
+
+/// Crops to a square and shrinks it here, so only a small JPEG is ever sent.
+function pictureForm(user) {
+  return `<section class="picture">
+  ${avatar(user.name, user.picture)}
+  <label class="button quiet">Choose Picture…<input id="picture" type="file" accept="image/*" hidden></label>
+  ${user.picture ? '<form method="post" action="/account/picture/delete"><button class="button quiet" type="submit">Remove Picture</button></form>' : ''}
+</section>
+<script>
+  document.getElementById('picture').addEventListener('change', async (event) => {
+    const image = await createImageBitmap(event.target.files[0]).catch(() => null);
+    if (!image) return location.assign('/account?error=picture');
+    const side = Math.min(image.width, image.height), canvas = document.createElement('canvas');
+    canvas.width = canvas.height = ${PICTURE_SIDE};
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(async (blob) => {
+      const answer = await fetch('/account/picture', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+      location.assign(answer.url);
+    }, 'image/jpeg', 0.85);
+  });
+</script>`;
+}
 
 function accountPage(user, error, moderator) {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
@@ -684,11 +764,12 @@ function accountPage(user, error, moderator) {
 <header class="page"><h1>Sign in</h1><p>An account lets you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
 ${problem}
 <p><a class="button" href="/auth/google">Sign in with Google</a></p>
-<p class="muted">OverPass keeps Google's ID for your account and the username you choose, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
+<p class="muted">OverPass keeps Google's ID for your account, the username you choose and a picture if you add one, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
   }
   return shell('Your account · OverPass', 'Your OverPass account.', `
 <header class="page"><h1>${user.name ? escape(user.name) : 'Choose a username'}</h1>${user.name ? '' : '<p>This is the name others will see.</p>'}</header>
 ${problem}
+${user.name ? pictureForm(user) : ''}
 <form class="account" method="post" action="/account">
   <label for="name">Username</label>
   <input id="name" name="name" required minlength="2" maxlength="30" value="${escape(user.name)}" autocomplete="username">
@@ -697,7 +778,7 @@ ${problem}
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
 <section>
   <h2>Delete account</h2>
-  <p class="muted">Removes your account, username and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
+  <p class="muted">Removes your account, username, picture and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
   <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
 </section>`, moderator);
 }
@@ -706,9 +787,10 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 <header class="page"><h1>Privacy</h1><p>What OverPass and this site keep, and for how long.</p></header>
 <section>
   <h2>Accounts</h2>
-  <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and no picture is stored.</p>
+  <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and nothing comes from your Google profile.</p>
+  <p>You can add a picture on your account page. It's public next to your comments, shrunk before it's sent, and gone as soon as you replace or remove it, or delete your account. Admins can remove it.</p>
   <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
-  <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your comments.</p>
+  <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your picture and comments.</p>
 </section>
 <section>
   <h2>Comments</h2>

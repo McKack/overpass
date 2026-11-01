@@ -126,9 +126,13 @@ footer a { color: inherit; }
 .write textarea:focus { outline: 2px solid var(--accent); }
 .who { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
 .avatar {
+  position: relative; overflow: hidden;
   flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
   font-size: 12px; font-weight: 600; color: #ffffff; background: hsl(var(--hue) 45% 42%);
 }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.picture { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0; }
+.picture .avatar { width: 64px; height: 64px; font-size: 22px; }
 .link { margin-top: 8px; padding: 0; border: 0; font: inherit; font-size: 13px; color: var(--secondary); background: none; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 .reported { margin: 8px 0 0; font-size: 13px; color: var(--secondary); }

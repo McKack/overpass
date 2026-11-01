@@ -52,3 +52,12 @@ test('the real profiles build, with unique ids and keys', () => {
   const keys = games.flatMap((game) => game.keys.map((key) => key.join(':')));
   assert.strictEqual(new Set(keys).size, keys.length);
 });
+
+test('a [store] section gives the IDs and links, and no rule or name', () => {
+  const game = profile('outcast', '[Outcast: the intro]\nprogram = a.exe\n\n[store]\nsteam = 336610\ngog = 12\nepic = fable\nlink = https://www.gog.com/en/game/outcast\n');
+  assert.equal(game.name, 'Outcast');
+  assert.equal(game.steam, '336610');
+  assert.equal(game.gog, '12');
+  assert.deepEqual(game.links, ['https://www.gog.com/en/game/outcast']);
+  assert.deepEqual(game.keys, [['profile', 'outcast'], ['steam', '336610'], ['gog', '12'], ['epic', 'fable']]);
+});

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS games (
   presets TEXT NOT NULL DEFAULT '[]',
   steam TEXT,
   gog TEXT,
+  links TEXT NOT NULL DEFAULT '[]',  -- the profile's store pages
+  brand TEXT,                        -- a launcher's colour: its cover is its logo on this, as on the app's Home
   created_at INTEGER NOT NULL
 );
 
@@ -26,6 +28,19 @@ CREATE TABLE IF NOT EXISTS game_keys (
   PRIMARY KEY (store, store_id)
 );
 CREATE INDEX IF NOT EXISTS game_keys_game ON game_keys (game_id);
+
+-- A game's cover and the store pages found for it. find-covers.mjs fills this from GitHub; the file itself is
+-- covers/<file> in the PICTURES store.
+CREATE TABLE IF NOT EXISTS game_art (
+  game_id TEXT PRIMARY KEY,
+  file TEXT,
+  source TEXT,                       -- steam, gog, thegamesdb, steamgriddb or moderator
+  origin TEXT,                       -- the address it came from
+  links TEXT NOT NULL DEFAULT '[]',
+  wanted TEXT,                       -- an image's address from a moderator, waiting for find-covers.mjs
+  locked INTEGER NOT NULL DEFAULT 0, -- a moderator's choice: nothing automatic replaces it
+  checked_at INTEGER NOT NULL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS ratings (
   id TEXT PRIMARY KEY,

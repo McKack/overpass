@@ -21,6 +21,7 @@
 .card h3 { font-size: 15px; line-height: 1.25; font-weight: 600; margin: 10px 0 6px; overflow-wrap: anywhere; }
 .card p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
 .tag { color: var(--secondary); font-size: 12px; }
+.column { display: none; }
 
 .cover {
   position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; display: grid; place-items: center;
@@ -29,6 +30,11 @@
 }
 .card:hover .cover { transform: translateY(-3px); }
 .cover span { color: rgba(255, 255, 255, 0.92); font: 700 34px -apple-system, "SF Pro Display", sans-serif; letter-spacing: 0.02em; }
+.cover.tile { background: linear-gradient(170deg, color-mix(in srgb, var(--brand) 85%, white), var(--brand)); }
+.cover.tile i {
+  width: 56%; aspect-ratio: 1; background: var(--ink);
+  -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat;
+}
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
 .medal {

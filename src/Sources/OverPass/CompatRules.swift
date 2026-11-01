@@ -61,7 +61,7 @@ enum CompatRules {
 
     /// Profile sections that are recipe, not rules (OverPass Wine ignores them: they use no rule keys
     /// except steam-app, env, dll and graphics, which apply to the app's own Steam game).
-    static let recipeSections: Set<String> = ["app", "install", "launch"]
+    static let recipeSections: Set<String> = ["app", "install", "launch", "store"]
 
     /// Every rule in effect; read again whenever profiles change.
     private(set) static var all: [CompatRule] = load()

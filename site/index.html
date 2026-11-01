@@ -223,26 +223,16 @@
     const grid = document.getElementById("recent");
     document.getElementById("recent-empty").hidden = games.length > 0;
     for (const game of games) {
-      const card = document.createElement("a"), cover = document.createElement("div"), tile = document.createElement("span");
+      const card = document.createElement("a");
       const title = document.createElement("h3"), line = document.createElement("p"), medal = document.createElement("span");
       card.className = "card";
       card.href = "/games/" + game.id;
-      cover.className = "cover";
-      cover.style.setProperty("--hue", [...game.name].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 360, 7));
-      tile.textContent = game.name.replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toUpperCase() || "?";
-      cover.append(tile);
-      if (game.steam) {
-        const art = new Image();
-        art.alt = "";
-        art.onerror = () => art.remove();
-        art.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${encodeURIComponent(game.steam)}/library_600x900.jpg`;
-        cover.append(art);
-      }
+      card.innerHTML = game.cover;
       title.textContent = game.name;
       medal.className = "medal " + game.tier;
       medal.textContent = game.tier[0].toUpperCase() + game.tier.slice(1);
       line.append(medal);
-      card.append(cover, title, line);
+      card.append(title, line);
       grid.append(card);
     }
   }).catch(() => { document.getElementById("recent-empty").hidden = false; });

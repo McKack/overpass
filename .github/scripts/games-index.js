@@ -39,16 +39,19 @@ const all = (section, key) => section?.lines.filter((line) => line.key === key).
 function profile(id, text) {
   const parts = sections(text);
   const app = parts.find((part) => part.name === 'app');
-  const rules = parts.filter((part) => part.name && !['app', 'install', 'launch'].includes(part.name));
+  const store = parts.find((part) => part.name === 'store');
+  const rules = parts.filter((part) => part.name && !['app', 'install', 'launch', 'store'].includes(part.name));
   const name = first(app, 'name') || rules[0]?.name.split(':')[0].trim() || id;
-  const steam = first(app, 'steam-app') || rules.map((rule) => first(rule, 'steam-app')).find(Boolean) || null;
-  const gog = first(app, 'gog-game') || null;
+  const steam = first(app, 'steam-app') || first(store, 'steam') || rules.map((rule) => first(rule, 'steam-app')).find(Boolean) || null;
+  const gog = first(app, 'gog-game') || first(store, 'gog') || null;
+  const epic = first(store, 'epic') || null;
   return {
     id, name, source: 'profile', category: first(app, 'category') || 'Games',
     verified: [undefined, 'untested'].includes(first(app, 'rating')) ? null : first(app, 'rating'),
     notes: first(app, 'notes') || first(app, 'rating-notes') || null,
     profile_file: `profiles/${id}.ini`, profile_text: text.trim(), presets: all(app, 'preset'), steam, gog,
-    keys: [['profile', id], ...(steam ? [['steam', steam]] : []), ...(gog ? [['gog', gog]] : [])],
+    links: all(store, 'link'), brand: first(app, 'brand-color') || null,
+    keys: [['profile', id], ...(steam ? [['steam', steam]] : []), ...(gog ? [['gog', gog]] : []), ...(epic ? [['epic', epic]] : [])],
   };
 }
 
@@ -72,6 +75,8 @@ function buildIndex(folder) {
   for (const file of fs.readdirSync(folder).filter((name) => name.endsWith('.ini')).sort()) {
     if (NOT_A_GAME.includes(path.basename(file, '.ini'))) continue;
     const game = profile(path.basename(file, '.ini'), fs.readFileSync(path.join(folder, file), 'utf8'));
+    // A launcher's cover is its tile on the app's Home: the logo on the brand's colour. Without a logo it's art like any game's.
+    if (!fs.existsSync(path.join(folder, '..', 'site', 'logos', `${game.id}.svg`))) game.brand = null;
     games.set(game.id, game);
     if (game.steam) bySteam.set(game.steam, game);
   }
@@ -83,7 +88,7 @@ function buildIndex(folder) {
       if (!game) {
         game = {
           id, name, source: 'preset', category: 'Games', verified: null, notes: null, profile_file: null, profile_text: null,
-          presets: [], steam: null, gog: null, keys: [['profile', id]],
+          presets: [], steam: null, gog: null, links: [], brand: null, keys: [['profile', id]],
         };
         games.set(id, game);
       }

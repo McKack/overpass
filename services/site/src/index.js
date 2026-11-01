@@ -17,6 +17,10 @@
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
 //   POST /moderation/suggestions/<entry>/(approve|reject)   the same accounts decide on a suggested profile
+//   GET  /api/art                what find-covers.mjs needs for each game; needs the SYNC_TOKEN secret
+//   POST /api/art                { id, links, source, origin, image | failed } from the same script; the same secret
+//   POST /games/<id>/cover, /games/<id>/cover/url, /games/<id>/cover/reset   a moderator changes a game's cover
+//   GET  /pictures/covers/<file>  a game's cover
 //   GET  /api/profiles           the signed set of profiles the app downloads
 //   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
@@ -31,7 +35,7 @@
 // reads the approved ones, checks them itself, commits them to profiles/ and signs the whole set with a key that's only
 // on GitHub (publish-profiles.mjs). The set is stored here for downloading; the app checks its signature.
 
-import { profileProblems } from './profile-check.js';
+import { profileProblems, storeName } from './profile-check.js';
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
@@ -45,13 +49,15 @@ export default {
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
       if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
+      if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
       const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
       const decided = path.match(/^\/moderation\/suggestions\/([0-9a-f-]+)\/(approve|reject)$/);
-      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided
+      const covered = path.match(/^\/games\/([a-z0-9-]+)\/cover(?:\/(url|reset))?$/);
+      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || covered
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
@@ -62,6 +68,7 @@ export default {
         if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
         if (unpictured) return isModerator(env, user) ? await takeDownPicture(env, unpictured[1]) : redirect('/account');
         if (decided) return isModerator(env, user) ? await decide(env, ...decided.slice(1)) : redirect('/account');
+        if (covered) return isModerator(env, user) ? await changeCover(request, env, covered[1], covered[2]) : redirect('/account');
         if (rated) {
           if (!isModerator(env, user)) return redirect('/account');
           return rated[2] ? await deleteOwnRating(env, user, rated[1]) : await addOwnRating(request, env, user, rated[1]);
@@ -76,6 +83,8 @@ export default {
       if (request.method === 'GET' || request.method === 'HEAD') {
         const picture = path.match(/^\/pictures\/([0-9a-f-]+)\.jpg$/);
         if (picture) return await servePicture(env, picture[1]);
+        const art = path.match(/^\/pictures\/covers\/([0-9a-f]{32}\.(?:avif|jpg))$/);
+        if (art) return await serveCover(request, env, art[1]);
         if (path === '/auth/google') return await startGoogle(url, env);
         if (path === '/auth/google/callback') return await finishGoogle(request, url, env);
         if (path === '/account') {
@@ -93,6 +102,7 @@ export default {
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
+        if (path === '/api/art') return await artList(request, env);
         if (path === '/api/games') return json(await list(env));
         const api = path.match(/^\/api\/games\/([a-z0-9-]+)$/);
         if (api) {
@@ -149,17 +159,32 @@ async function tally(env, where = '', ...values) {
   return games;
 }
 
+/// A game's store pages, one for each store: a profile's own, then the ones found for it.
+function storeLinks(game) {
+  const links = [...(game.steam ? [`https://store.steampowered.com/app/${game.steam}`] : []), ...JSON.parse(game.links ?? '[]'), ...JSON.parse(game.found ?? '[]')];
+  const stores = new Map();
+  for (const url of links) {
+    const name = storeName(url);
+    if (name && !stores.has(name)) stores.set(name, url);
+  }
+  return [...stores].map(([name, url]) => ({ name, url }));
+}
+
 function summary(game, rated) {
   const counts = rated?.counts ?? {};
   return {
     id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified,
     tier: overall(counts), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), last_rated: rated?.last ?? null,
+    art: game.art ?? null, brand: game.brand ?? null, stores: storeLinks(game),
   };
 }
 
 async function list(env) {
   const [{ results }, rated] = await Promise.all([
-    env.DB.prepare('SELECT id, name, category, source, steam, verified FROM games').all(),
+    env.DB.prepare(
+      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, a.file AS art, a.links AS found
+       FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
+    ).all(),
     tally(env),
   ]);
   return results.map((game) => summary(game, rated.get(game.id)))
@@ -167,11 +192,14 @@ async function list(env) {
 }
 
 async function recent(env) {
-  return (await list(env)).filter((game) => game.last_rated).slice(0, 8);
+  return (await list(env)).filter((game) => game.last_rated).slice(0, 8).map((game) => ({ ...game, cover: cover(game) }));
 }
 
 async function detail(env, id) {
-  const game = await env.DB.prepare('SELECT * FROM games WHERE id = ?').bind(id).first();
+  const game = await env.DB.prepare(
+    `SELECT g.*, a.file AS art, a.links AS found, a.source AS art_source, a.wanted AS art_wanted
+     FROM games g LEFT JOIN game_art a ON a.game_id = g.id WHERE g.id = ?`,
+  ).bind(id).first();
   if (!game) return null;
   const [rated, { results }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
@@ -182,7 +210,7 @@ async function detail(env, id) {
   ]);
   return {
     ...summary(game, rated.get(id)), notes: game.notes, profile_file: game.profile_file, profile_text: game.profile_text,
-    presets: JSON.parse(game.presets), rating_list: results,
+    presets: JSON.parse(game.presets), art_source: game.art_source ?? null, art_wanted: game.art_wanted ?? null, rating_list: results,
   };
 }
 
@@ -197,13 +225,14 @@ async function sync(request, env) {
   const steps = [];
   for (const game of games) {
     steps.push(env.DB.prepare(
-      `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET name = excluded.name, category = excluded.category, source = excluded.source,
          verified = excluded.verified, notes = excluded.notes, profile_file = excluded.profile_file,
-         profile_text = excluded.profile_text, presets = excluded.presets, steam = excluded.steam, gog = excluded.gog`,
+         profile_text = excluded.profile_text, presets = excluded.presets, steam = excluded.steam, gog = excluded.gog,
+         links = excluded.links, brand = excluded.brand`,
     ).bind(game.id, game.name, game.category, game.source, game.verified, game.notes, game.profile_file, game.profile_text,
-      JSON.stringify(game.presets), game.steam, game.gog, now));
+      JSON.stringify(game.presets), game.steam, game.gog, JSON.stringify(game.links ?? []), game.brand ?? null, now));
     for (const [store, id] of game.keys) {
       steps.push(env.DB.prepare(
         `UPDATE ratings SET game_id = ?1 WHERE game_id IN (SELECT game_id FROM game_keys WHERE store = ?2 AND store_id = ?3 AND game_id <> ?1)`,
@@ -224,6 +253,11 @@ async function sync(request, env) {
   ).bind(ids));
   steps.push(env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'));
   await env.DB.batch(steps);
+  const { results: gone } = await env.DB.prepare('SELECT game_id, file FROM game_art WHERE game_id NOT IN (SELECT id FROM games)').all();
+  for (const entry of gone) {
+    if (entry.file) await env.PICTURES.delete(`covers/${entry.file}`);
+    await env.DB.prepare('DELETE FROM game_art WHERE game_id = ?').bind(entry.game_id).run();
+  }
   return json({ games: games.length });
 }
 
@@ -379,6 +413,85 @@ async function servePicture(env, key) {
   return new Response(bytes, {
     headers: { 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=31536000, immutable' },
   });
+}
+
+// Covers. find-covers.mjs, on GitHub, finds them and shrinks them; here they're only kept and served.
+
+const COVER_BYTES = 256 * 1024;
+
+/// Replaces a game's cover. A file's name comes from its bytes, so it can be cached for good.
+async function saveCover(env, id, bytes, extension, source, origin, locked) {
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  const file = `${[...new Uint8Array(hash)].slice(0, 16).map((byte) => byte.toString(16).padStart(2, '0')).join('')}.${extension}`;
+  const before = await env.DB.prepare('SELECT file FROM game_art WHERE game_id = ?').bind(id).first('file');
+  await env.PICTURES.put(`covers/${file}`, bytes);
+  await env.DB.prepare(
+    `INSERT INTO game_art (game_id, file, source, origin, locked, checked_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+     ON CONFLICT (game_id) DO UPDATE SET file = ?2, source = ?3, origin = ?4, locked = ?5, wanted = NULL, checked_at = ?6`,
+  ).bind(id, file, source, origin, locked ? 1 : 0, Date.now()).run();
+  if (before && before !== file) await env.PICTURES.delete(`covers/${before}`);
+}
+
+async function serveCover(request, env, file) {
+  const cached = await caches.default.match(request);
+  if (cached) return cached;
+  const bytes = await env.PICTURES.get(`covers/${file}`, 'arrayBuffer');
+  if (!bytes) return new Response('No such picture.', { status: 404 });
+  const response = new Response(bytes, {
+    headers: { 'Content-Type': file.endsWith('.avif') ? 'image/avif' : 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+  if (request.method === 'GET') await caches.default.put(request, response.clone());
+  return response;
+}
+
+async function artList(request, env) {
+  if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
+  const { results } = await env.DB.prepare(
+    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.file, a.wanted, a.locked, a.checked_at
+     FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
+  ).all();
+  return new Response(JSON.stringify({ games: results }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+}
+
+/// What find-covers.mjs found for one game: a shrunk AVIF in `image`, or `failed` when there's nothing new.
+async function storeArt(request, env) {
+  if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
+  const { id, links, source, origin, image, failed } = await request.json();
+  if (!await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
+  const found = JSON.stringify((links ?? []).filter(storeName));
+  await env.DB.prepare(
+    `INSERT INTO game_art (game_id, links, checked_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT (game_id) DO UPDATE SET links = ?2, checked_at = ?3${failed ? ', wanted = NULL' : ''}`,
+  ).bind(id, found, Date.now()).run();
+  if (failed) return json({ stored: false });
+  const bytes = Uint8Array.from(atob(image ?? ''), (character) => character.charCodeAt(0));
+  const avif = String.fromCharCode(...bytes.slice(4, 8)) === 'ftyp';
+  if (!avif || bytes.length > COVER_BYTES) return json({ error: 'Not a cover.' }, 400);
+  await saveCover(env, id, bytes, 'avif', source, origin, source === 'moderator');
+  return json({ stored: true });
+}
+
+/// A moderator's picture, already shrunk in the browser; an image's address for find-covers.mjs to fetch; or back to
+/// finding it automatically.
+async function changeCover(request, env, id, action) {
+  const back = `/games/${id}`;
+  if (!await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return redirect('/games');
+  if (action === 'url') {
+    const url = String((await request.formData()).get('url') ?? '').trim();
+    if (!url.startsWith('https://') || url.length > 1000) return redirect(`${back}?error=cover#cover`);
+    await env.DB.prepare(
+      'INSERT INTO game_art (game_id, wanted) VALUES (?1, ?2) ON CONFLICT (game_id) DO UPDATE SET wanted = ?2',
+    ).bind(id, url).run();
+  } else if (action === 'reset') {
+    const file = await env.DB.prepare('SELECT file FROM game_art WHERE game_id = ?').bind(id).first('file');
+    await env.DB.prepare('DELETE FROM game_art WHERE game_id = ?').bind(id).run();
+    if (file) await env.PICTURES.delete(`covers/${file}`);
+  } else {
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff || bytes.length > COVER_BYTES) return redirect(`${back}?error=cover#cover`);
+    await saveCover(env, id, bytes, 'jpg', 'moderator', null, true);
+  }
+  return redirect(`${back}#cover`);
 }
 
 // Comments
@@ -590,11 +703,19 @@ function avatar(name, picture) {
   return `<span class="avatar" style="--hue:${hue(name)}">${escape(initials(name))}${art}</span>`;
 }
 
-/// The Steam cover when there is one, over a tile made from the name that shows when there isn't.
+/// Black or white, whichever stands out on a brand's colour.
+function ink(brand) {
+  const [red, green, blue] = brand.match(/../g).map((part) => parseInt(part, 16));
+  return 0.299 * red + 0.587 * green + 0.114 * blue > 160 ? '#000' : '#fff';
+}
+
+/// A launcher's logo on its colour, as on the app's Home; otherwise the game's cover over a tile made from the name,
+/// which shows when there's no cover.
 function cover(game) {
-  const art = game.steam
-    ? `<img src="https://cdn.cloudflare.steamstatic.com/steam/apps/${escape(game.steam)}/library_600x900.jpg" alt="" loading="lazy" onerror="this.remove()">`
-    : '';
+  if (/^[0-9a-f]{6}$/i.test(game.brand ?? '')) {
+    return `<div class="cover tile" style="--brand:#${game.brand};--ink:${ink(game.brand)};--logo:url(/logos/${game.id}.svg)"><i></i></div>`;
+  }
+  const art = game.art ? `<img src="/pictures/covers/${escape(game.art)}" alt="" loading="lazy" onerror="this.remove()">` : '';
   return `<div class="cover" style="--hue:${hue(game.name)}"><span>${escape(initials(game.name))}</span>${art}</div>`;
 }
 
@@ -626,12 +747,20 @@ function shell(title, description, body, moderator = false) {
 </html>`;
 }
 
+const KINDS = { profile: 'Profile', preset: 'Known fix' };
+const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['category', 'Category'], ['kind', 'Type']];
+
 function card(game) {
-  const tag = game.source === 'profile' ? 'Profile' : game.source === 'preset' ? 'Known fix' : '';
-  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}">
+  const kind = KINDS[game.source] ?? '';
+  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}" data-kind="${kind}">
   ${cover(game)}
   <h3>${escape(game.name)}</h3>
-  <p>${medal(game.tier)}${tag ? `<span class="tag">${tag}</span>` : ''}</p>
+  <p>${medal(game.tier)}${kind ? `<span class="tag">${kind}</span>` : ''}</p>
+  <span class="column">${game.ratings || ''}</span>
+  <span class="column">${game.last_rated ? date(game.last_rated) : ''}</span>
+  <span class="column wide">${escape(game.category ?? '')}</span>
+  <span class="column medium">${kind}</span>
+  <span class="column wide">${game.stores.map((store) => escape(store.name)).join(', ')}</span>
 </a>`;
 }
 
@@ -639,6 +768,9 @@ function gamesPage(games, moderator) {
   const rated = games.filter((game) => game.tier).length;
   const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated']]
     .map(([value, title]) => `<button type="button" data-filter="${value}" aria-pressed="${value === 'all'}">${title}</button>`).join('');
+  const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${{ category: 'wide', kind: 'medium' }[key] ?? ''}">${title}</button>`).join('');
+  const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['category', 'Category'], ['kind', 'Type']]
+    .map(([value, title]) => `<option value="${value}">${title}</option>`).join('');
   return shell('Games · OverPass', 'How Windows games run on a Mac with OverPass: ratings from players and each game\'s settings.', `
 <header class="page">
   <h1>Games</h1>
@@ -647,13 +779,33 @@ function gamesPage(games, moderator) {
 <div class="controls">
   <input id="search" type="search" placeholder="Search games" aria-label="Search games" autocomplete="off">
   <div class="filters" id="filters">${filters}</div>
+  <div class="arrange">
+    <label>Sort by <select id="sort">${sorts}</select></label>
+    <button type="button" id="direction" aria-label="Reverse the order"></button>
+    <span class="filters" id="views"><button type="button" data-view="covers" aria-pressed="true">Covers</button><button type="button" data-view="rows" aria-pressed="false">Rows</button></span>
+  </div>
 </div>
+<div class="heads" id="heads" hidden>${heads}<span class="wide">Stores</span></div>
 <div class="grid" id="grid">${games.map(card).join('\n')}</div>
 <p class="empty" id="nothing" hidden>No games match.</p>
 <script>
-  const cards = [...document.querySelectorAll('#grid .card')], search = document.getElementById('search');
+  const grid = document.getElementById('grid'), heads = document.getElementById('heads'), sort = document.getElementById('sort');
+  const cards = [...grid.querySelectorAll('.card')], search = document.getElementById('search');
+  const direction = document.getElementById('direction'), views = [...document.querySelectorAll('#views button')];
   const buttons = [...document.querySelectorAll('#filters button')], nothing = document.getElementById('nothing');
-  let filter = 'all';
+  const tiers = ${JSON.stringify(TIERS)};
+  // What each sort reads from a card, and which way it starts. null sorts last either way.
+  const keys = {
+    name: [(card) => card.dataset.name, true],
+    tier: [(card) => tiers.includes(card.dataset.tier) ? tiers.indexOf(card.dataset.tier) : null, true],
+    ratings: [(card) => Number(card.dataset.ratings) || null, false],
+    last: [(card) => Number(card.dataset.last) || null, false],
+    category: [(card) => card.dataset.category || null, true],
+    kind: [(card) => card.dataset.kind || null, true],
+  };
+  let filter = 'all', state = { key: 'last', up: false, view: 'covers' };
+  try { state = { ...state, ...JSON.parse(localStorage.getItem('games-view')) }; } catch {}
+  if (!keys[state.key]) state.key = 'last';
   function apply() {
     const text = search.value.trim().toLowerCase();
     let shown = 0;
@@ -663,12 +815,42 @@ function gamesPage(games, moderator) {
     }
     nothing.hidden = shown > 0;
   }
+  function arrange() {
+    const read = keys[state.key][0];
+    const compare = (a, b) => (typeof a === 'string' ? a.localeCompare(b) : a - b);
+    grid.append(...[...cards].sort((a, b) => {
+      const [first, second] = [read(a), read(b)];
+      const order = first === null || second === null ? (first === null) - (second === null) : compare(first, second) * (state.up ? 1 : -1);
+      return order || a.dataset.name.localeCompare(b.dataset.name);
+    }));
+    sort.value = state.key;
+    direction.textContent = state.up ? '↑' : '↓';
+    grid.classList.toggle('rows', state.view === 'rows');
+    heads.hidden = state.view !== 'rows';
+    for (const view of views) view.setAttribute('aria-pressed', view.dataset.view === state.view);
+    for (const head of heads.querySelectorAll('button')) {
+      const active = head.dataset.sort === state.key;
+      head.dataset.arrow = active ? (state.up ? '↑' : '↓') : '';
+      if (active) head.setAttribute('aria-current', 'true'); else head.removeAttribute('aria-current');
+    }
+    try { localStorage.setItem('games-view', JSON.stringify(state)); } catch {}
+  }
+  function sortBy(key) {
+    state.up = state.key === key ? !state.up : keys[key][1];
+    state.key = key;
+    arrange();
+  }
   search.addEventListener('input', apply);
   for (const button of buttons) button.addEventListener('click', () => {
     filter = button.dataset.filter;
     for (const other of buttons) other.setAttribute('aria-pressed', other === button);
     apply();
   });
+  sort.addEventListener('change', () => { state.key = sort.value; state.up = keys[sort.value][1]; arrange(); });
+  direction.addEventListener('click', () => { state.up = !state.up; arrange(); });
+  heads.addEventListener('click', (event) => { const head = event.target.closest('button'); if (head) sortBy(head.dataset.sort); });
+  for (const view of views) view.addEventListener('click', () => { state.view = view.dataset.view; arrange(); });
+  arrange();
 </script>`, moderator);
 }
 
@@ -746,6 +928,45 @@ const COMMENT_ERRORS = {
   reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
 };
 
+const COVER_SOURCES = { steam: 'Steam', gog: 'GOG', thegamesdb: 'TheGamesDB', steamgriddb: 'SteamGridDB', moderator: 'a moderator' };
+
+/// For a moderator: a picture from the Mac, shrunk in the browser; an image's address; or back to automatic.
+function coverForm(game, error) {
+  const said = game.art_wanted ? `Waiting for ${escape(game.art_wanted)}. It's fetched within half an hour.`
+    : game.art ? `This cover came from ${COVER_SOURCES[game.art_source] ?? 'an unknown source'}.` : 'No cover found yet.';
+  return `<section id="cover">
+  <details${error === 'cover' ? ' open' : ''}><summary>Change Cover</summary>
+  ${error === 'cover' ? `<p class="problem" role="alert">That didn't work. Use a picture, or an https:// address of an image.</p>` : ''}
+  <p class="muted">${said}</p>
+  <div class="decide">
+    <label class="button quiet">Choose Picture…<input id="cover-file" type="file" accept="image/*" hidden></label>
+    <form method="post" action="/games/${game.id}/cover/reset"><button class="button quiet" type="submit">Find Automatically</button></form>
+  </div>
+  <form class="write" method="post" action="/games/${game.id}/cover/url">
+    <label for="cover-url">Or an image's address</label>
+    <input id="cover-url" name="url" type="url" required maxlength="1000" placeholder="https://">
+    <button class="button quiet" type="submit">Use This Image</button>
+  </form>
+  </details>
+  <script>
+    document.getElementById('cover-file').addEventListener('change', async (event) => {
+      const image = await createImageBitmap(event.target.files[0]).catch(() => null);
+      if (!image) return location.assign('/games/${game.id}?error=cover#cover');
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 600;
+      const scale = Math.max(400 / image.width, 600 / image.height), context = canvas.getContext('2d');
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, (400 - image.width * scale) / 2, (600 - image.height * scale) / 2, image.width * scale, image.height * scale);
+      canvas.toBlob(async (blob) => {
+        const answer = await fetch('/games/${game.id}/cover', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+        location.assign(answer.url);
+      }, 'image/jpeg', 0.7);
+    });
+  </script>
+</section>`;
+}
+
 function gamePage(game, said, user, reports, error, moderator, own) {
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
@@ -770,8 +991,10 @@ function gamePage(game, said, user, reports, error, moderator, own) {
     <p class="summary">${medal(game.tier, true)}<span>${game.ratings === 1 ? '1 rating' : `${game.ratings} ratings`}</span></p>
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
     ${game.ratings ? breakdown(game) : ''}
+    ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a href="${escape(store.url)}" rel="noopener">${escape(store.name)}</a>`).join('')}</p>` : ''}
   </div>
 </header>
+${moderator ? coverForm(game, error) : ''}
 ${settings}
 <section id="ratings">
   <h2>Ratings</h2>

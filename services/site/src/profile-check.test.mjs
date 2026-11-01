@@ -1,7 +1,7 @@
 // node --test services/site/src/
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { profileProblems, validProfileID } from './profile-check.js';
+import { profileProblems, storeName, validProfileID } from './profile-check.js';
 
 const current = `# Rated by hand
 [app]
@@ -74,4 +74,14 @@ test('text that is no setting, none at all, or too long', () => {
 test('profile IDs are safe file names', () => {
   assert.ok(validProfileID('baldurs-gate-3'));
   for (const id of ['', null, '../x', 'a/b', 'A', '-a', 'a.ini']) assert.ok(!validProfileID(id));
+});
+
+test('a [store] section takes IDs and store pages, nothing else', () => {
+  assert.deepEqual(profileProblems('[store]\nsteam = 336610\ngog = 12\nepic = Fable_3\nlink = https://www.gog.com/en/game/outcast\n'), []);
+  assert.equal(profileProblems('[store]\nsteam = 1; rm\n').length, 1);
+  assert.equal(profileProblems('[store]\nlink = https://evil.example/gog.com\n').length, 1);
+  assert.equal(profileProblems('[store]\nlink = http://www.gog.com/\n').length, 1);
+  assert.equal(profileProblems('[store]\nprogram = a.exe\n').length, 1);
+  assert.equal(storeName('https://www.gog.com.evil.example/'), null);
+  assert.equal(storeName('https://store.steampowered.com/app/1'), 'Steam');
 });

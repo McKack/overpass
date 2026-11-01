@@ -1,13 +1,14 @@
 # Keeps the site in step with profiles/: approved suggestions go in (publish-profiles.mjs), the set the app downloads is
-# signed, and every change updates overpass.arctim.no/games.
+# signed, every change updates overpass.arctim.no/games, and games without a cover get one (find-covers.mjs).
 # Needs the repository secrets GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml), and
-# PROFILES_SIGNING_KEY, whose public half is in the app (ProfileUpdates.swift).
+# PROFILES_SIGNING_KEY, whose public half is in the app (ProfileUpdates.swift). TGDB_KEY and SGDB_KEY are optional: without
+# them, covers come from Steam and GOG only.
 name: Sync games
 
 on:
   push:
     branches: [main]
-    paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', 'services/site/src/profile-check.js']
+    paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', '.github/scripts/find-covers.mjs', 'services/site/src/profile-check.js']
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:
@@ -40,3 +41,15 @@ jobs:
             -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
         env:
           TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
+      - name: Covers
+        working-directory: .github/scripts
+        run: |
+          if node find-covers.mjs --waiting; then
+            npm install --no-save --no-package-lock sharp@0.35.5
+            node find-covers.mjs
+          fi
+        env:
+          SITE: https://overpass.arctim.no
+          SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
+          TGDB_KEY: ${{ secrets.TGDB_KEY }}
+          SGDB_KEY: ${{ secrets.SGDB_KEY }}

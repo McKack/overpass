@@ -13,11 +13,24 @@ const RULE_KEYS = new Set(['program', 'steam-app', 'gog-game', 'beside', 'compan
 // Names known to only change how a game runs. Never one that picks what code loads (DYLD_*, WINEDLLPATH, PATH...).
 const ENV_NAMES = [/^DXMT_CONFIG$/, /^MTL_[A-Z0-9_]+$/, /^MVK_CONFIG_[A-Z0-9_]+$/, /^OVERPASS_(X87|MAX_RESOLUTION|NO_MAC_FRAME)$/,
   /^WINE_(LARGE_ADDRESS_AWARE|HEAP_ZERO_MEMORY|SIMULATE_WRITECOPY|FORCE_NX)$/, /^WINENCPU$/, /^QMLSCENE_DEVICE$/, /^SteamDeck$/];
+const STORE_KEYS = { steam: /^\d{1,10}$/, gog: /^\d{1,12}$/, epic: /^[\w-]{1,64}$/ };
+const STORES = [
+  ['store.steampowered.com', 'Steam'], ['gog.com', 'GOG'], ['store.epicgames.com', 'Epic Games'], ['ea.com', 'EA'],
+  ['ubisoft.com', 'Ubisoft'], ['battle.net', 'Battle.net'], ['rockstargames.com', 'Rockstar'], ['xbox.com', 'Xbox'],
+];
 const DLL = /^[A-Za-z0-9_.-]+\s*=\s*[nbd,]*$/;
 const WILDCARD = /[*?]/;
 const LENGTH = 20000;
 
 export const validProfileID = (id) => /^[a-z0-9][a-z0-9-]{0,99}$/.test(id ?? '');
+
+/// The store a page belongs to, by its address; null when it isn't one of the stores above.
+export function storeName(link) {
+  let url;
+  try { url = new URL(link); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  return STORES.find(([host]) => url.hostname === host || url.hostname.endsWith(`.${host}`))?.[1] ?? null;
+}
 
 /// The lines of a profile as "section\0key = value", comments and spacing left out.
 function settings(text) {
@@ -41,6 +54,10 @@ function problem(entry) {
   if (!section) return `"${line}" is outside any section`;
   if (key === null) return `"${line}" isn't a setting`;
   if (RECIPE.includes(section)) return `[${section}] needs a pull request`;
+  if (section === 'store') {
+    if (key === 'link') return storeName(value) ? null : `${value} isn't a store's page`;
+    return STORE_KEYS[key]?.test(value) ? null : `${key} = ${value} isn't a store ID`;
+  }
   const allowed = section === 'app' ? APP_KEYS : RULE_KEYS;
   if (!allowed.has(key)) return `${key} needs a pull request`;
   if (['program', 'beside', 'company', 'product'].includes(key) && (!value || WILDCARD.test(value))) return `${key} = ${value} would reach other programs`;

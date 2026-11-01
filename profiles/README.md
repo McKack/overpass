@@ -11,6 +11,7 @@ A file can hold two kinds of sections.
 
 - Recipe sections `[app]`, `[install]` and `[launch]`. All three are optional. Only the OverPass app
   reads them. They describe how to install and start the app.
+- `[store]`, optional: where the game is sold. Only the website reads it.
 - Every other `[section]` is a compatibility rule. OverPass and overpass-wine both read rules.
   overpass-wine applies them to every process, including programs a launcher starts on its own.
 
@@ -53,6 +54,19 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `notes` | Free text shown with the app | no |
 | `engine` | Game engine shown in the library's Engine column, e.g. `Unity` or `Unreal Engine`. Without it, OverPass tells the engine from the game's files, or shows Unknown | no |
 | `source` | `title | url`: where the information comes from | yes |
+
+## [store]
+
+Where a game is sold, so that one game has one page however it was bought, and the page can show its cover and link
+to its stores. It changes nothing about how the game runs, and it doesn't put the game in the app's Install list,
+which `[app]` would. Use it in any profile, also a rules-only one.
+
+| Key | Meaning | Repeatable |
+|---|---|---|
+| `steam` | Steam app ID. The Steam link comes from it | no |
+| `gog` | GOG product ID | no |
+| `epic` | Epic Games app name, as OverPass reports it | no |
+| `link` | `https://` address of the game's page on a store: Steam, GOG, Epic Games, EA, Ubisoft, Battle.net, Rockstar or Xbox | yes |
 
 ## [install]
 

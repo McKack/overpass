@@ -60,19 +60,20 @@ section { margin-top: 40px; }
 
 /* The hero runs the width of the window from its very top, half faded there, keeps the top of the picture, and fades into the page where the cover sits on it. */
 body { overflow-x: clip; }
-main:has(> .hero) { position: relative; }
+main:has(> .hero) { position: relative; --hero: clamp(310px, 32vw, 560px); --game-top: calc(clamp(230px, 25vw, 380px) - 56px); }
 .hero {
   --reach: 94px; /* the top bar and main's padding */
-  display: block; width: 100vw; height: calc(clamp(230px, 25vw, 380px) + 80px); margin: calc(-1 * var(--reach)) 0 0 calc(50% - 50vw);
+  display: block; width: 100vw; height: var(--hero); margin: calc(-1 * var(--reach)) 0 0 calc(50% - 50vw);
   object-fit: cover; object-position: center top;
-  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 40%, transparent 95%); mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 40%, transparent 95%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 38%, transparent 92%); mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 38%, transparent 92%);
 }
 .hero + .back {
   position: absolute; top: 12px; left: 16px; padding: 4px 12px; border-radius: 980px; color: #ffffff; font-size: 14px;
   background: rgba(0, 0, 0, .45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
-.hero ~ .game { position: relative; margin-top: -136px; } /* 40px more than the hero's extra height above, so the cover stays put */
+.hero ~ .game { position: relative; margin-top: calc(var(--game-top) - var(--hero)); } /* the cover stays put however tall the hero is */
 .hero ~ .game .game-intro { padding-top: 64px; }
+.hero ~ .game h1 { text-shadow: 0 1px 14px rgba(0, 0, 0, .6); }
 .cover-button { position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: none; cursor: pointer; }
 .cover-button:hover .upload, .cover-button:focus-visible .upload { opacity: 1; }
 #cover { width: min(440px, calc(100vw - 32px)); padding: 20px 24px; border: 0; border-radius: 16px; color: var(--text); background: var(--surface); box-shadow: 0 12px 40px rgba(0, 0, 0, .4), inset 0 0 0 1px var(--separator); }

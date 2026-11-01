@@ -13,7 +13,7 @@ routes = [{ pattern = "overpass.arctim.no", custom_domain = true }]
 directory = "../../site"
 binding = "ASSETS"
 html_handling = "auto-trailing-slash"
-run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/account/*", "/moderation", "/moderation/*", "/pictures/*", "/privacy", "/report/*"]
+run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/account/*", "/moderation", "/moderation/*", "/pictures/*", "/privacy", "/report/*", "/updates/*"]
 
 [vars]
 # Google Cloud project named-berm-513401-i3, web client "OverPass site". The redirect URI there is

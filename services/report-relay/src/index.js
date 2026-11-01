@@ -227,9 +227,9 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
   // The issue is filed: a problem with the rating or the profile mustn't fail the report.
   if (submitted) await addSuggestion(env, block, profile, what, install).catch(() => {});
   await linkIssue(env, block, issue).catch(() => {});
-  if (!/^rating: /m.test(block)) return json({ url: issue.html_url });
+  if (!/^rating: /m.test(block)) return json({ url: issue.html_url, issue: issue.number });
   // The game's page lists the issue, so that's where the person goes.
-  return json({ url: await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url) });
+  return json({ url: await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url), issue: issue.number });
 }
 
 /// The key lines of a details block.

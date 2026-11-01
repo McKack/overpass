@@ -89,7 +89,7 @@ CREATE INDEX IF NOT EXISTS ratings_game ON ratings (game_id, created_at);
 CREATE INDEX IF NOT EXISTS ratings_recent ON ratings (created_at);
 
 -- An account: the provider's ID for the person, the username they chose and maybe a picture. No e-mail, no name from
--- the provider.
+-- the provider; an address is only ever in email_updates.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS profile_set (
 -- A code on its way to someone. The address isn't here, only its keyed hash, and the cookie's token only as a hash.
 CREATE TABLE IF NOT EXISTS email_codes (
   token_hash TEXT PRIMARY KEY,
-  purpose TEXT NOT NULL,             -- signup, signin or reset
+  purpose TEXT NOT NULL,             -- signup, signin, reset or updates
   address_hash TEXT NOT NULL,
   code_hash TEXT NOT NULL,
   password TEXT,                     -- signup: the hash of the password chosen, until the code proves the address
@@ -214,3 +214,20 @@ CREATE TABLE IF NOT EXISTS game_issues (
   state TEXT NOT NULL                -- open, fixed or closed
 );
 CREATE INDEX IF NOT EXISTS game_issues_game ON game_issues (game_id);
+
+-- E-mail updates, for those who turned them on: the one place an address is readable, since the site has to send to it.
+-- Gone when they stop, by the mail's link or on /account, or delete the account.
+CREATE TABLE IF NOT EXISTS email_updates (
+  user_id TEXT PRIMARY KEY,
+  address TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,        -- the stop link in every mail
+  created_at INTEGER NOT NULL
+);
+
+-- Who to tell when an issue is fixed: reports sent from an account, not anonymous ones.
+CREATE TABLE IF NOT EXISTS issue_reporters (
+  number INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  PRIMARY KEY (number, user_id)
+);
+CREATE INDEX IF NOT EXISTS issue_reporters_user ON issue_reporters (user_id);

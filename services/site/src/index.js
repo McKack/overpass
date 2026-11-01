@@ -33,10 +33,12 @@
 //   POST /api/suggestions        { published, refused }: lists of their IDs, from the same script; the same secret
 //   GET  /report/<ticket>        finish a rating the app started; POST sends it through the report relay
 //   POST /account/public         Public Contributor or Member: whether one's name shows on one's ratings
+//   POST /account/updates, /account/updates/code, /account/updates/stop   turn e-mail updates on, confirm by code, turn off
+//   GET, POST /updates/stop/<token>   the link in every update; POST is also what a mail app's unsubscribe button sends
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
-// else: no e-mail, no name from Google. An e-mail account's ID is a keyed hash of the address, so the address itself
+// else: no e-mail, no name from Google, unless they turn on e-mail updates, which keeps the address they give (email_updates). An e-mail account's ID is a keyed hash of the address, so the address itself
 // is never kept: it's typed at each sign-in, the code goes to what was typed. A session is a random token in a cookie;
 // the database keeps only its hash.
 // Pictures are small JPEGs, cropped and shrunk in the browser, in the PICTURES store.
@@ -61,7 +63,7 @@ export default {
       if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
-      if (path === '/api/issues' && request.method === 'POST') return await storeIssues(request, env);
+      if (path === '/api/issues' && request.method === 'POST') return await storeIssues(request, env, context);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/(delete|vote))?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
@@ -71,6 +73,10 @@ export default {
       const modded = path.match(/^\/moderation\/mods(?:\/([0-9a-f-]+)\/remove)?$/);
       const covered = path.match(/^\/games\/([a-z0-9-]+)\/cover(?:\/(url|reset))?$/);
       const ticket = path.match(/^\/report\/([0-9a-f]{64})$/);
+      const stopping = path.match(/^\/updates\/stop\/([\w-]{43})$/);
+      // No Origin check: the token is the key, and a mail app presses this one by itself.
+      if (stopping && request.method === 'POST') return await stopByLink(env, stopping[1]);
+      if (stopping && (request.method === 'GET' || request.method === 'HEAD')) return ticketed(stopPage(stopping[1]));
       if (ticket && request.method === 'POST') {
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         return await sendReport(request, env, ticket[1], await signedIn(request, env));
@@ -80,7 +86,7 @@ export default {
         return await emailPost(request, env, context, path.slice('/auth/email/'.length));
       }
       if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || modded || covered
-        || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/auth/signout'].includes(path))) {
+        || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/account/updates', '/account/updates/code', '/account/updates/stop', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
@@ -98,11 +104,14 @@ export default {
         }
         if (commented) {
           if (commented[3] === 'vote') return await vote(env, user, commented[1], commented[2]);
-          return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
+          return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, context, user, commented[1]);
         }
         if (path === '/account/picture') return await savePicture(request, env, user);
         if (path === '/account/picture/delete') return await deletePicture(env, user);
         if (path === '/account/public') return await setPublic(request, env, user);
+        if (path === '/account/updates') return await askUpdates(request, env, context, user);
+        if (path === '/account/updates/code') return await confirmUpdates(request, env, user);
+        if (path === '/account/updates/stop') return await stopUpdates(env, user);
         return path === '/account' ? await rename(request, env, user) : await deleteAccount(env, user);
       }
       if (request.method === 'GET' || request.method === 'HEAD') {
@@ -116,7 +125,7 @@ export default {
         if (path === '/auth/email/code') return await codePageFor(request, env, url);
         if (path === '/account') {
           const user = await signedIn(request, env);
-          return personal(accountPage(user, url.searchParams.get('error'), isModerator(env, user), localPath(url.searchParams.get('next'))));
+          return personal(accountPage(user, url.searchParams.get('error'), isModerator(env, user), localPath(url.searchParams.get('next')), user && await updatesAddress(env, user)));
         }
         if (path === '/moderation') {
           const user = await signedIn(request, env);
@@ -333,7 +342,7 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name, users.picture, users.public, users.role, users.provider FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.picture, users.public, users.role, users.provider, users.provider_id FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -399,7 +408,7 @@ const CODE_SECONDS = 600;
 const CODE_TRIES = 5;
 const HOUR = 3600 * 1000;
 // Per hour. Asking for a code counts whether or not a mail goes out, so a limit says nothing about who has an account.
-const LIMITS = { address: 5, ip: 15, wrong: 10 };
+const LIMITS = { address: 5, ip: 15, wrong: 10, update: 1 };
 
 /// True when this attempt is within its limit, and counts it.
 async function within(env, kind, value) {
@@ -413,11 +422,11 @@ async function within(env, kind, value) {
   return true;
 }
 
-async function sendMail(env, to, kind, code) {
+async function sendMail(env, to, kind, fields) {
   const answer = await fetch(env.MAIL_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.MAIL_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to, kind, code }),
+    body: JSON.stringify({ to, kind, ...fields }),
   });
   if (!answer.ok) console.error(`Mail failed: ${answer.status}`);
 }
@@ -431,7 +440,7 @@ async function askForCode(env, context, purpose, address, hash, mailed, password
     env.DB.prepare('INSERT INTO email_codes (token_hash, purpose, address_hash, code_hash, password, next, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(await hashed(token), purpose, hash, await codeHash(env, token, code), password, next, now + CODE_SECONDS * 1000),
   ]);
-  if (mailed) context.waitUntil(sendMail(env, address, mailed, mailed === 'exists' ? undefined : code).catch((error) => console.error(`Mail failed: ${error.message}`)));
+  if (mailed) context.waitUntil(sendMail(env, address, mailed, mailed === 'exists' ? {} : { code }).catch((error) => console.error(`Mail failed: ${error.message}`)));
   return redirect('/auth/email/code', setCookie('overpass_email', token, CODE_SECONDS));
 }
 
@@ -471,14 +480,15 @@ const waitingCode = async (request, env) => {
 
 async function codePageFor(request, env, url) {
   const row = await waitingCode(request, env);
-  if (!row) return redirect('/auth/email?error=expired');
+  if (!row || row.purpose === 'updates') return redirect('/auth/email?error=expired');
   return personal(codePage(row.purpose, url.searchParams.get('error')));
 }
 
 async function enterCode(request, env, form) {
   const row = await waitingCode(request, env);
   const gone = setCookie('overpass_email', '', 0);
-  if (!row) return redirect('/auth/email?error=expired', gone);
+  // A code for e-mail updates proves an address, but it was never meant to sign anyone in.
+  if (!row || row.purpose === 'updates') return redirect('/auth/email?error=expired', gone);
   const remove = env.DB.prepare('DELETE FROM email_codes WHERE token_hash = ?').bind(row.token_hash);
   if (!same(await codeHash(env, row.token, cleanCode(form.get('code'))), row.code_hash)) {
     if (row.tries + 1 >= CODE_TRIES) {
@@ -512,6 +522,94 @@ async function enterCode(request, env, form) {
   return redirect(localPath(row.next), gone, await newSession(env, user));
 }
 
+// E-mail updates
+
+const updatesAddress = (env, user) => env.DB.prepare('SELECT address FROM email_updates WHERE user_id = ?').bind(user.id).first('address');
+
+const keepAddress = (env, user, address) => env.DB.prepare('INSERT OR REPLACE INTO email_updates (user_id, address, token, created_at) VALUES (?, ?, ?, ?)')
+  .bind(user.id, address, randomToken(), Date.now()).run();
+
+/// The address a person signs in with is proven already. Any other waits for a code, and it isn't stored until the code
+/// is right: it stays in the page's form, and the database only has its hash.
+async function askUpdates(request, env, context, user) {
+  const address = cleanAddress((await request.formData()).get('address'));
+  if (!validAddress(address)) return redirect('/account?error=address');
+  const hash = await addressHash(env, address);
+  if (user.provider === 'email' && hash === user.provider_id) {
+    await keepAddress(env, user, address);
+    return redirect('/account');
+  }
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await within(env, 'address', address) || !await within(env, 'ip', ip)) return redirect('/account?error=busy');
+  const token = randomToken(), code = newCode(), now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM email_codes WHERE expires_at <= ? OR (address_hash = ? AND purpose = ?)').bind(now, hash, 'updates'),
+    env.DB.prepare('INSERT INTO email_codes (token_hash, purpose, address_hash, code_hash, next, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(await hashed(token), 'updates', hash, await codeHash(env, token, code), '/account', now + CODE_SECONDS * 1000),
+  ]);
+  context.waitUntil(sendMail(env, address, 'updates', { code }).catch((error) => console.error(`Mail failed: ${error.message}`)));
+  const page = personal(updatesCodePage(address));
+  page.headers.append('Set-Cookie', setCookie('overpass_email', token, CODE_SECONDS));
+  return page;
+}
+
+async function confirmUpdates(request, env, user) {
+  const form = await request.formData();
+  const row = await waitingCode(request, env);
+  const gone = setCookie('overpass_email', '', 0);
+  const address = cleanAddress(form.get('address'));
+  if (row?.purpose !== 'updates' || await addressHash(env, address) !== row.address_hash) return redirect('/account?error=expired', gone);
+  const remove = env.DB.prepare('DELETE FROM email_codes WHERE token_hash = ?').bind(row.token_hash);
+  if (!same(await codeHash(env, row.token, cleanCode(form.get('code'))), row.code_hash)) {
+    if (row.tries + 1 >= CODE_TRIES) {
+      await remove.run();
+      return redirect('/account?error=expired', gone);
+    }
+    await env.DB.prepare('UPDATE email_codes SET tries = tries + 1 WHERE token_hash = ?').bind(row.token_hash).run();
+    return personal(updatesCodePage(address, 'code'));
+  }
+  await remove.run();
+  await keepAddress(env, user, address);
+  return redirect('/account', gone);
+}
+
+async function stopUpdates(env, user) {
+  await env.DB.prepare('DELETE FROM email_updates WHERE user_id = ?').bind(user.id).run();
+  return redirect('/account');
+}
+
+async function stopByLink(env, token) {
+  await env.DB.prepare('DELETE FROM email_updates WHERE token = ?').bind(token).run();
+  return ticketed(stoppedPage());
+}
+
+/// One mail of a kind per person, game and hour, so a busy thread can't fill anyone's inbox. A mail says only that there's
+/// something to see and where: nothing a stranger wrote goes into it.
+async function tell(env, people, kind, game, comment) {
+  const { results } = await env.DB.prepare('SELECT user_id, address, token FROM email_updates WHERE user_id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify([...new Set(people)])).all();
+  for (const person of results) {
+    if (await within(env, 'update', `${kind}:${person.user_id}:${game}`)) {
+      await sendMail(env, person.address, kind, { game, comment, stop: person.token });
+    }
+  }
+}
+
+/// A reply tells whoever it answers and whoever started the thread; a new comment tells those who rated the game.
+async function tellAboutComment(env, user, game, comment, answered) {
+  const { results } = answered
+    ? await env.DB.prepare('SELECT user_id FROM comments WHERE id IN (?, ?)').bind(answered.id, answered.parent_id).all()
+    : await env.DB.prepare('SELECT DISTINCT user_id FROM ratings WHERE game_id = ? AND user_id IS NOT NULL AND hidden = 0').bind(game).all();
+  await tell(env, results.map((row) => row.user_id).filter((id) => id !== user.id), answered ? 'reply' : 'comment', game, comment);
+}
+
+async function tellAboutFixes(env, fixed) {
+  for (const { number, game } of fixed) {
+    const { results } = await env.DB.prepare('SELECT user_id FROM issue_reporters WHERE number = ?').bind(number).all();
+    await tell(env, results.map((row) => row.user_id), 'fixed', game);
+  }
+}
+
 async function signOut(request, env) {
   const token = cookie(request, 'overpass_session');
   if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await hashed(token)).run();
@@ -537,6 +635,8 @@ async function deleteAccount(env, user) {
   if (user.picture) await env.PICTURES.delete(user.picture);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM email_updates WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM issue_reporters WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1) OR target IN (SELECT id FROM ratings WHERE install = ?2)')
       .bind(user.id, accountRater(user)),
     env.DB.prepare('DELETE FROM votes WHERE user_id = ?1 OR comment_id IN (SELECT id FROM comments WHERE user_id = ?1)').bind(user.id),
@@ -658,13 +758,16 @@ async function storeArt(request, env) {
 /// Every GitHub issue, from link-issues.mjs. The rows are replaced each time, so a closed or removed issue shows at once.
 /// An issue is about the game its report block names, or the one its title starts with. A report about a game with no
 /// page gives it one, as a rating does.
-async function storeIssues(request, env) {
+async function storeIssues(request, env, context) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { issues } = await request.json();
   const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
   const { results: games } = await env.DB.prepare('SELECT id FROM games').all();
   const byKey = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
   const known = new Set(games.map((game) => game.id));
+  const { results: earlier } = await env.DB.prepare('SELECT number, state FROM game_issues').all();
+  const wasState = new Map(earlier.map((issue) => [issue.number, issue.state]));
+  const fixed = [];
   const steps = [env.DB.prepare('DELETE FROM game_issues')];
   for (const issue of issues) {
     const store = (issue.store ?? '').match(/^(.+) (\S+)$/);
@@ -682,10 +785,12 @@ async function storeIssues(request, env) {
         .bind(game, name, kind === 'steam' ? id : null, kind === 'gog' ? id : null, Date.now()));
     }
     if (!game) continue;
+    if (issue.state === 'fixed' && wasState.has(issue.number) && wasState.get(issue.number) !== 'fixed') fixed.push({ number: issue.number, game });
     steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_issues (number, game_id, title, url, state) VALUES (?, ?, ?, ?, ?)')
       .bind(issue.number, game, String(issue.title).slice(0, 200), issue.url, ['open', 'fixed', 'closed'].includes(issue.state) ? issue.state : 'open'));
   }
   await env.DB.batch(steps);
+  if (fixed.length) context.waitUntil(tellAboutFixes(env, fixed).catch((error) => console.error(`Mail failed: ${error.message}`)));
   return json({ linked: steps.length - 1 });
 }
 
@@ -764,7 +869,7 @@ async function comments(env, id, user) {
 }
 
 /// Replies go one level deep: a reply to a reply joins the same comment.
-async function addComment(request, env, user, id) {
+async function addComment(request, env, context, user, id) {
   const back = `/games/${id}`;
   const exists = await env.DB.prepare('SELECT id FROM games WHERE id = ?').bind(id).first('id');
   if (!exists) return html(missingPage(), 404);
@@ -783,6 +888,7 @@ async function addComment(request, env, user, id) {
   const comment = crypto.randomUUID();
   await env.DB.prepare('INSERT INTO comments (id, game_id, parent_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .bind(comment, id, answered ? answered.parent_id ?? answered.id : null, user.id, body, now).run();
+  context.waitUntil(tellAboutComment(env, user, id, comment, answered).catch((error) => console.error(`Mail failed: ${error.message}`)));
   return redirect(`${back}#comment-${comment}`);
 }
 
@@ -1315,6 +1421,7 @@ async function sendReport(request, env, ticket, user) {
     if (user && install) {
       // The relay has no say in this: the ticket proves the Mac, the session proves the person, and only this site has both.
       const newest = await env.DB.prepare('SELECT id FROM ratings WHERE install = ? ORDER BY created_at DESC LIMIT 1').bind(install).first('id');
+      if (!anonymous && answer.issue) await env.DB.prepare('INSERT OR IGNORE INTO issue_reporters (number, user_id) VALUES (?, ?)').bind(answer.issue, user.id).run();
       if (!anonymous && newest) await env.DB.prepare('UPDATE ratings SET user_id = ? WHERE id = ?').bind(user.id, newest).run();
       if (linking) await env.DB.prepare('UPDATE ratings SET user_id = ? WHERE install = ? AND user_id IS NULL AND id <> ?').bind(user.id, install, newest).run();
     }
@@ -1644,26 +1751,66 @@ function publicForm(user) {
 </form>`;
 }
 
-function accountPage(user, error, moderator, next = '/account') {
-  const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
+function updatesForm(user, address) {
+  if (address) {
+    return `<section>
+  <h2>E-mail updates</h2>
+  <p class="muted">Updates go to ${escape(address)}.</p>
+  <form method="post" action="/account/updates/stop"><button class="button quiet" type="submit">Stop E-mail Updates</button></form>
+</section>`;
+  }
+  return `<section>
+  <h2>E-mail updates</h2>
+  <p class="muted">Get a mail when someone replies to your comment, comments on a game you rated, or an issue you reported from your account is fixed. This is off until you turn it on. Your address is then stored readable, since the site has to send to it, and every mail has a link that turns this off. <a href="/privacy">Privacy</a></p>
+  <form class="account" method="post" action="/account/updates">
+    <label for="updates-address">${user.provider === 'email' ? 'Your address: the one you sign in with, or another, which gets a code first' : 'Your address, which gets a code first'}</label>
+    <input id="updates-address" name="address" type="email" required maxlength="254" autocomplete="email">
+    <button class="button quiet" type="submit">Turn On</button>
+  </form>
+</section>`;
+}
+
+function updatesCodePage(address, error) {
+  return shell('Enter your code · OverPass', 'Enter the code we mailed you.', `
+<header class="page"><h1>Check your mail</h1><p>Type the 6-character code sent to ${escape(address)}. It works for 10 minutes, and the mail may land in spam.</p></header>
+${EMAIL_ERRORS[error] ? `<p class="problem" role="alert">${EMAIL_ERRORS[error]}</p>` : ''}
+<form class="account" method="post" action="/account/updates/code">
+  <input type="hidden" name="address" value="${escape(address)}">
+  <label for="code">Code</label>
+  <input id="code" name="code" required maxlength="8" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" autofocus>
+  <button class="button" type="submit">Turn On</button>
+</form>`);
+}
+
+const stopPage = (token) => shell('E-mail updates · OverPass', 'Stop e-mail updates.', `
+<header class="page"><h1>Stop e-mail updates?</h1><p>Your address is removed at once. Your account stays.</p></header>
+<form method="post" action="/updates/stop/${token}"><button class="button" type="submit">Stop E-mail Updates</button></form>`);
+
+const stoppedPage = () => shell('E-mail updates · OverPass', 'E-mail updates are off.', `
+<header class="page"><h1>E-mail updates are off</h1><p>Your address is gone, and no more mails will come. You can turn them on again on <a href="/account">your account page</a>.</p></header>`);
+
+function accountPage(user, error, moderator, next = '/account', updates = null) {
+  const message = ACCOUNT_ERRORS[error] ?? EMAIL_ERRORS[error];
+  const problem = message ? `<p class="problem" role="alert">${message}</p>` : '';
   if (!user) {
     return shell('Sign in · OverPass', 'Sign in to OverPass.', `
 <header class="page"><h1>Sign in</h1><p>An account lets you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
 ${problem}
 <p class="choices"><a class="button" href="/auth/google?next=${encodeURIComponent(next)}">Sign in with Google</a> <a class="button quiet" href="/auth/email?next=${encodeURIComponent(next)}">Sign in with E-mail</a></p>
-<p class="muted">OverPass keeps the username you choose, a picture if you add one, and either Google's ID for you or a scrambled form of your address that can't be read back. Not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
+<p class="muted">OverPass keeps the username you choose, a picture if you add one, and either Google's ID for you or a scrambled form of your address that can't be read back. Not your e-mail or name, unless you turn on e-mail updates. <a href="/privacy">Privacy</a></p>`);
   }
   return shell('Your account · OverPass', 'Your OverPass account.', `
 ${profileHeader(user)}
 ${problem}
 ${user.name ? publicForm(user) : ''}
+${user.name ? updatesForm(user, updates) : ''}
 <div class="choices">
   <form method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
   ${user.provider === 'email' ? '<a class="button quiet" href="/auth/email?mode=reset">Change Password</a>' : ''}
 </div>
 <section>
   <h2>Delete account</h2>
-  <p class="muted">Removes your account, username, picture and comments at once. Ratings you sent from the app stay on the site, anonymous.</p>
+  <p class="muted">Removes your account, username, picture, comments and any address kept for e-mail updates at once. Ratings you sent from the app stay on the site, anonymous.</p>
   <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
 </section>`, moderator);
 }
@@ -1677,6 +1824,12 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
   <p>You can add a picture on your account page. It's public next to your comments, shrunk before it's sent, and gone as soon as you replace or remove it, or delete your account. Admins can remove it.</p>
   <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
   <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your picture and comments.</p>
+</section>
+<section>
+  <h2>E-mail updates</h2>
+  <p>These are off unless you turn them on on your account page. You then get a mail when someone replies to your comment, comments on a game you rated, or an issue you reported from your account is fixed. The mail names the game and links to it, and says nothing else about anyone.</p>
+  <p>This is the one place your address is stored readable, because the site has to send to it without you typing it. It's used for these mails and nothing else. An address other than the one you sign in with needs a mailed code before it's kept. It goes through our web host like the sign-in mails, so the host's mail logs show it.</p>
+  <p>Every mail has a link that turns this off and removes the address at once. Turning it off on your account page does the same, and so does deleting your account. We also keep which reports you sent from your account, to tell you when they're fixed; that goes with your account too.</p>
 </section>
 <section>
   <h2>Comments</h2>

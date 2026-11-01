@@ -33,7 +33,7 @@ struct AppReportView: View {
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isIssue ? "Report an Issue with OverPass" : "Request a Feature").font(.title3.bold())
-                    Text(isIssue ? "For a problem with one game, use Report Issue… on that game: it sends the game's log too."
+                    Text(isIssue ? "For a problem with one game, use How Did It Run?… on that game: it can send the game's log too."
                          : "Tell us what you'd like OverPass to do.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }

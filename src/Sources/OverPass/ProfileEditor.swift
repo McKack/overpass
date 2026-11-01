@@ -110,9 +110,6 @@ struct ProfileEditor: View {
     }
 
     @State private var presets: [String] = []
-    @State private var rating: GameProfile.Rating.Tier?
-    @State private var started = false
-    @State private var submitting = false
 
     private var profile: GameProfile? { profiles.profile(id: profileID) }
     private var isSteam: Bool { item.app.launcher == "Steam" && item.app.storeID != nil }
@@ -206,15 +203,17 @@ struct ProfileEditor: View {
                             .frame(maxHeight: .infinity)
                         Spacer(minLength: 0)
                         VStack(alignment: .trailing, spacing: 8) {
-                            ratingRow
                             Spacer(minLength: 0)
                             Button("Edit Artwork…") { editingArtwork = true }
                                 .buttonStyle(.bordered)
                                 .help("The cover, the icon, and how generated ones look")
-                            Button("Report Issue…") {
-                                ReportCenter.shared.show(ReportContext(item: item, mode: .title, profileText: builtText()))
+                            Button("How Did It Run?…") {
+                                // A title rated as it is keeps coming from OverPass's own profile.
+                                if identity == nil || builtText() == text || save() {
+                                    ReportCenter.shared.show(ReportContext(item: item, mode: .title, profileText: builtText()))
+                                }
                             }
-                                .help("Record a log while you reproduce a problem, for a bug report")
+                                .help("Rate \(item.app.name), send logs of a problem, or share your settings")
                         }
                         .buttonStyle(.bordered)
                         .fixedSize()
@@ -261,48 +260,6 @@ struct ProfileEditor: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    /// How the title ran for this person, then the button that sends that with the profile.
-    private var ratingRow: some View {
-        HStack(spacing: 6) {
-            // A menu, not a Picker: a Picker's label would be the whole line and push the buttons out of the window.
-            Menu(rating?.title ?? "Rate…") {
-                Picker("Rating", selection: $rating) {
-                    ForEach(GameProfile.Rating.Tier.allCases.filter { $0 != .untested }, id: \.self) { tier in
-                        Text("\(tier.title): \(tier.summary)").tag(GameProfile.Rating.Tier?.some(tier))
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-            .fixedSize()
-            Button(profileChanged ? "Submit Rating & Profile" : "Submit Rating") {
-                // A title rated as it is keeps coming from OverPass's own profile.
-                if builtText() == text || save() { submitting = true }
-            }
-            .disabled(rating == nil || !started || identity == nil)
-            .help(submitHelp)
-        }
-        .onAppear { started = manager.hasStarted(item) }
-        .sheet(isPresented: $submitting) {
-            if let rating {
-                ProfileSubmitSheet(item: item, profileID: profileID, builtProfile: builtText(), rating: rating,
-                                   sendsProfile: profileChanged)
-            }
-        }
-    }
-
-    /// Whether the title runs with anything but OverPass's own profile: changes in this window or a saved one.
-    private var profileChanged: Bool {
-        profiles.edited.contains(profileID) || profiles.custom.contains(profileID) || builtText() != text
-    }
-
-    private var submitHelp: String {
-        if !started { return "Run \(item.app.name) at least once first, even if it doesn't start" }
-        if rating == nil { return "Rate how \(item.app.name) runs first" }
-        return profileChanged ? "Saves the profile and sends it with your rating to OverPass for review"
-            : "Sends your rating to OverPass for review"
     }
 
     /// Where the title comes from, how much room its install takes and how well it runs, between the icon
@@ -657,7 +614,7 @@ struct ProfileEditor: View {
             text = profiles.text(of: existing.id) ?? ""
         } else {
             profileID = UserProfiles.newID(for: item.app.name, taken: Set(profiles.profiles.map(\.id)))
-            text = newProfileText()
+            text = item.newProfileText
         }
         let profileText = ProfileText(text: text)
         name = profileText.first("name", in: "app") ?? item.app.name
@@ -693,18 +650,6 @@ struct ProfileEditor: View {
         art = ArtworkDraft(generatedCover: profileText.first("cover", in: "app") == ArtStyle.generatedCover,
                            coverStyle: ArtStyle(profileText.first("cover-style", in: "app"), default: .cover),
                            iconStyle: ArtStyle(profileText.first("icon-style", in: "app"), default: .icon))
-    }
-
-    /// A profile for an app OverPass has none for: enough to find the app again.
-    private func newProfileText() -> String {
-        var lines = ["[app]", "name = \(item.app.name)", "rating = untested", "bottle = \(item.bottle.template.rawValue)"]
-        switch (item.app.launcher, item.app.storeID) {
-        case ("Steam", let id?): lines.append("steam-app = \(id)")
-        case ("GOG", let id?): lines.append("gog-game = \(id)")
-        default:
-            if let target = item.app.target { lines += ["", "[launch]", "executable = \(target)"] }
-        }
-        return lines.joined(separator: "\n") + "\n"
     }
 
     /// The profile with the form's changes, as it would be saved.
@@ -785,7 +730,7 @@ struct ProfileEditor: View {
                 try? fm.removeItem(at: UserProfiles.coversDirectory.appendingPathComponent(old))
             }
             // Nothing to keep for an app that had no profile and still has no settings.
-            if profile == nil && built == newProfileText() { return true }
+            if profile == nil && built == item.newProfileText { return true }
             if built != text || profile == nil || art.pickedIcon != nil || art.removeIcon || art.pickedCover != nil || art.removeCover {
                 try profiles.save(id: profileID, text: built)
                 // The Mac app wrappers pick up the new name and artwork.
@@ -1281,18 +1226,32 @@ private struct PageExtras: ViewModifier {
     }
 }
 
+extension LibraryItem {
+    /// A profile for an app OverPass has none for: enough to find the app again.
+    var newProfileText: String {
+        var lines = ["[app]", "name = \(app.name)", "rating = untested", "bottle = \(bottle.template.rawValue)"]
+        switch (app.launcher, app.storeID) {
+        case ("Steam", let id?): lines.append("steam-app = \(id)")
+        case ("GOG", let id?): lines.append("gog-game = \(id)")
+        default:
+            if let target = app.target { lines += ["", "[launch]", "executable = \(target)"] }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}
+
 // MARK: - Opening the editor from anywhere an app is shown
 
 enum ItemSheet: Identifiable {
     case editProfile(LibraryItem)
-    case reportIssue(LibraryItem)
+    case rateRun(LibraryItem)
     case uninstall(LibraryItem)
     case uninstallBottle(Bottle)
 
     var id: String {
         switch self {
         case .editProfile(let item): "edit|" + item.id
-        case .reportIssue(let item): "report|" + item.id
+        case .rateRun(let item): "rate|" + item.id
         case .uninstall(let item): "uninstall|" + item.id
         case .uninstallBottle(let bottle): "uninstall-bottle|" + bottle.path.path
         }
@@ -1304,7 +1263,7 @@ private struct OpenItemSheetKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Shows the profile editor or Report Issue for an app; set by the page that presents them.
+    /// Shows the profile editor or How Did It Run? for an app; set by the page that presents them.
     var openItemSheet: (ItemSheet) -> Void {
         get { self[OpenItemSheetKey.self] }
         set { self[OpenItemSheetKey.self] = newValue }
@@ -1312,7 +1271,7 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Presents the profile editor and Report Issue for the apps in this view.
+    /// Presents the profile editor and How Did It Run? for the apps in this view.
     func itemSheets(_ sheet: Binding<ItemSheet?>) -> some View {
         modifier(ItemSheets(sheet: sheet))
     }
@@ -1333,7 +1292,7 @@ private struct ItemSheets: ViewModifier {
                     sheet = nil
                     ProfileWindow.items[item.id] = item
                     openWindow(id: ProfileWindow.id, value: item.id)
-                case .reportIssue(let item)?:
+                case .rateRun(let item)?:
                     // The report window is a panel of its own (ReportCenter.swift).
                     sheet = nil
                     ReportCenter.shared.show(ReportContext(item: item, mode: .title))
@@ -1342,10 +1301,10 @@ private struct ItemSheets: ViewModifier {
                 }
             }
             .sheet(item: Binding(get: {
-                switch sheet { case .editProfile?, .reportIssue?: nil; default: sheet }
+                switch sheet { case .editProfile?, .rateRun?: nil; default: sheet }
             }, set: { sheet = $0 })) { sheet in
                 switch sheet {
-                case .editProfile, .reportIssue:
+                case .editProfile, .rateRun:
                     EmptyView()
                 case .uninstall(let item):
                     UninstallSheet(item: item)

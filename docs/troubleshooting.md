@@ -31,9 +31,8 @@ library and choose **Edit Profile…**.
 
 If none of this helps and the program works on Windows:
 
-1. Right-click the program and choose **Report Issue…**. **Start** runs it with Wine's log on: do what causes the
-   problem, then quit it. **Send Last Logs** uses the log of its last run instead (errors and loaded DLLs, no new run).
-   Either way the log is saved in a zip on your Desktop, without your name in it. In the crash dialog,
-   **Show Details → Save As…** saves the crash details too.
-2. OverPass opens a new issue with your Mac, macOS, OverPass, Wine and graphics details filled in. Say what
-   happened and drag the zip (and any crash details) into the Log box.
+1. Right-click the program and choose **How Did It Run?…**. Pick a medal, say what happened and turn on **Send
+   logs**. **The last run** sends the log of its last run (errors and loaded DLLs, no new run); **Run with extra
+   debugging** starts it with Wine's log on: do what causes the problem, then quit it, and the window comes back.
+2. Press **Send**. OverPass files a public issue with the log and your Mac, macOS, OverPass, Wine and graphics details,
+   without your name in them, and opens it. No GitHub account is needed.

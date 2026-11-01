@@ -1,13 +1,14 @@
 import SwiftUI
 import AppKit
 
-// One report window for every way a report on a title starts: Report Issue… on the title, the report hotkey while a
-// game runs (with a screenshot of it attached), a crash Wine caught, and the end of a run recorded with extra
-// debugging. Reports on OverPass itself have windows of their own (AppCrash.swift, AppReport.swift). It floats over the game, also in full screen, and sends the report through the relay (ReportRelay.swift) or,
-// without one, as a prefilled GitHub issue with the zip on the Desktop.
+// The report windows for a title: the report hotkey while a game runs (with a screenshot of it attached) and a crash
+// Wine caught get ReportView; a title's How Did It Run?… and the end of a run recorded for it get RunReportView
+// (RunReport.swift). Reports on OverPass itself have windows of their own (AppCrash.swift, AppReport.swift). They float
+// over the game, also in full screen, and send through the relay (ReportRelay.swift) or, without one, as a prefilled
+// GitHub issue with the zip on the Desktop.
 
 enum ReportMode {
-    /// Report Issue… on a title: first choose what to do.
+    /// How Did It Run?… on a title.
     case title
     /// The report hotkey while the title runs.
     case inGame
@@ -25,8 +26,11 @@ struct ReportContext: Identifiable {
     /// The recorded run's log (afterRun, or a crash during one).
     var recording: LogRecording? = nil
     var description = ""
-    /// The profile editor's unsaved profile, instead of the stored one.
+    /// The profile editor's profile, instead of the stored one.
     var profileText: String? = nil
+    /// What the person chose before a recorded run, for the window afterwards.
+    var rating: GameProfile.Rating.Tier? = nil
+    var sharesSettings: Bool? = nil
 }
 
 @MainActor
@@ -44,10 +48,15 @@ final class ReportCenter: NSObject, NSWindowDelegate {
     func show(_ context: ReportContext) {
         guard let manager, let profiles else { return }
         panel?.close()
-        let view = ReportView(context: context) { [weak self] in self?.panel?.close() }
-            .environment(manager)
-            .environment(profiles)
-        present(view, level: context.mode == .title ? .floating : .screenSaver)
+        let close: () -> Void = { [weak self] in self?.panel?.close() }
+        switch context.mode {
+        case .title:
+            present(RunReportView(context: context, close: close).environment(manager).environment(profiles), level: .floating)
+        case .afterRun:
+            present(RunReportView(context: context, close: close).environment(manager).environment(profiles), level: .screenSaver)
+        case .inGame, .crash:
+            present(ReportView(context: context, close: close).environment(manager).environment(profiles), level: .screenSaver)
+        }
     }
 
     /// The report window for OverPass's own crash last time.
@@ -88,18 +97,11 @@ final class ReportCenter: NSObject, NSWindowDelegate {
     }
 }
 
-/// What to do first when reporting from a title.
-enum ReportAction: Hashable {
-    case runWithDebugging, lastLogs, manual
-}
-
 struct ReportView: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
     let context: ReportContext
     let close: () -> Void
-    @State private var action = ReportAction.lastLogs
-    @State private var channels = LogCollector.defaultChannels
     @State private var description = ""
     @State private var includeLog = true
     @State private var screenshot: NSImage?
@@ -113,28 +115,17 @@ struct ReportView: View {
 
     private var profileTag: String? { profiles.profile(for: item).map { profiles.reportTag(of: $0.id) } }
 
-    /// Whether a log goes with the report, the way things stand.
-    private var hasLog: Bool {
-        switch context.mode {
-        case .title: action != .manual
-        case .inGame, .crash: context.recording != nil || lastRun != nil
-        case .afterRun: true
-        }
-    }
+    /// Whether a log goes with the report.
+    private var hasLog: Bool { context.recording != nil || lastRun != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             VStack(alignment: .leading, spacing: 0) {
-                let steps = context.mode == .title ? 3 : 2
-                if context.mode == .title {
-                    ReportStep(number: 1, title: "What to do", isLast: false) { whatToDo }
-                }
-                ReportStep(number: steps - 1, title: "What happened?", isLast: false) { whatHappened }
-                ReportStep(number: steps, title: "Attachments", isLast: true) { attachments }
+                ReportStep(number: 1, title: "What happened?", isLast: false) { whatHappened }
+                ReportStep(number: 2, title: "Attachments", isLast: true) { attachments }
             }
             ReportPrivacyNote()
-            if context.mode == .title { ReportHotKeyHint() }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
@@ -142,9 +133,9 @@ struct ReportView: View {
                 if sending { ProgressView().controlSize(.small); Text("Sending…").foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Button(confirmTitle, action: confirm)
+                Button("Send Report", action: send)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(sending || !canConfirm)
+                    .disabled(sending || description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(.horizontal, 22)
@@ -154,9 +145,8 @@ struct ReportView: View {
         .onAppear {
             description = context.description
             screenshot = context.screenshot
-            if lastRun == nil { action = .runWithDebugging }
         }
-        .task(id: "\(action)") { excerpt = await loadExcerpt() }
+        .task { excerpt = await loadExcerpt() }
     }
 
     private var header: some View {
@@ -170,44 +160,19 @@ struct ReportView: View {
     }
 
     private var subtitle: String {
-        switch context.mode {
-        case .title: "Tell us what went wrong, and OverPass sends it with what's needed to look into it."
-        case .inGame: context.screenshot == nil ? "Tell us what went wrong in \(name)."
+        if context.mode == .crash { return "Wine caught a crash. A report with the log helps get it fixed." }
+        return context.screenshot == nil ? "Tell us what went wrong in \(name)."
             : "A screenshot of \(name) is attached. Tell us what went wrong."
-        case .crash: "Wine caught a crash. A report with the log helps get it fixed."
-        case .afterRun: "\(name) has quit and its log is recorded. Tell us what went wrong."
-        }
     }
 
     // MARK: Steps
-
-    @ViewBuilder private var whatToDo: some View {
-        Picker("Action:", selection: $action) {
-            Text("Run \(name) with extra debugging").tag(ReportAction.runWithDebugging)
-            Text(lastRun.map { "Send the last log files (\($0.formatted(.relative(presentation: .named))))" }
-                 ?? "Send the last log files (none found)").tag(ReportAction.lastLogs)
-                .selectionDisabled(lastRun == nil)
-            Text("Manual report without log files").tag(ReportAction.manual)
-        }
-        .fixedSize()
-        if action == .runWithDebugging {
-            TextField("Debug channels:", text: $channels)
-                .font(.body.monospaced())
-            Text("\(name) runs with Wine's log on. Do what causes the problem, then quit it; this window comes back "
-                 + "with the log." + (manager.runningPrograms(in: item.bottle).isEmpty ? "" : " Programs running in its "
-                 + "container are quit first."))
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-    }
 
     private var whatHappened: some View {
         ReportTextEditor(text: $description, placeholder: "Explain the issue you encountered with \(name). Are you able to make it happen again, and if so, how?")
     }
 
     @ViewBuilder private var attachments: some View {
-        if context.mode == .title && action == .runWithDebugging {
-            Text("The log is added here when you quit \(name).").font(.callout).foregroundStyle(.secondary)
-        } else if hasLog {
+        if hasLog {
             VStack(alignment: .leading, spacing: 6) {
                 if let excerpt {
                     ScrollView {
@@ -248,34 +213,8 @@ struct ReportView: View {
 
     // MARK: Actions
 
-    private var confirmTitle: String {
-        context.mode == .title && action == .runWithDebugging ? "Run \(name)" : "Send Report"
-    }
-
-    private var canConfirm: Bool {
-        context.mode == .title && action == .runWithDebugging
-            || !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func confirm() {
-        if context.mode == .title && action == .runWithDebugging { runWithDebugging() } else { send() }
-    }
-
-    private func runWithDebugging() {
-        Task {
-            if !manager.runningPrograms(in: item.bottle).isEmpty { await manager.quitEverything(in: item.bottle) }
-            do {
-                try manager.startLogging(item, profile: profileTag, profileText: profileText, channels: channels,
-                                         description: description)
-                close()
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
-    }
-
     private var profileText: String? {
-        context.profileText ?? profiles.profile(for: item).flatMap { profiles.text(of: $0.id) }
+        profiles.profile(for: item).flatMap { profiles.text(of: $0.id) }
     }
 
     private func send() {
@@ -329,12 +268,13 @@ struct ReportView: View {
         return NSImage(contentsOf: url)
     }
 
-    /// The end of the log that goes with the report; for a crash, from Wine's first crash line.
     private func loadExcerpt() async -> String? {
-        guard hasLog, !(context.mode == .title && action == .runWithDebugging) else { return nil }
-        let url = context.recording?.logURL ?? LogCollector.lastRunLogs(for: item).first
-        guard let url else { return nil }
-        let crash = context.mode == .crash
+        guard hasLog, let url = context.recording?.logURL ?? LogCollector.lastRunLogs(for: item).first else { return nil }
+        return await Self.excerpt(of: url, crash: context.mode == .crash)
+    }
+
+    /// The end of a log that goes with a report; for a crash, from Wine's first crash line.
+    static func excerpt(of url: URL, crash: Bool) async -> String? {
         return await Task.detached {
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }

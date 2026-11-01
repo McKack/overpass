@@ -4,13 +4,17 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 ## 0.6.9 - Unreleased
 
+- One window for telling OverPass how a game ran: How Did It Run? replaces Report Issue and Submit Rating
 - Rating a game no longer sends a profile you haven't changed
 - Smaller bug fixes and improvements
 
 ### Details
 
-**Profiles**
-- The profile editor's button says Submit Rating unless you've changed the profile, and only then sends it along. A Bronze or Borked rating asks what went wrong.
+**Ratings and reports**
+- How Did It Run?… on a game, in its menus and the profile editor: a medal, a comment, and if you like its logs and your settings. A rating goes on the game's page. Logs file a public issue. Bronze and Borked ask what went wrong and turn logs on.
+- Rating a game again on the same versions replaces your last rating. A random ID for your install makes that work; it's never shown.
+- A game with no profile can now share its settings too.
+- Help › Report Issue… and Request Feature… stay as they are, and so does the report key while a game runs.
 
 **Home**
 - Home shows which version of OverPass you're on.

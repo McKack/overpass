@@ -294,6 +294,19 @@ struct ComponentPrompt: View {
 }
 
 /// Rating shown under an app's name: a medal in the tier's colour and its title.
+extension GameProfile.Rating.Tier {
+    var color: Color {
+        switch self {
+        case .platinum: Color(red: 0.62, green: 0.78, blue: 0.86)
+        case .gold: Color(red: 0.93, green: 0.73, blue: 0.20)
+        case .silver: Color(red: 0.70, green: 0.72, blue: 0.75)
+        case .bronze: Color(red: 0.76, green: 0.50, blue: 0.29)
+        case .borked: .red
+        case .untested: .secondary
+        }
+    }
+}
+
 struct RatingLabel: View {
     let rating: GameProfile.Rating
     var compact = false
@@ -301,7 +314,7 @@ struct RatingLabel: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: rating.tier == .untested ? "medal" : "medal.fill")
-                .foregroundStyle(color)
+                .foregroundStyle(rating.tier.color)
             Text(rating.tier.title)
                 .foregroundStyle(rating.tier == .untested ? .secondary : .primary)
         }
@@ -318,16 +331,6 @@ struct RatingLabel: View {
         return parts.joined(separator: "\n")
     }
 
-    private var color: Color {
-        switch rating.tier {
-        case .platinum: Color(red: 0.62, green: 0.78, blue: 0.86)
-        case .gold: Color(red: 0.93, green: 0.73, blue: 0.20)
-        case .silver: Color(red: 0.70, green: 0.72, blue: 0.75)
-        case .bronze: Color(red: 0.76, green: 0.50, blue: 0.29)
-        case .borked: .red
-        case .untested: .secondary
-        }
-    }
 }
 
 /// Command output under a collapsed "Details" disclosure, following the newest line.

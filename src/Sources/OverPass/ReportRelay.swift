@@ -1,7 +1,20 @@
 import Foundation
 
+/// A random ID for this install of OverPass, made the first time it's needed. It lets a new rating of a title replace
+/// the last one from the same setup; it stays out of the details block, which is public.
+enum InstallID {
+    private static let key = "installID"
+
+    static var value: String {
+        if let id = UserDefaults.standard.string(forKey: key) { return id }
+        let id = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(id, forKey: key)
+        return id
+    }
+}
+
 /// Sends a report through OverPass's report relay (services/report-relay), which files the GitHub issue, so no
-/// GitHub account is needed. The report window (ReportCenter.swift) uses it when the relay is set up.
+/// GitHub account is needed. The report windows (ReportCenter.swift, RunReport.swift) use it when the relay is set up.
 enum ReportRelay {
     /// The relay's address; the `reportRelayURL` setting points elsewhere (a test copy).
     static var url: URL? {
@@ -16,9 +29,9 @@ enum ReportRelay {
     }
 
     /// Sends the report and returns the issue's address. Without a zip the details block says "log: none". `profile` is
-    /// the text of a submitted profile (ProfileSubmit.swift).
+    /// the text of a submitted profile (RunReport.swift), `install` the InstallID that goes with a rating.
     static func send(title: String, what: String, block: String, zip: URL?, screenshot: Data?,
-                     profile: String? = nil) async throws -> URL {
+                     profile: String? = nil, install: String? = nil) async throws -> URL {
         guard let base = url else { throw Failure(message: "The report relay isn't set up in this build.") }
         let boundary = "overpass-\(UUID().uuidString)"
         var body = Data()
@@ -36,6 +49,7 @@ enum ReportRelay {
         field("steps", "")
         field("block", block)
         if let profile { field("profile", profile) }
+        if let install { field("install", install) }
         if let zip { file("zip", zip.lastPathComponent.replacingOccurrences(of: "\"", with: ""), "application/zip", try Data(contentsOf: zip)) }
         if let screenshot { file("screenshot", "screenshot.jpg", "image/jpeg", screenshot) }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)

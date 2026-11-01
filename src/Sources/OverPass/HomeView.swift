@@ -319,7 +319,7 @@ private struct StoreTile: View {
             if let bottle {
                 Divider()
                 Button("Edit Profile…") { sheet(ItemSheet.editProfile) }
-                Button("Report Issue…") { sheet(ItemSheet.reportIssue) }
+                Button("How Did It Run?…") { sheet(ItemSheet.rateRun) }
                 Divider()
                 Button("Show in Finder") {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: bottle.path.path)

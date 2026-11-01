@@ -651,7 +651,7 @@ struct LibraryItemMenu: View {
 
     @ViewBuilder private var windowsItems: some View {
         Button("Edit Profile…") { openItemSheet(.editProfile(item)) }
-        Button("Report Issue…") { openItemSheet(.reportIssue(item)) }
+        Button("How Did It Run?…") { openItemSheet(.rateRun(item)) }
         Divider()
         Button("Uninstall…") { openItemSheet(.uninstall(item)) }
         Divider()

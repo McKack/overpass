@@ -4,7 +4,7 @@
 //
 //   POST /<app>/report              multipart: title, what, steps, block (the app's details block), zip (the log
 //                                   zip; not when the block says "log: none"), screenshot (JPEG, optional),
-//                                   profile (a submitted profile's text)
+//                                   profile (a submitted profile's text), install (the app's random ID, for ratings)
 //                                   -> { "url": "<issue url>" }
 //   GET  /<app>/logs/<id>/<name>.zip   the zip a report linked
 //   GET  /<app>/shots/<id>.jpg         the screenshot it showed
@@ -15,7 +15,8 @@
 // One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and no log either.
 // One with "kind: rating" is a rating alone: no profile or log, and a comment only if it's Bronze or Borked.
 // Ratings go to the games database, for the site's game pages, and the answer is that page's address. Only a
-// submitted profile also makes an issue, for review.
+// submitted profile also makes an issue, for review. A report with a log can carry a `rating:` line as well, with or
+// without a profile: it makes its issue and the rating goes to the database too, and the answer is the issue.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -74,8 +75,10 @@ async function report(request, env, url, app, repo) {
   if (shot && (shot.size > MAX_SHOT || shot.type !== "image/jpeg"))
     return json({ error: "The screenshot must be a JPEG of at most 4 MB." }, 413);
 
+  const install = String(form.get("install") || "").toLowerCase().match(/^[0-9a-f-]{36}$/)?.[0] ?? null;
+
   await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
-  if (rated) return json({ url: await addRating(env, app, block, what, null) });
+  if (rated) return json({ url: await addRating(env, app, block, what, null, install) });
 
   const id = crypto.randomUUID();
   const name = safeName(zip?.name || "OverPass Logs.zip");
@@ -86,17 +89,17 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    ...(submitted ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
+    ...(submitted && !zip ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
-    ...(feature || submitted ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
+    ...(feature || (submitted && !zip) ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : "report"] }),
+    body: JSON.stringify({ title, body, labels: feature ? ["feature"] : submitted ? (zip ? ["profile", "report"] : ["profile"]) : ["report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);
@@ -105,8 +108,9 @@ async function report(request, env, url, app, repo) {
   }
   const issue = await response.json();
   // The issue is filed: a problem with the rating mustn't fail the report.
-  if (submitted) return json({ url: await addRating(env, app, block, what, issue.html_url).catch(() => issue.html_url) });
-  return json({ url: issue.html_url });
+  if (!/^rating: /m.test(block)) return json({ url: issue.html_url });
+  const page = await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url);
+  return json({ url: zip ? issue.html_url : page });
 }
 
 /// The key lines of a details block.
@@ -142,19 +146,27 @@ async function gameFor(db, fact) {
   return id;
 }
 
-/// Stores a rating and returns the address of its game's page. The chip is all it keeps of the Mac's facts.
-async function addRating(env, app, block, comment, issueURL) {
+/// Stores a rating and returns the address of its game's page. The chip is all it keeps of the Mac's facts. A new rating
+/// from the same install on the same OverPass, Wine and Runtime replaces the last one, and stays hidden if that was.
+async function addRating(env, app, block, comment, issueURL, install) {
   const fact = facts(block);
   const tier = ["platinum", "gold", "silver", "bronze", "borked"].find((name) => name === fact.rating);
   if (!tier) throw new Error("the rating isn't one of the tiers");
   const game = await gameFor(env.GAMES, fact);
+  let hidden = 0;
+  if (install) {
+    const same = "install = ? AND game_id = ? AND overpass IS ? AND wine IS ? AND runtime IS ?";
+    const setup = [install, game, fact.overpass || null, fact.wine || null, fact.runtime || null];
+    hidden = (await env.GAMES.prepare(`SELECT MAX(hidden) AS hidden FROM ratings WHERE ${same}`).bind(...setup).first("hidden")) ?? 0;
+    await env.GAMES.prepare(`DELETE FROM ratings WHERE ${same}`).bind(...setup).run();
+  }
   await env.GAMES.prepare(
-    `INSERT INTO ratings (id, game_id, tier, comment, chip, macos, overpass, wine, runtime, graphics, backend, fps, profile, issue_url, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ratings (id, game_id, tier, comment, chip, macos, overpass, wine, runtime, graphics, backend, fps, profile, issue_url, hidden, install, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(crypto.randomUUID(), game, tier, comment || null, (fact.mac || "").split(", ")[1] || null,
     (fact.macos || "").split(" ")[0].replace(/\.0$/, "") || null, fact.overpass || null, fact.wine || null, fact.runtime || null,
     fact.graphics || null, fact.backend && fact.backend !== "unknown" ? fact.backend : null, parseFloat(fact.frames) || null,
-    fact.profile || null, issueURL, Date.now()).run();
+    fact.profile || null, issueURL, hidden, install, Date.now()).run();
   return `${JSON.parse(env.SITES)[app]}/games/${game}`;
 }
 

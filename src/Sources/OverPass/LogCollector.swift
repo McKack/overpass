@@ -3,7 +3,7 @@ import AppKit
 import CoreAudio
 import CryptoKit
 
-// Report Issue (ReportCenter.swift): can start an app with Wine's log on, and when it has quit puts that log
+// How Did It Run? (RunReport.swift) and the report window (ReportCenter.swift): can start an app with Wine's log on, and when it has quit puts that log
 // together with what's needed to make sense of it — the Mac, the Wine and runtime versions, the app's profile,
 // its bottle's settings and its engine's own logs — in one zip, with the user's name taken out. Every ordinary
 // run also keeps Wine's errors and loaded DLLs in a last-run log, so a report can be sent without running the app again. The
@@ -25,8 +25,10 @@ struct LogRecording: Identifiable {
     var started = Date.now
     /// Whether this is a log from an earlier run rather than one recorded for the report.
     var lastRun = false
-    /// What the person wrote before the run, kept for the report window afterwards.
+    /// What the person wrote and chose before the run, kept for the window afterwards.
     var description = ""
+    var rating: GameProfile.Rating.Tier?
+    var sharesSettings = false
     /// Wine's crash handler came up during the run.
     var crashed = false
     var saving = false
@@ -238,10 +240,13 @@ enum LogCollector {
 extension BottleManager {
     /// Starts the app with Wine's log written to a new folder; nothing else may be running in its bottle, or
     /// what it starts would go to the copy already running and leave the log empty.
-    func startLogging(_ item: LibraryItem, profile: String?, profileText: String?, channels: String, description: String) throws {
+    func startLogging(_ item: LibraryItem, profile: String?, profileText: String?, channels: String, description: String,
+                      rating: GameProfile.Rating.Tier?, sharesSettings: Bool) throws {
         var recording = LogRecording(item, profile: profile, profileText: profileText,
                                      folder: try LogCollector.newFolder(for: item.app.name))
         recording.description = description
+        recording.rating = rating
+        recording.sharesSettings = sharesSettings
         FileManager.default.createFile(atPath: recording.logURL.path, contents: nil)
         let handle = try FileHandle(forWritingTo: recording.logURL)
         try runExe(item.app.executable, in: item.bottle, arguments: item.app.arguments, name: item.app.name,
@@ -282,13 +287,14 @@ extension BottleManager {
         }
     }
 
-    /// The recorded run is over: the report window comes back with its log, as a crash report if it crashed.
+    /// The recorded run is over: the window comes back with its log, as a crash report if it crashed and nothing was rated.
     func finishLogging(_ id: LogRecording.ID) async {
         guard let index = logRecordings.firstIndex(where: { $0.id == id }), !logRecordings[index].saving else { return }
         logRecordings[index].saving = true
         let recording = logRecordings.remove(at: index)
-        ReportCenter.shared.show(ReportContext(item: recording.item, mode: recording.crashed ? .crash : .afterRun,
-                                               recording: recording, description: recording.description))
+        ReportCenter.shared.show(ReportContext(item: recording.item, mode: recording.crashed && recording.rating == nil ? .crash : .afterRun,
+                                               recording: recording, description: recording.description, profileText: recording.profileText,
+                                               rating: recording.rating, sharesSettings: recording.sharesSettings))
     }
 
     /// Puts the log and the details around it (engine logs, the screenshot) in a zip in `folder`.
@@ -314,14 +320,18 @@ extension BottleManager {
     }
 
     /// The facts for the issue's report block, which labels and checks the report. Without a recording the report
-    /// carries no log ("log: none"). `submission` is a submitted profile's test result (ProfileSubmit.swift).
+    /// carries no log ("log: none"). With a rating (RunReport.swift), `kind` says what else comes along: a rating sent with a
+    /// log and no profile has none, since it's a report that also carries a rating.
     func reportBlock(for item: LibraryItem, recording: LogRecording?, profile: String?, rating: String? = nil, sendsProfile: Bool = true,
                      frames: String? = nil) -> String {
         let graphics = item.bottle.graphics
         // Automatic without the Runtime stays .auto: that's Wine's own Direct3D.
         let automatic = graphics.resolved == .auto ? GraphicsBackend.wined3d : graphics.resolved
         var submission: [(String, String)] = []
-        if let rating { submission += [("kind", sendsProfile ? "profile" : "rating"), ("rating", rating)] }
+        if let rating {
+            if sendsProfile { submission.append(("kind", "profile")) } else if recording == nil { submission.append(("kind", "rating")) }
+            submission.append(("rating", rating))
+        }
         if let frames { submission.append(("frames", frames)) }
         let program = URL(fileURLWithPath: (item.app.target ?? item.app.executable).replacingOccurrences(of: "\\", with: "/")).lastPathComponent
         let logs = recording.flatMap { $0.lastRun ? nil : [$0.logURL] } ?? LogCollector.lastRunLogs(for: item)

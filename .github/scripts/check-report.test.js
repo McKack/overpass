@@ -218,6 +218,23 @@ test('a comment and frame rates are optional on a submitted profile', async () =
   assert.ok(borked.labels.some(([name]) => name === 'rating borked'));
 });
 
+const LOG = '### Log\n\n[logs.zip](https://reports.arctim.no/overpass/logs/00000000-0000-4000-8000-000000000000/logs.zip)\n\n';
+
+test('a report that carries a rating stays a report, with its rating label', async () => {
+  const body = `### What happened\n\nBlack screen.\n\n${LOG}### Details\n\n\`\`\`text\n${block({ rating: 'bronze', ...game({ log: 'last run' }) })}\n\`\`\`\n`;
+  const { kind, broken, odd, labels } = await check(body, released);
+  assert.deepStrictEqual([broken, odd], [[], []]);
+  assert.strictEqual(kind.label, undefined);
+  assert.ok(labels.some(([name]) => name === 'rating bronze'));
+});
+
+test('a profile sent with logs is labelled both ways', async () => {
+  const { kind, broken, odd, labels } = await check(submitted({ log: 'recorded' }, { comment: `### What happened\n\nCrackles.\n\n${LOG}` }), released);
+  assert.deepStrictEqual([broken, odd], [[], []]);
+  assert.deepStrictEqual(kind.label, ['profile', '5319e7']);
+  assert.ok(labels.some(([name]) => name === 'report'));
+});
+
 test('a rating alone gets `rating` and needs no profile text', async () => {
   const body = `### Details\n\n\`\`\`text\n${block({ kind: 'rating', rating: 'silver', ...game({ log: 'none' }) })}\n\`\`\`\n`;
   const { kind, broken, odd, labels } = await check(body, released);

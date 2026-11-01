@@ -659,7 +659,7 @@ class BottleManager {
             lastRun[bottle.path] = item
             lastRunAnywhere = item
         }
-        // Without a log of its own, a run keeps Wine's errors and loaded DLLs in its last-run log (Report Issue › Send Last Logs).
+        // Without a log of its own, a run keeps Wine's errors and loaded DLLs in its last-run log (How Did It Run? › Send logs).
         if let output = output ?? LogCollector.lastRunHandle(name, in: bottle) {
             if extraEnv["WINEDEBUG"] == nil { process.environment?["WINEDEBUG"] = LogCollector.lastRunChannels(for: bottle) }
             process.standardOutput = output

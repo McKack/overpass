@@ -18,7 +18,7 @@ Or download `overpass-<version>.zip` from [Releases](https://github.com/McKack/o
 
 Needs macOS 15 or later on Apple silicon. Updates install from inside OverPass.
 
-Something not working? See [Troubleshooting](docs/troubleshooting.md), or use Report Issue in OverPass.
+Something not working? See [Troubleshooting](docs/troubleshooting.md), or use How Did It Run?… on the title in OverPass.
 
 ## Screenshots
 
@@ -39,7 +39,7 @@ Sign in to GOG or Epic Games and your whole library shows up:
 - **Library:** covers, categories, favorites and your Mac games in one place.
 - **Graphics:** Direct3D 9 to 12 on Metal, 32-bit and 64-bit, with DLSS through MetalFX.
 - **Profiles:** per-game settings in plain `.ini` files you can edit and share.
-- **Updates and reports:** everything updates from inside OverPass, and Report Issue sends a problem in without a GitHub account.
+- **Updates and reports:** everything updates from inside OverPass, and How Did It Run? sends a rating or a problem in without a GitHub account.
 
 ## Open source
 

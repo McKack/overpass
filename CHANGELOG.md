@@ -9,6 +9,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Game profiles update between OverPass releases
 - After a Wine update, the status bar says when a container is being prepared before a game starts
 - Covers are a little wider, so less of the art is cut off at the sides
+- Documents, pictures, videos and steam:// links that a game opens now open on your Mac
 - Smaller bug fixes and improvements
 
 ### Details

@@ -4,11 +4,12 @@ import Foundation
 // which Windows parts prefer Microsoft's DLL when a program brings one, Mac fonts standing in for Windows'
 // Chinese, Japanese and Korean fonts, and a few appearance settings. Plus our own: games' display mode changes are
 // emulated (the Mac's display stays as it is and the frame is scaled to it), Sony controllers reach games as Xbox
-// pads, which is what most PC games read, the light or dark look follows the Mac, and z: is hidden (ContainerDrives). Applied when a bottle is made, and
+// pads, which is what most PC games read, the light or dark look follows the Mac, z: is hidden (ContainerDrives),
+// and documents, pictures and steam:// links open on the Mac. Applied when a bottle is made, and
 // once to older bottles (container.conf [OverPass] Defaults records the version applied).
 enum BottleSetup {
     /// Raise when the settings below change, so existing bottles get them again.
-    static let version = 3
+    static let version = 4
 
     /// Parts Wine must provide itself: Microsoft's own versions break under Wine (OverPass Wine's RPC fix is
     /// in rpcrt4; Microsoft's wininet has no working SSL there).
@@ -40,8 +41,28 @@ enum BottleSetup {
         return pairs
     }()
 
+    /// File types a Windows program can hand to the Mac's own apps: Wine knows no program for them, so a game's
+    /// README or manual fails with "no application associated". A fixed list, because `open` would also run
+    /// things like .command and .app.
+    private static let macFileTypes = [
+        "txt", "log", "md", "csv", "htm", "html", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
+        "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp",
+        "mp3", "wav", "flac", "m4a", "aac", "ogg",
+        "mp4", "m4v", "mov", "avi", "mkv", "webm", "mpg", "mpeg",
+    ]
+    private static let macOpener = "\"C:\\windows\\system32\\winebrowser.exe\" \"%1\""
+
+    /// The types and links in the bottle that a Windows program has claimed; those keep their program.
+    private static func claimedClasses(in bottle: Bottle) -> Set<String> {
+        let text = ["system.reg", "user.reg"]
+            .compactMap { try? String(contentsOf: bottle.path.appendingPathComponent($0), encoding: .utf8) }
+            .joined().lowercased()
+        return Set((macFileTypes.map { "." + $0 } + ["steam"]).filter { text.contains("[software\\\\classes\\\\\($0)]") })
+    }
+
     /// The settings as a .reg file, the format `regedit` imports.
-    static func registryFile(playStationControllers: Bool = false, lightTheme: Bool = true, showMacDisk: Bool = false) -> String {
+    static func registryFile(playStationControllers: Bool = false, lightTheme: Bool = true, showMacDisk: Bool = false,
+                             claimedClasses: Set<String> = []) -> String {
         func quoted(_ s: String) -> String {
             "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
@@ -67,6 +88,15 @@ enum BottleSetup {
         lines += ["", "[HKEY_CURRENT_USER\\" + personalizeKey + "]"]
         lines += ["AppsUseLightTheme", "SystemUsesLightTheme"].map { "\"\($0)\"=dword:0000000\(lightTheme ? 1 : 0)" }
         lines += ContainerDrives.registryLines(showingMacDisk: showMacDisk)
+        let classes = "HKEY_LOCAL_MACHINE\\Software\\Classes\\"
+        for type in macFileTypes where !claimedClasses.contains("." + type) {
+            lines += ["", "[\(classes).\(type)]", "@=\"OverPass.MacFile\""]
+        }
+        lines += ["", "[\(classes)OverPass.MacFile\\shell\\open\\command]", "@=\(quoted(macOpener))"]
+        if !claimedClasses.contains("steam") {
+            lines += ["", "[\(classes)steam]", "\"URL Protocol\"=\"\"",
+                      "", "[\(classes)steam\\shell\\open\\command]", "@=\(quoted(macOpener))"]
+        }
         return lines.joined(separator: "\r\n") + "\r\n"
     }
 
@@ -85,7 +115,8 @@ enum BottleSetup {
         let light = appearance(of: bottle).usesLightTheme
         // Hidden unless the bottle already shows it by choice.
         let showZ = ContainerDrives.showsMacDisk(in: bottle) ?? false
-        guard let data = registryFile(playStationControllers: playStation, lightTheme: light, showMacDisk: showZ)
+        guard let data = registryFile(playStationControllers: playStation, lightTheme: light, showMacDisk: showZ,
+                                      claimedClasses: claimedClasses(in: bottle))
             .data(using: .utf16LittleEndian) else { return }
         try (Data([0xFF, 0xFE]) + data).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }

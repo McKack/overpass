@@ -27,6 +27,7 @@
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   POST /api/suggestions        { published, refused }: lists of their IDs, from the same script; the same secret
 //   GET  /report/<ticket>        finish a rating the app started; POST sends it through the report relay
+//   POST /account/public         Public Contributor or Member: whether one's name shows on one's ratings
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
@@ -62,10 +63,10 @@ export default {
       const ticket = path.match(/^\/report\/([0-9a-f]{64})$/);
       if (ticket && request.method === 'POST') {
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
-        return await sendReport(request, env, ticket[1]);
+        return await sendReport(request, env, ticket[1], await signedIn(request, env));
       }
       if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || covered
-        || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/auth/signout'].includes(path))) {
+        || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
@@ -85,6 +86,7 @@ export default {
         }
         if (path === '/account/picture') return await savePicture(request, env, user);
         if (path === '/account/picture/delete') return await deletePicture(env, user);
+        if (path === '/account/public') return await setPublic(request, env, user);
         return path === '/account' ? await rename(request, env, user) : await deleteAccount(env, user);
       }
       if (request.method === 'GET' || request.method === 'HEAD') {
@@ -106,7 +108,7 @@ export default {
           const moderator = isModerator(env, await signedIn(request, env));
           return (moderator ? personal : html)(privacyPage(moderator));
         }
-        if (ticket) return await showReport(env, ticket[1]);
+        if (ticket) return await showReport(env, ticket[1], await signedIn(request, env));
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
@@ -219,8 +221,10 @@ async function detail(env, id) {
   const [rated, { results }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
-      `SELECT id, tier, comment, chip, macos, overpass, wine, runtime, backend, fps, created_at, install LIKE 'account:%' AS admin FROM ratings
-       WHERE game_id = ? AND hidden = 0 ORDER BY created_at DESC LIMIT 100`,
+      `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, r.install LIKE 'account:%' AS admin,
+         CASE WHEN u.public = 1 THEN u.name END AS author, CASE WHEN u.public = 1 THEN u.picture END AS author_picture
+       FROM ratings r LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
     ).bind(id).all(),
   ]);
   return {
@@ -308,7 +312,7 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name, users.picture FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.picture, users.public FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -380,6 +384,12 @@ async function rename(request, env, user) {
   return redirect('/account');
 }
 
+async function setPublic(request, env, user) {
+  const choice = (await request.formData()).get('public') === '1' ? 1 : 0;
+  await env.DB.prepare('UPDATE users SET public = ? WHERE id = ?').bind(choice, user.id).run();
+  return redirect('/account');
+}
+
 async function deleteAccount(env, user) {
   if (user.picture) await env.PICTURES.delete(user.picture);
   await env.DB.batch([
@@ -388,6 +398,7 @@ async function deleteAccount(env, user) {
       .bind(user.id, accountRater(user)),
     env.DB.prepare('DELETE FROM comments WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM ratings WHERE install = ?').bind(accountRater(user)),
+    env.DB.prepare('UPDATE ratings SET user_id = NULL WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return redirect('/account', setCookie('overpass_session', '', 0));
@@ -942,7 +953,7 @@ function ratingCard(game, rating, user, reports, own) {
     rating.fps && `${Math.round(rating.fps)} fps`, rating.admin && 'Admin rating',
   ].filter(Boolean);
   return `<article class="rating" id="rating-${rating.id}">
-  <div class="line">${medal(rating.tier)}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
+  <div class="line">${medal(rating.tier)}${rating.author ? `<span class="who author">${avatar(rating.author, rating.author_picture)}${escape(rating.author)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
   ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports)}
@@ -986,27 +997,42 @@ function ratingForm(game, own) {
 
 /// The draft a ticket opens, while it's waiting.
 async function draftFor(env, ticket) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ticket));
-  const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const hash = [...new Uint8Array(await sha256(ticket))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
   return env.DB.prepare('SELECT * FROM drafts WHERE ticket_hash = ? AND expires_at > ?').bind(hash, Date.now()).first();
 }
 
-async function showReport(env, ticket, tier, comment, error) {
+/// How many ratings from this Mac aren't on an account yet.
+const unlinked = (env, install) => env.DB.prepare('SELECT COUNT(*) AS n FROM ratings WHERE install = ? AND user_id IS NULL').bind(install).first('n');
+
+async function showReport(env, ticket, user, sent = {}) {
   const draft = await draftFor(env, ticket);
-  return draft ? ticketed(reportPage(ticket, draft, tier, comment, error)) : ticketed(reportGonePage(), 410);
+  if (!draft) return ticketed(reportGonePage(), 410);
+  const earlier = user && draft.install ? await unlinked(env, draft.install) : 0;
+  return ticketed(reportPage(ticket, draft, user, earlier, isModerator(env, user), sent));
 }
 
 /// The relay does the sending: it holds the logs and the key to GitHub, and the ticket is all it needs. Its public address
 /// goes along, since the links in an issue are made from it.
-async function sendReport(request, env, ticket) {
+async function sendReport(request, env, ticket, user) {
   const form = await request.formData();
   const tier = String(form.get('tier') ?? ''), comment = String(form.get('comment') ?? '');
+  const anonymous = form.get('as') === 'anonymous', linking = form.get('link') === '1';
+  // The relay deletes the draft, and it's the draft that shows this person's Mac is theirs.
+  const install = (await draftFor(env, ticket))?.install;
   const sent = await env.RELAY.fetch(`${env.REPORT_RELAY}/draft/${ticket}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier, comment }),
   });
   const answer = await sent.json().catch(() => ({}));
-  if (sent.ok && answer.url) return redirect(answer.url);
-  return showReport(env, ticket, tier, comment, answer.error ?? 'The report could not be sent. Try again in a moment.');
+  if (sent.ok && answer.url) {
+    if (user && install) {
+      // The relay has no say in this: the ticket proves the Mac, the session proves the person, and only this site has both.
+      const newest = await env.DB.prepare('SELECT id FROM ratings WHERE install = ? ORDER BY created_at DESC LIMIT 1').bind(install).first('id');
+      if (!anonymous && newest) await env.DB.prepare('UPDATE ratings SET user_id = ? WHERE id = ?').bind(user.id, newest).run();
+      if (linking) await env.DB.prepare('UPDATE ratings SET user_id = ? WHERE install = ? AND user_id IS NULL AND id <> ?').bind(user.id, install, newest).run();
+    }
+    return redirect(answer.url);
+  }
+  return showReport(env, ticket, user, { tier, comment, anonymous, linking, error: answer.error ?? 'The report could not be sent. Try again in a moment.' });
 }
 
 const RATING_ERRORS = {
@@ -1184,6 +1210,18 @@ function pictureForm(user) {
 </script>`;
 }
 
+/// Public Contributor or Member, for every rating on the account at once.
+function publicForm(user) {
+  const choice = (value, title, about) => `<label><input type="radio" name="public" value="${value}"${(user.public ? 1 : 0) === value ? ' checked' : ''}> <strong>${title}</strong>: ${about}</label>`;
+  return `<form class="write" method="post" action="/account/public">
+  <fieldset class="choice"><legend>Your ratings</legend>
+    ${choice(0, 'Member', "your ratings are on your account, and your name isn't shown with them")}
+    ${choice(1, 'Public Contributor', 'your username and picture are shown with your ratings')}
+  </fieldset>
+  <button class="button quiet" type="submit">Save</button>
+</form>`;
+}
+
 function accountPage(user, error, moderator) {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
   if (!user) {
@@ -1197,6 +1235,7 @@ ${problem}
 <header class="page"><h1>${user.name ? escape(user.name) : 'Choose a username'}</h1>${user.name ? '' : '<p>This is the name others will see.</p>'}</header>
 ${problem}
 ${user.name ? pictureForm(user) : ''}
+${user.name ? publicForm(user) : ''}
 <form class="account" method="post" action="/account">
   <label for="name">Username</label>
   <input id="name" name="name" required minlength="2" maxlength="30" value="${escape(user.name)}" autocomplete="username">
@@ -1205,7 +1244,7 @@ ${user.name ? pictureForm(user) : ''}
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
 <section>
   <h2>Delete account</h2>
-  <p class="muted">Removes your account, username, picture and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
+  <p class="muted">Removes your account, username, picture and comments at once. Ratings you sent from the app stay on the site, anonymous.</p>
   <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
 </section>`, moderator);
 }
@@ -1226,7 +1265,8 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 </section>
 <section>
   <h2>Ratings from the app</h2>
-  <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one. Ratings aren't tied to an account.</p>
+  <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one.</p>
+  <p>A rating is anonymous unless you're signed in and send it from your account. As a Member your name isn't shown with your ratings; as a Public Contributor your username and picture are. You choose on your account page and can change it at any time. Deleting your account leaves your ratings on the site, anonymous.</p>
   <p>The app uploads what it knows and opens a private page where you finish the rating. What you don't send is deleted after a day.</p>
   <p>OverPass admins can also rate a game on its page. Those ratings are marked as an admin's and go with the admin's account.</p>
   <p>If you share your settings, they wait for an admin along with your comment and versions. Approved settings become public in the game's profile on GitHub, without your comment or anything that says who sent them.</p>
@@ -1246,7 +1286,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 </section>`, moderator);
 
 /// Finishing a rating. Everything here came from the app, so all of it is escaped like anything else a stranger sends.
-function reportPage(ticket, draft, tier, comment, error) {
+function reportPage(ticket, draft, user, earlier, moderator, { tier, comment, anonymous, linking, error }) {
   const lines = draft.block.split('\n').slice(1).filter((line) => !line.startsWith('checksum: '));
   const fact = Object.fromEntries(lines.map((line) => line.match(/^([\w-]+): (.*)$/)?.slice(1)).filter(Boolean));
   const chosen = tier ?? fact.rating;
@@ -1263,10 +1303,35 @@ ${error ? `<p class="problem">${escape(error)}</p>` : ''}
   <label for="report-comment">${draft.log_name ? 'What happened? Needed, since logs are going with it' : 'Comment, needed for Bronze and Borked'}</label>
   <textarea id="report-comment" name="comment" rows="5" maxlength="20000"${draft.log_name ? ' required' : ''}>${escape(comment ?? draft.what)}</textarea>
   ${going.length ? `<ul class="muted">${going.map((line) => `<li>${line}</li>`).join('')}</ul>` : ''}
-  <p class="muted">Sent anonymously. Shown with your rating: the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and macOS version.</p>
+  ${user ? sendAs(user, earlier, anonymous, linking) : `<p class="muted">Sent anonymously. <a href="/auth/google?next=/report/${ticket}">Sign in</a> to send it from your account instead.</p>`}
+  <p class="muted">Shown with your rating: the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and macOS version.</p>
   <details class="muted"><summary>Everything that's sent</summary><pre>${escape(lines.join('\n'))}</pre>${draft.profile ? `<pre>${escape(draft.profile)}</pre>` : ''}</details>
   <div class="decide"><button class="button" type="submit">Send</button></div>
-</form>`);
+</form>
+<script>
+  // Keeps what's typed through a sign-in, which leaves this page. Only until it's sent, and only unsent text.
+  const form = document.querySelector('form.write'), text = form.elements.comment, key = 'report-text';
+  try {
+    const kept = JSON.parse(localStorage.getItem(key));
+    if (kept?.page === location.pathname) {
+      if (!text.value) text.value = kept.comment;
+      if (kept.tier) form.elements.tier.value = kept.tier;
+    }
+  } catch {}
+  const keep = () => { try { localStorage.setItem(key, JSON.stringify({ page: location.pathname, comment: text.value, tier: form.elements.tier.value })); } catch {} };
+  form.addEventListener('input', keep);
+  form.addEventListener('submit', () => { try { localStorage.removeItem(key); } catch {} });
+</script>`, moderator);
+}
+
+/// Who a signed-in person sends this as, and whether this Mac's earlier ratings join their account.
+function sendAs(user, earlier, anonymous, linking) {
+  const shown = user.public && user.name ? `Your account, with your name, ${escape(user.name)}, on the rating` : "Your account, as a Member: your name isn't shown";
+  return `<fieldset class="choice"><legend>Send as</legend>
+    <label><input type="radio" name="as" value="account"${anonymous ? '' : ' checked'}> ${shown}</label>
+    <label><input type="radio" name="as" value="anonymous"${anonymous ? ' checked' : ''}> Anonymous</label>
+  </fieldset>
+  ${earlier ? `<label><input type="checkbox" name="link" value="1"${linking ? ' checked' : ''}> Add this Mac's ${earlier === 1 ? 'earlier rating' : `${earlier} earlier ratings`} to my account</label>` : ''}`;
 }
 
 const reportGonePage = () => shell('Report not found · OverPass', 'This report was already sent, or has expired.', `

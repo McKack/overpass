@@ -1,3 +1,8 @@
+-- Added later, on the live database by hand before the code that reads them:
+--   ALTER TABLE ratings ADD COLUMN user_id TEXT;
+--   ALTER TABLE users ADD COLUMN public INTEGER NOT NULL DEFAULT 0;
+--   CREATE INDEX ratings_user ON ratings (user_id);
+--
 -- The games database (D1 "overpass-games"), shared by the site's worker, which reads it and stores the list of games
 -- from profiles/, and the report relay, which adds ratings. Apply with:
 --   npx wrangler d1 execute overpass-games --remote --file schema.sql
@@ -65,7 +70,8 @@ CREATE TABLE IF NOT EXISTS ratings (
   hidden INTEGER NOT NULL DEFAULT 0,
   install TEXT,                      -- the app's random ID, never shown: a new rating replaces its last one;
                                      -- account:<users.id> for a moderator's rating from the game's page
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  user_id TEXT                       -- the account it was sent from; anonymous without one
 );
 CREATE INDEX IF NOT EXISTS ratings_install ON ratings (install, game_id);
 CREATE INDEX IF NOT EXISTS ratings_game ON ratings (game_id, created_at);
@@ -80,6 +86,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT COLLATE NOCASE,
   picture TEXT,                      -- its key in the PICTURES store, when they added one
   created_at INTEGER NOT NULL,
+  public INTEGER NOT NULL DEFAULT 0, -- a Public Contributor: their name shows on their ratings. 0 is a Member: it doesn't
   UNIQUE (provider, provider_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (name) WHERE name IS NOT NULL;

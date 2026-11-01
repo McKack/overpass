@@ -104,7 +104,7 @@ one for this stretch of the roadmap.
 
 | Type | What |
 |---|---|
-| Feature | "How did it run?" community ratings, with expected FPS per Mac |
+| Feature | "How did it run?" community ratings, with expected FPS per Mac; game pages at overpass.arctim.no/games are live |
 | Feature | Performance overlay with its own hotkey |
 | Feature | Automatic crash reports, if you want them |
 | Feature | One Downloads page for everything |

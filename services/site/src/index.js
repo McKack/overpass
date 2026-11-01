@@ -458,10 +458,10 @@ async function serveCover(request, env, file) {
 async function artList(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at
+    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at, COALESCE(a.file, a.origin) AS cover, a.hero, a.icon
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
   ).all();
-  const { results: asked } = await env.DB.prepare(`SELECT game_id AS id, name, checked_at FROM game_art WHERE game_id LIKE '%:%'`).all();
+  const { results: asked } = await env.DB.prepare(`SELECT game_id AS id, name, checked_at, COALESCE(file, origin) AS cover, hero, icon FROM game_art WHERE game_id LIKE '%:%'`).all();
   const titles = asked.map((title) => {
     const [store, id] = title.id.split(':');
     return { ...title, [store]: id };
@@ -469,19 +469,21 @@ async function artList(request, env) {
   return new Response(JSON.stringify({ games: [...results, ...titles] }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 }
 
-/// What find-covers.mjs found for one game or title. Only a moderator's image replaces a cover a moderator chose.
+/// What find-covers.mjs found for one game or title. It fills gaps: art that's there stays, unless it's a moderator's
+/// image coming in. A stored copy from before covers were linked counts as a gap; a moderator's upload doesn't.
 async function storeArt(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { id, links, source, cover: image, thumb, icon, hero } = await request.json();
-  const before = await env.DB.prepare('SELECT file, locked FROM game_art WHERE game_id = ?').bind(id).first();
+  const before = await env.DB.prepare('SELECT file, origin, locked FROM game_art WHERE game_id = ?').bind(id).first();
   if (!before && !await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
   const address = (value) => typeof value === 'string' && value.startsWith('https://') && value.length <= 1000 ? value : null;
   await env.DB.prepare(
     `INSERT INTO game_art (game_id, links, icon, hero, checked_at) VALUES (?1, ?2, ?3, ?4, ?5)
-     ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(?3, icon), hero = COALESCE(?4, hero), wanted = NULL, checked_at = ?5`,
+     ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(icon, ?3), hero = COALESCE(hero, ?4), wanted = NULL, checked_at = ?5`,
   ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), Date.now()).run();
   const moderator = source === 'moderator';
-  if (!address(image) || (before?.locked && !moderator)) return json({ stored: false });
+  const gap = !before?.locked && (!before?.origin || before.file);
+  if (!address(image) || !(gap || moderator)) return json({ stored: false });
   await env.DB.prepare('UPDATE game_art SET file = NULL, source = ?2, origin = ?3, thumb = ?4, locked = ?5 WHERE game_id = ?1')
     .bind(id, source, address(image), address(thumb), moderator ? 1 : 0).run();
   if (before?.file) await env.PICTURES.delete(`covers/${before.file}`);

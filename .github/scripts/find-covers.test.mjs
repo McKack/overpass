@@ -17,15 +17,20 @@ test('names match past marks and punctuation, not past extra words', () => {
   assert.ok(!sameName('Outcast', 'Outcast - Second Contact'));
 });
 
-test('new titles go first, then a share of the month, longest unchecked first', () => {
-  const games = Array.from({ length: 1500 }, (_, index) => ({ id: `g${index}`, category: 'Games', checked_at: 2000 - index }));
-  assert.deepEqual(due(games).map((game) => game.id), ['g1499', 'g1498']);
-  const fresh = Array.from({ length: 30 }, (_, index) => ({ id: `n${index}`, category: null, checked_at: 0 }));
-  assert.equal(due(fresh).length, 20);
-  assert.deepEqual(due([{ id: 'a', category: 'Games', brand: '112233' }, { id: 'b', category: 'Utilities' }]), []);
-  assert.deepEqual(due([{ id: 'c', category: 'Utilities', wanted: 'https://x' }]).map((game) => game.id), ['c']);
-  const wanted = { id: 'd', category: 'Games', wanted: 'https://x' };
-  assert.deepEqual(due([wanted]), [wanted]);
+test('the queue goes first, then those missing art, a month after their last look', () => {
+  const month = 30 * 24 * 3600 * 1000, now = 2 * month;
+  const looked = { category: 'Games', checked_at: 1000 };
+  const complete = { cover: 'c', hero: 'h', icon: 'i' };
+  assert.deepEqual(due([{ ...looked, ...complete }], now), []);
+  assert.equal(due([{ ...looked, cover: 'c', hero: 'h' }], now).length, 1);
+  assert.deepEqual(due([{ ...looked, checked_at: now - 1000 }], now), []);
+  const many = Array.from({ length: 1500 }, (_, index) => ({ id: `g${index}`, ...looked, checked_at: 2000 - index }));
+  assert.deepEqual(due(many, now).map((game) => game.id), ['g1499', 'g1498']);
+  const queued = Array.from({ length: 30 }, (_, index) => ({ id: `n${index}`, category: null, checked_at: 0, ...complete }));
+  assert.equal(due(queued, now).length, 20);
+  assert.deepEqual(due([{ id: 'a', category: 'Games', brand: '112233' }, { id: 'b', category: 'Utilities' }], now), []);
+  const wanted = { id: 'c', category: 'Utilities', wanted: 'https://x', ...looked };
+  assert.deepEqual(due([{ ...wanted, category: 'Utilities', checked_at: now }], now).map((game) => game.id), ['c']);
 });
 
 test('TheGamesDB\'s allowance is shared out over the runs left', async () => {

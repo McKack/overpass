@@ -4,15 +4,17 @@
 // SteamGridDB (SGDB_KEY). Only an exact name counts: a near match puts the wrong game's art on a page. A moderator's
 // image goes first and stays. Store pages found on the way go on the game's page.
 //
-// Every game gets a turn once a month, the longest unchecked first, so the checks spread out evenly. Titles the app has
-// just asked about go ahead of that, up to NEW_A_RUN at a time. TheGamesDB's monthly allowance is shared out the same way.
+// Art a game already has stays. A game missing a cover, hero or icon is looked at again once a month, the longest
+// unchecked first, spread out over the runs. The queue goes ahead of that, up to NEW_A_RUN at a time: titles the app has
+// just asked about and anything else not checked yet. TheGamesDB's monthly allowance is shared out the same way.
 //
 //   SITE=... SYNC_TOKEN=... node find-covers.mjs
 
 import { pathToFileURL } from 'node:url';
 
 const RUN_SECONDS = 1800;
-const RUNS_A_MONTH = 30 * 24 * 3600 / RUN_SECONDS;
+const MONTH_SECONDS = 30 * 24 * 3600;
+const RUNS_A_MONTH = MONTH_SECONDS / RUN_SECONDS;
 const NEW_A_RUN = 20;
 /// The most games TheGamesDB is asked about in a run, whatever is left of the allowance.
 const TGDB_A_RUN = 5;
@@ -28,13 +30,14 @@ export function sameName(a, b) {
   return plain(a) === plain(b);
 }
 
-/// The games to look at now: a moderator's image, new titles, and this run's share of the month. Launchers and programs
-/// that aren't games keep their tiles.
-export function due(games) {
+/// The games to look at now: a moderator's image, the queue, and this run's share of those still missing art. Launchers
+/// and programs that aren't games keep their tiles.
+export function due(games, now = Date.now()) {
   const turns = games.filter((game) => !game.brand && [null, undefined, 'Games'].includes(game.category));
   const fresh = turns.filter((game) => !game.checked_at).slice(0, NEW_A_RUN);
-  const oldest = turns.filter((game) => game.checked_at).sort((a, b) => a.checked_at - b.checked_at);
-  const picked = [...fresh, ...oldest.slice(0, Math.ceil(turns.length / RUNS_A_MONTH))];
+  const missing = turns.filter((game) => game.checked_at && !(game.cover && game.hero && game.icon));
+  const ready = missing.filter((game) => now - game.checked_at >= MONTH_SECONDS * 1000).sort((a, b) => a.checked_at - b.checked_at);
+  const picked = [...fresh, ...ready.slice(0, Math.ceil(missing.length / RUNS_A_MONTH))];
   return [...games.filter((game) => game.wanted && !picked.includes(game)), ...picked];
 }
 

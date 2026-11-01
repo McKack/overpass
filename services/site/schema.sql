@@ -130,6 +130,23 @@ CREATE TABLE IF NOT EXISTS suggestions (
 CREATE INDEX IF NOT EXISTS suggestions_status ON suggestions (status, created_at);
 CREATE INDEX IF NOT EXISTS suggestions_install ON suggestions (install, game_id);
 
+-- A rating on its way from the app: the relay keeps it until the person finishes it on /report/<ticket>, for a day at most.
+-- Only the ticket's hash is kept. The zip and screenshot wait in the relay's store; sending the draft deletes all of it.
+CREATE TABLE IF NOT EXISTS drafts (
+  ticket_hash TEXT PRIMARY KEY,
+  app TEXT NOT NULL,
+  block TEXT NOT NULL,               -- the app's details block
+  what TEXT,                         -- the comment so far
+  profile TEXT,                      -- settings being shared
+  install TEXT,
+  log_name TEXT,                     -- the zip's name, when logs came with it
+  shot INTEGER NOT NULL DEFAULT 0,
+  claimed_at INTEGER,                -- being sent right now
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS drafts_expires ON drafts (expires_at);
+
 -- The latest signed set of profiles, as the app downloads it. Signed on GitHub with a key this site doesn't hold.
 CREATE TABLE IF NOT EXISTS profile_set (
   id INTEGER PRIMARY KEY CHECK (id = 1),

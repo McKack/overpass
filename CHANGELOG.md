@@ -13,6 +13,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 **Ratings and reports**
 - How Did It Run?… on a game, in its menus and the profile editor: a medal, a comment, and if you like its logs and your settings. A rating goes on the game's page. Logs file a public issue. Bronze and Borked ask what went wrong and turn logs on.
+- You finish a rating in your browser: OverPass uploads the facts, any logs and your settings, then opens a private page for the medal and comment. Sent anonymously for now.
 - Rating a game again on the same versions replaces your last rating. A random ID for your install makes that work; it's never shown.
 - A game with no profile can now share its settings too.
 - Help › Report Issue… and Request Feature… stay as they are, and so does the report key while a game runs.

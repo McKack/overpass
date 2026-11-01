@@ -2,9 +2,11 @@ import SwiftUI
 import AppKit
 
 // "How did it run?": the one window for telling OverPass how a title ran, from the title's menus and the profile
-// editor. A medal and a comment go to the game's page through the report relay. Sending logs also files an issue, and
-// sharing settings sends the profile for review; the title has to have been started first (it may have failed: that's
-// what Borked is for). The details block's `kind` and `rating` tell the report check and the relay what it is.
+// editor. It gathers the facts, the logs and the settings to share and uploads them to the report relay as a draft, then
+// opens the site's page for it, where the person sets the medal and writes the comment and sends it. Sending logs also
+// files an issue, and sharing settings sends the profile for review; the title has to have been started first (it may
+// have failed: that's what Borked is for). The details block's `kind` and `rating` tell the report check and the relay
+// what it is.
 
 /// Titles started from OverPass or their Mac app wrapper. Kept for good: one start allows a rating, however long ago.
 enum StartedTitles {
@@ -98,7 +100,6 @@ struct RunReportView: View {
     let context: ReportContext
     let close: () -> Void
     @State private var rating: GameProfile.Rating.Tier?
-    @State private var comment = ""
     @State private var sendLogs = false
     /// The person set Send logs themselves, so the medal no longer decides it.
     @State private var logsChosen = false
@@ -118,15 +119,11 @@ struct RunReportView: View {
     private var profile: GameProfile? { profiles.profile(for: item) }
     private var profileTag: String? { profile.map { profiles.reportTag(of: $0.id) } }
     private var lastRun: Date? { LogCollector.lastRunLogs(for: item).first.map(LogCollector.modified) }
-    private var trimmed: String { comment.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var low: Bool { rating == .bronze || rating == .borked }
-    private var commentNeeded: Bool { low || sendLogs }
     /// Whether confirming starts the title with Wine's log on, rather than sending.
     private var runsFirst: Bool { sendLogs && logSource == .debugRun && context.recording == nil }
-    private var canSend: Bool {
-        rating != nil && (started || context.recording != nil) && !(commentNeeded && trimmed.isEmpty)
-    }
+    private var canSend: Bool { rating != nil && (started || context.recording != nil) }
 
     private var changed: Bool { profile.map { profiles.edited.contains($0.id) || profiles.custom.contains($0.id) } == true }
     /// A title with neither a program nor a Steam ID can't keep settings, so it has none to share.
@@ -140,7 +137,7 @@ struct RunReportView: View {
                 AppIcon(item: item, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("How did \(name) run?").font(.title3.bold())
-                    Text("Your rating goes on the game's page, to help others playing it on a Mac.")
+                    Text("Your rating goes on the game's page, to help others playing it on a Mac. You finish it in your browser.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -148,10 +145,6 @@ struct RunReportView: View {
             if !started && context.recording == nil {
                 Text("Run \(name) once first, even if it doesn't start: a rating needs a run.")
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(low ? "What went wrong?" : sendLogs ? "What happened?" : "Anything to add?").font(.headline)
-                ReportTextEditor(text: $comment, placeholder: commentNeeded ? "Required" : "Optional", height: 72)
             }
             logs
             if canShare {
@@ -170,10 +163,10 @@ struct RunReportView: View {
                 Text(error).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                if sending { ProgressView().controlSize(.small); Text("Sending…").foregroundStyle(.secondary) }
+                if sending { ProgressView().controlSize(.small); Text("Uploading…").foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Button(runsFirst ? "Run \(name)" : "Send", action: runsFirst ? runWithDebugging : send)
+                Button(runsFirst ? "Run \(name)" : "Continue in Browser", action: runsFirst ? runWithDebugging : send)
                     .keyboardShortcut(.defaultAction)
                     .disabled(sending || !(runsFirst || canSend))
             }
@@ -184,7 +177,6 @@ struct RunReportView: View {
         .frame(width: 540)
         .onAppear {
             rating = context.rating
-            comment = context.description
             screenshot = context.screenshot
             started = manager.hasStarted(item)
             share = context.sharesSettings ?? changed
@@ -265,7 +257,7 @@ struct RunReportView: View {
             if !manager.runningPrograms(in: item.bottle).isEmpty { await manager.quitEverything(in: item.bottle) }
             do {
                 try manager.startLogging(item, profile: profileTag, profileText: profileText, channels: channels,
-                                         description: comment, rating: rating, sharesSettings: share)
+                                         description: context.description, rating: rating, sharesSettings: share)
                 close()
             } catch {
                 self.error = error.localizedDescription
@@ -291,18 +283,12 @@ struct RunReportView: View {
                 let sharing = canShare && share
                 let block = manager.reportBlock(for: item, recording: recording, profile: profileTag, rating: rating.rawValue,
                                                 sendsProfile: sharing, frames: FrameStats.latest(for: item)?.summary)
-                let what = LogCollector.scrub(trimmed)
-                let title: String
-                if let recording {
-                    title = "\(name): " + String((what.split(whereSeparator: \.isNewline).first.map(String.init) ?? what).prefix(80))
-                    if zip == nil {
-                        zip = await manager.makeZip(recording, screenshot: jpeg,
-                                                    in: FileManager.default.temporaryDirectory.appendingPathComponent("OverPass Reports"))
-                    }
-                } else {
-                    title = "\(sharing ? "Profile" : "Rating"): \(name) + \(rating.title)"
+                if let recording, zip == nil {
+                    zip = await manager.makeZip(recording, screenshot: jpeg,
+                                                in: FileManager.default.temporaryDirectory.appendingPathComponent("OverPass Reports"))
                 }
-                let page = try await ReportRelay.send(title: title, what: what, block: block, zip: sendLogs ? zip : nil, screenshot: jpeg,
+                let page = try await ReportRelay.send(endpoint: "draft", title: "", what: LogCollector.scrub(context.description), block: block,
+                                                      zip: sendLogs ? zip : nil, screenshot: jpeg,
                                                       profile: sharing ? shareable : nil, install: InstallID.value)
                 if let zip { try? FileManager.default.removeItem(at: zip) }
                 NSWorkspace.shared.open(page)

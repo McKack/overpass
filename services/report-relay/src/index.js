@@ -6,6 +6,9 @@
 //                                   zip; not when the block says "log: none"), screenshot (JPEG, optional),
 //                                   profile (a submitted profile's text), install (the app's random ID, for ratings)
 //                                   -> { "url": "<issue url>" }
+//   POST /<app>/draft               the same fields, without title and steps: a rating to finish on the site. Keeps
+//                                   it for a day -> { "url": "<the site's page for it>" }
+//   POST /<app>/draft/<ticket>      JSON { tier, comment }, from that page: sends the draft, once -> { "url": ... }
 //   GET  /<app>/logs/<id>/<name>.zip   the zip a report linked
 //   GET  /<app>/shots/<id>.jpg         the screenshot it showed
 //
@@ -17,10 +20,16 @@
 // Ratings go to the games database, for the site's game pages, and the answer is that page's address. A submitted
 // profile waits there too, for a moderator. A report with a log can carry a `rating:` line as well, with or without a
 // profile: it makes its issue, the rating and profile go to the database too, and the answer is the issue.
+//
+// How Did It Run? goes through a draft: the app uploads what it knows and opens the page the answer names, where the
+// person picks the medal and writes the comment. The page's random ticket is the only key to a draft, and the database
+// keeps only its hash. /report remains for the app's other reports and for older versions.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
 const KEEP_SECONDS = 180 * 24 * 3600;
+const DRAFT_SECONDS = 24 * 3600;
+const TIERS = { platinum: "Platinum", gold: "Gold", silver: "Silver", bronze: "Bronze", borked: "Borked" };
 
 export default {
   async fetch(request, env) {
@@ -32,6 +41,9 @@ export default {
       if (!repo) return new Response("Arctic Imaginarium report relay\n", { status: url.pathname === "/" ? 200 : 404 });
       const path = "/" + rest.join("/");
       if (request.method === "POST" && path === "/report") return await report(request, env, url, app, repo);
+      if (request.method === "POST" && path === "/draft") return await draft(request, env, app);
+      const ticket = path.match(/^\/draft\/([0-9a-f]{64})$/);
+      if (request.method === "POST" && ticket) return await sendDraft(request, env, url, app, repo, ticket[1]);
       const log = path.match(/^\/logs\/([0-9a-f-]{36})\/[^/]+\.zip$/);
       if (request.method === "GET" && log) return await download(log[1], env);
       const shot = path.match(/^\/shots\/([0-9a-f-]{36})\.jpg$/);
@@ -43,15 +55,21 @@ export default {
   },
 };
 
-async function report(request, env, url, app, repo) {
-  if (!env.GITHUB_TOKEN && !(env.APP_ID && env.APP_PRIVATE_KEY)) return json({ error: "The relay isn't set up yet." }, 503);
-
+/// Counts one more report from the sender's address, or answers that there have been too many.
+async function counted(request, env) {
   const address = request.headers.get("CF-Connecting-IP") || "unknown";
   const hour = Math.floor(Date.now() / 3600000);
   const countKey = `count:${address}:${hour}`;
   const count = parseInt((await env.REPORTS.get(countKey)) || "0", 10);
   if (count >= parseInt(env.HOURLY_LIMIT || "5", 10))
     return json({ error: "Too many reports from this network in the last hour. Try again later." }, 429);
+  return async () => env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
+}
+
+async function report(request, env, url, app, repo) {
+  if (!env.GITHUB_TOKEN && !(env.APP_ID && env.APP_PRIVATE_KEY)) return json({ error: "The relay isn't set up yet." }, 503);
+  const count = await counted(request, env);
+  if (count instanceof Response) return count;
 
   const form = await request.formData();
   const title = String(form.get("title") || "").trim().slice(0, 200);
@@ -77,7 +95,102 @@ async function report(request, env, url, app, repo) {
 
   const install = String(form.get("install") || "").toLowerCase().match(/^[0-9a-f-]{36}$/)?.[0] ?? null;
 
-  await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
+  await count();
+  return deliver(env, url, app, repo, {
+    title, what, steps, block, profile, install,
+    zip: zip && { name: zip.name, bytes: await zip.arrayBuffer() },
+    shot: shot && (await shot.arrayBuffer()),
+  });
+}
+
+/// Keeps a rating from the app until the person finishes it on the site, and answers with that page's address. The
+/// checks the medal and comment need wait for that page.
+async function draft(request, env, app) {
+  const count = await counted(request, env);
+  if (count instanceof Response) return count;
+  const form = await request.formData();
+  const block = String(form.get("block") || "").replace(/\r\n/g, "\n").trim();
+  const zip = file(form.get("zip"));
+  const shot = file(form.get("screenshot"));
+  const profile = String(form.get("profile") || "").replace(/\r\n/g, "\n").trim().slice(0, 20000);
+  if (!(await validBlock(block)) || !/^rating: /m.test(block)) return json({ error: "The details block is missing or was changed." }, 400);
+  if (!zip && !/^log: none$/m.test(block)) return json({ error: "The log zip is missing." }, 400);
+  if (/^kind: profile$/m.test(block) && !profile) return json({ error: "A submitted profile needs its text." }, 400);
+  if (zip && zip.size > MAX_ZIP) return json({ error: "The log zip is larger than 20 MB." }, 413);
+  if (shot && (shot.size > MAX_SHOT || shot.type !== "image/jpeg"))
+    return json({ error: "The screenshot must be a JPEG of at most 4 MB." }, 413);
+
+  await count();
+  const now = Date.now();
+  await env.GAMES.prepare("DELETE FROM drafts WHERE expires_at < ?").bind(now).run();
+  const ticket = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hash = await sha256(ticket);
+  // An hour past the draft, so one sent in its last moments still has them.
+  const keep = { expirationTtl: DRAFT_SECONDS + 3600 };
+  if (zip) await env.REPORTS.put(`draft-log:${hash}`, await zip.arrayBuffer(), keep);
+  if (shot) await env.REPORTS.put(`draft-shot:${hash}`, await shot.arrayBuffer(), keep);
+  await env.GAMES.prepare(
+    "INSERT INTO drafts (ticket_hash, app, block, what, profile, install, log_name, shot, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(hash, app, block, String(form.get("what") || "").trim().slice(0, 20000), profile || null,
+    String(form.get("install") || "").toLowerCase().match(/^[0-9a-f-]{36}$/)?.[0] ?? null,
+    zip ? safeName(zip.name || "OverPass Logs.zip") : null, shot ? 1 : 0, now, now + DRAFT_SECONDS * 1000).run();
+  return json({ url: `${JSON.parse(env.SITES)[app]}/report/${ticket}` });
+}
+
+/// Sends a draft with the medal and comment from its page. Two presses at once can't both send: the first claims the row
+/// and a failure gives it back. A claim left by a run that died runs out after a minute.
+async function sendDraft(request, env, url, app, repo, ticket) {
+  if (!env.GITHUB_TOKEN && !(env.APP_ID && env.APP_PRIVATE_KEY)) return json({ error: "The relay isn't set up yet." }, 503);
+  const hash = await sha256(ticket);
+  const now = Date.now();
+  const row = await env.GAMES.prepare(
+    "UPDATE drafts SET claimed_at = ? WHERE ticket_hash = ? AND app = ? AND expires_at > ? AND (claimed_at IS NULL OR claimed_at < ?) RETURNING *",
+  ).bind(now, hash, app, now, now - 60000).first();
+  if (!row) return json({ error: "This report was already sent, or has expired." }, 410);
+  const release = () => env.GAMES.prepare("UPDATE drafts SET claimed_at = NULL WHERE ticket_hash = ?").bind(hash).run();
+  try {
+    const { tier, comment } = await request.json();
+    const what = String(comment || "").replace(/\r\n/g, "\n").trim().slice(0, 20000);
+    if (!TIERS[tier]) {
+      await release();
+      return json({ error: "Pick a medal." }, 400);
+    }
+    if (!what && (row.log_name || tier === "bronze" || tier === "borked")) {
+      await release();
+      return json({ error: row.log_name ? "Say what happened: it goes in the report with your logs." : "Bronze and Borked need a comment saying what went wrong." }, 400);
+    }
+    const bytes = row.log_name && (await env.REPORTS.get(`draft-log:${hash}`, { type: "arrayBuffer" }));
+    if (row.log_name && !bytes) {
+      await release();
+      return json({ error: "The logs of this report are gone. Send it again from OverPass." }, 410);
+    }
+    const name = facts(row.block).app || "Unknown game";
+    const submitted = /^kind: profile$/m.test(row.block);
+    const response = await deliver(env, url, app, repo, {
+      title: row.log_name ? `${name}: ${what.split("\n")[0].slice(0, 80)}` : `${submitted ? "Profile" : "Rating"}: ${name} + ${TIERS[tier]}`,
+      what, steps: "", block: await withRating(row.block, tier), profile: row.profile ?? "", install: row.install,
+      zip: bytes ? { name: row.log_name, bytes } : null,
+      shot: row.shot ? await env.REPORTS.get(`draft-shot:${hash}`, { type: "arrayBuffer" }) : null,
+    });
+    if (!response.ok) {
+      await release();
+      return response;
+    }
+    await env.GAMES.prepare("DELETE FROM drafts WHERE ticket_hash = ?").bind(hash).run();
+    await env.REPORTS.delete(`draft-log:${hash}`);
+    await env.REPORTS.delete(`draft-shot:${hash}`);
+    return response;
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
+/// A report that passed its checks: an issue, a rating, a suggested profile, or the mix its block asks for.
+async function deliver(env, url, app, repo, { title, what, steps, block, profile, install, zip, shot }) {
+  const feature = /^kind: feature$/m.test(block);
+  const submitted = /^kind: profile$/m.test(block);
+  const rated = /^kind: rating$/m.test(block);
   if (rated) return json({ url: await addRating(env, app, block, what, null, install) });
   if (submitted && !zip) {
     await addSuggestion(env, block, profile, what, install);
@@ -86,8 +199,8 @@ async function report(request, env, url, app, repo) {
 
   const id = crypto.randomUUID();
   const name = safeName(zip?.name || "OverPass Logs.zip");
-  if (zip) await env.REPORTS.put(`log:${id}`, await zip.arrayBuffer(), { expirationTtl: KEEP_SECONDS, metadata: { name } });
-  if (shot) await env.REPORTS.put(`shot:${id}`, await shot.arrayBuffer(), { expirationTtl: KEEP_SECONDS });
+  if (zip) await env.REPORTS.put(`log:${id}`, zip.bytes, { expirationTtl: KEEP_SECONDS, metadata: { name } });
+  if (shot) await env.REPORTS.put(`shot:${id}`, shot, { expirationTtl: KEEP_SECONDS });
 
   // encodeURIComponent keeps parentheses, which would end the Markdown link and a check's match early.
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
@@ -266,10 +379,20 @@ async function validBlock(block) {
   const start = lines.indexOf("overpass-report: 1");
   const end = start < 0 ? -1 : lines.findIndex((l, i) => i > start && l.startsWith("checksum: "));
   if (end < 0) return false;
-  const text = lines.slice(start, end).join("\n");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  const sum = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  const sum = (await sha256(lines.slice(start, end).join("\n"))).slice(0, 16);
   return lines[end] === `checksum: ${sum}`;
+}
+
+/// The block with the medal chosen on the page, and a checksum that matches it.
+async function withRating(block, tier) {
+  const lines = block.split("\n").filter((line) => !line.startsWith("checksum: "));
+  const text = lines.map((line) => (line.startsWith("rating: ") ? `rating: ${tier}` : line)).join("\n");
+  return `${text}\nchecksum: ${(await sha256(text)).slice(0, 16)}`;
+}
+
+async function sha256(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function safeName(name) {

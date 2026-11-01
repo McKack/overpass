@@ -7,6 +7,8 @@ treats it like any other report.
 
 - Accepts only reports whose details block carries a valid checksum (the same check as the workflow), at most
   `HOURLY_LIMIT` per address an hour, zips up to 20 MB.
+- `POST /<app>/draft` keeps How Did It Run?'s upload for a day and returns the site's `/report/<ticket>` page, where the
+  person finishes it; `POST /<app>/draft/<ticket>` sends it, once. The ticket is the only key; D1 `drafts` has its hash.
 - `POST /<app>/report` (multipart: title, what, steps, block, zip, screenshot, profile) returns `{"url": "<issue>"}`;
   `GET /logs/<id>/<name>.zip` returns a zip.
 

@@ -26,6 +26,7 @@
 //   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   POST /api/suggestions        { published, refused }: lists of their IDs, from the same script; the same secret
+//   GET  /report/<ticket>        finish a rating the app started; POST sends it through the report relay
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
@@ -58,6 +59,11 @@ export default {
       const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
       const decided = path.match(/^\/moderation\/suggestions\/([0-9a-f-]+)\/(approve|reject)$/);
       const covered = path.match(/^\/games\/([a-z0-9-]+)\/cover(?:\/(url|reset))?$/);
+      const ticket = path.match(/^\/report\/([0-9a-f]{64})$/);
+      if (ticket && request.method === 'POST') {
+        if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
+        return await sendReport(request, env, ticket[1]);
+      }
       if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || covered
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
@@ -100,6 +106,7 @@ export default {
           const moderator = isModerator(env, await signedIn(request, env));
           return (moderator ? personal : html)(privacyPage(moderator));
         }
+        if (ticket) return await showReport(env, ticket[1]);
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
@@ -977,6 +984,31 @@ function ratingForm(game, own) {
 </form>`;
 }
 
+/// The draft a ticket opens, while it's waiting.
+async function draftFor(env, ticket) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ticket));
+  const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return env.DB.prepare('SELECT * FROM drafts WHERE ticket_hash = ? AND expires_at > ?').bind(hash, Date.now()).first();
+}
+
+async function showReport(env, ticket, tier, comment, error) {
+  const draft = await draftFor(env, ticket);
+  return draft ? ticketed(reportPage(ticket, draft, tier, comment, error)) : ticketed(reportGonePage(), 410);
+}
+
+/// The relay does the sending: it holds the logs and the key to GitHub, and the ticket is all it needs. Its public address
+/// goes along, since the links in an issue are made from it.
+async function sendReport(request, env, ticket) {
+  const form = await request.formData();
+  const tier = String(form.get('tier') ?? ''), comment = String(form.get('comment') ?? '');
+  const sent = await env.RELAY.fetch(`${env.REPORT_RELAY}/draft/${ticket}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier, comment }),
+  });
+  const answer = await sent.json().catch(() => ({}));
+  if (sent.ok && answer.url) return redirect(answer.url);
+  return showReport(env, ticket, tier, comment, answer.error ?? 'The report could not be sent. Try again in a moment.');
+}
+
 const RATING_ERRORS = {
   rating: `Pick a medal. A comment has at most ${COMMENT_LENGTH} characters.`,
   low: 'Bronze and Borked need a comment saying what went wrong.',
@@ -1195,6 +1227,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 <section>
   <h2>Ratings from the app</h2>
   <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one. Ratings aren't tied to an account.</p>
+  <p>The app uploads what it knows and opens a private page where you finish the rating. What you don't send is deleted after a day.</p>
   <p>OverPass admins can also rate a game on its page. Those ratings are marked as an admin's and go with the admin's account.</p>
   <p>If you share your settings, they wait for an admin along with your comment and versions. Approved settings become public in the game's profile on GitHub, without your comment or anything that says who sent them.</p>
 </section>
@@ -1212,6 +1245,33 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
   <p>OverPass is made by <a href="https://arctim.no">Arctic Imaginarium</a>. The site runs on Cloudflare. For a question or to have something removed, open an <a href="${REPOSITORY}/issues">issue</a>.</p>
 </section>`, moderator);
 
+/// Finishing a rating. Everything here came from the app, so all of it is escaped like anything else a stranger sends.
+function reportPage(ticket, draft, tier, comment, error) {
+  const lines = draft.block.split('\n').slice(1).filter((line) => !line.startsWith('checksum: '));
+  const fact = Object.fromEntries(lines.map((line) => line.match(/^([\w-]+): (.*)$/)?.slice(1)).filter(Boolean));
+  const chosen = tier ?? fact.rating;
+  const tiers = TIERS.map((value) => `<label><input type="radio" name="tier" value="${value}" required${value === chosen ? ' checked' : ''}>${medal(value)}</label>`).join('');
+  const going = [
+    ...(draft.log_name ? [`Your logs${draft.shot ? ' and screenshot' : ''}. They file a public issue on GitHub, with your comment.`] : []),
+    ...(draft.profile ? ['Your settings for this game, for an admin to review.'] : []),
+  ];
+  return shell(`How did ${fact.app} run? · OverPass`, 'Finish your rating.', `
+<header class="page"><h1>How did ${escape(fact.app)} run?</h1><p>Your rating goes on the game's page, to help others playing it on a Mac.</p></header>
+${error ? `<p class="problem">${escape(error)}</p>` : ''}
+<form class="write" method="post" action="/report/${ticket}">
+  <fieldset class="tiers"><legend>Rating</legend>${tiers}</fieldset>
+  <label for="report-comment">${draft.log_name ? 'What happened? Needed, since logs are going with it' : 'Comment, needed for Bronze and Borked'}</label>
+  <textarea id="report-comment" name="comment" rows="5" maxlength="20000"${draft.log_name ? ' required' : ''}>${escape(comment ?? draft.what)}</textarea>
+  ${going.length ? `<ul class="muted">${going.map((line) => `<li>${line}</li>`).join('')}</ul>` : ''}
+  <p class="muted">Sent anonymously. Shown with your rating: the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and macOS version.</p>
+  <details class="muted"><summary>Everything that's sent</summary><pre>${escape(lines.join('\n'))}</pre>${draft.profile ? `<pre>${escape(draft.profile)}</pre>` : ''}</details>
+  <div class="decide"><button class="button" type="submit">Send</button></div>
+</form>`);
+}
+
+const reportGonePage = () => shell('Report not found · OverPass', 'This report was already sent, or has expired.', `
+<header class="page"><h1>This report is gone</h1><p>It was already sent, or a day went by without it being sent. To rate the game again, use How Did It Run? in OverPass.</p></header>`);
+
 const missingPage = () => shell('Game not found · OverPass', 'This game has no page yet.', `
 <header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`);
 const failedPage = () => shell('Something went wrong · OverPass', 'The games list could not be loaded.', `
@@ -1224,6 +1284,12 @@ const html = (body, status = 200) => new Response(body, {
 /// A page that depends on who's asking: never cached.
 const personal = (body) => new Response(body, {
   headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' },
+});
+
+/// A page whose address is a secret: not cached or indexed, and the address doesn't go out with any link or picture.
+const ticketed = (body, status = 200) => new Response(body, {
+  status,
+  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'X-Robots-Tag': 'noindex' },
 });
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {

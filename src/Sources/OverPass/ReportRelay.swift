@@ -29,8 +29,9 @@ enum ReportRelay {
     }
 
     /// Sends the report and returns the issue's address. Without a zip the details block says "log: none". `profile` is
-    /// the text of a submitted profile (RunReport.swift), `install` the InstallID that goes with a rating.
-    static func send(title: String, what: String, block: String, zip: URL?, screenshot: Data?,
+    /// the text of a submitted profile (RunReport.swift), `install` the InstallID that goes with a rating. With `endpoint`
+    /// "draft" nothing goes out yet: the answer is the site's page where the person finishes it.
+    static func send(endpoint: String = "report", title: String, what: String, block: String, zip: URL?, screenshot: Data?,
                      profile: String? = nil, install: String? = nil) async throws -> URL {
         guard let base = url else { throw Failure(message: "The report relay isn't set up in this build.") }
         let boundary = "overpass-\(UUID().uuidString)"
@@ -54,7 +55,7 @@ enum ReportRelay {
         if let screenshot { file("screenshot", "screenshot.jpg", "image/jpeg", screenshot) }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
-        var request = URLRequest(url: base.appendingPathComponent("report"))
+        var request = URLRequest(url: base.appendingPathComponent(endpoint))
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 120

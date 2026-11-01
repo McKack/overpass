@@ -1,10 +1,19 @@
-# overpass.arctim.no: the landing page in ../../site, served by Cloudflare as static files (no code).
+# overpass.arctim.no: the landing page in ../../site as static files, and the game pages from src/index.js.
 # Deploy: npx wrangler deploy (from this folder). The install script is served at /install.
+# Secret: SYNC_TOKEN, also the repository secret GAMES_SYNC_TOKEN (sync-games.yml sends the list of games with it).
 name = "overpass-site"
+main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [{ pattern = "overpass.arctim.no", custom_domain = true }]
 
 [assets]
 directory = "../../site"
+binding = "ASSETS"
 html_handling = "auto-trailing-slash"
+run_worker_first = ["/api/*", "/games", "/games/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "overpass-games"
+database_id = "116449a1-9ec7-438c-a3a9-2f2df5a342b3"

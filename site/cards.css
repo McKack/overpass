@@ -1,0 +1,49 @@
+/* Game cards and medals: the game pages and the landing page's Recently rated games. */
+:root {
+  --platinum: #6f7fa3;
+  --gold: #b8860b;
+  --silver: #7c8691;
+  --bronze: #a8622a;
+  --borked: #d13a3a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --platinum: #aab8d8;
+    --gold: #e8bd4a;
+    --silver: #b3bcc6;
+    --bronze: #d9925a;
+    --borked: #ff6b6b;
+  }
+}
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px 16px; }
+.card { display: block; color: var(--text); min-width: 0; text-decoration: none; }
+.card[hidden] { display: none; }
+.card h3 { font-size: 15px; line-height: 1.25; font-weight: 600; margin: 10px 0 6px; overflow-wrap: anywhere; }
+.card p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.tag { color: var(--secondary); font-size: 12px; }
+
+.cover {
+  position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; display: grid; place-items: center;
+  background: linear-gradient(150deg, hsl(var(--hue) 45% 42%), hsl(calc(var(--hue) + 40) 50% 22%));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16); transition: transform 0.15s;
+}
+.card:hover .cover { transform: translateY(-3px); }
+.cover span { color: rgba(255, 255, 255, 0.92); font: 700 34px -apple-system, "SF Pro Display", sans-serif; letter-spacing: 0.02em; }
+.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+.medal {
+  display: inline-block; border-radius: 980px; padding: 2px 9px; font-size: 12px; font-weight: 600; line-height: 1.5;
+  color: var(--tier); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier) 45%, transparent);
+  background: color-mix(in srgb, var(--tier) 12%, transparent);
+}
+.medal.large { padding: 4px 14px; font-size: 16px; }
+.medal.none { --tier: var(--secondary); }
+.medal.platinum, .fill.platinum { --tier: var(--platinum); }
+.medal.gold, .fill.gold { --tier: var(--gold); }
+.medal.silver, .fill.silver { --tier: var(--silver); }
+.medal.bronze, .fill.bronze { --tier: var(--bronze); }
+.medal.borked, .fill.borked { --tier: var(--borked); }
+.card:hover h3 { color: var(--accent); }
+@media (max-width: 600px) {
+  .cover span { font-size: 26px; }
+}

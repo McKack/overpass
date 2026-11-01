@@ -1,0 +1,24 @@
+# Keeps the site's list of games in step with profiles/: every change there updates overpass.arctim.no/games.
+# Needs the repository secret GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml).
+name: Sync games
+
+on:
+  push:
+    branches: [main]
+    paths: ['profiles/**', '.github/scripts/games-index.js']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/games-index.js > games.json
+      - run: |
+          curl --fail-with-body -sS -X POST https://overpass.arctim.no/api/sync \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
+        env:
+          TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}

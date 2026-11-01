@@ -1,7 +1,7 @@
 # OverPass report relay
 
 A Cloudflare Worker that files problem reports from OverPass's Report Issue…, requests from its Request Feature… and
-ratings and profiles from its Submit Rating as GitHub issues in `McKack/overpass`, so reporting needs no GitHub account. The log zip is kept in Workers KV for 180 days
+profiles from its Submit Rating as GitHub issues in `McKack/overpass`, so reporting needs no GitHub account. Ratings go to the games database (D1 `overpass-games`, see `../site/schema.sql`) instead, and the answer is the game's page on the site. The log zip is kept in Workers KV for 180 days
 and linked from the issue; the issue has the same sections as the repository's report form, so its check workflow
 treats it like any other report.
 

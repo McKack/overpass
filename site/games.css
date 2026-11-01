@@ -1,0 +1,101 @@
+/* The game pages (services/site/src/index.js). What they share with the landing page is in cards.css. */
+:root {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  --secondary: #6e6e73;
+  --separator: rgba(0, 0, 0, 0.1);
+  --accent: #0071e3;
+  --accent-text: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --text: #f5f5f7;
+    --secondary: #a1a1a6;
+    --separator: rgba(255, 255, 255, 0.12);
+    --accent: #2997ff;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 16px 40px; }
+
+.top {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px max(16px, calc((100% - 948px) / 2));
+  background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--separator); font-size: 15px;
+}
+.top a { color: var(--text); font-weight: 500; }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.brand img { width: 26px; height: 26px; }
+
+.page { padding: 24px 0 8px; }
+h1 { font: 700 44px/1.1 -apple-system, "SF Pro Display", sans-serif; letter-spacing: -0.015em; margin: 0 0 8px; overflow-wrap: anywhere; }
+.page p { color: var(--secondary); font-size: 19px; margin: 0; }
+h2 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 12px; }
+section { margin-top: 40px; }
+.muted { color: var(--secondary); font-size: 15px; }
+.back { font-size: 15px; }
+.back::before { content: "‹ "; }
+
+.controls { display: flex; flex-direction: column; gap: 12px; margin: 20px 0 24px; }
+#search {
+  width: 100%; padding: 11px 16px; border: 0; border-radius: 12px; font: inherit; color: var(--text);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); outline-offset: 0;
+}
+#search:focus { outline: 2px solid var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.filters button {
+  border: 0; border-radius: 980px; padding: 6px 14px; cursor: pointer; font: 500 14px -apple-system, sans-serif;
+  background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--separator);
+}
+.filters button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); box-shadow: none; }
+
+.game { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 16px; align-items: start; }
+.summary { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; color: var(--secondary); }
+.bars { display: grid; gap: 4px; max-width: 420px; margin-top: 16px; }
+.bar { display: grid; grid-template-columns: 70px 1fr 28px; align-items: center; gap: 10px; font-size: 13px; color: var(--secondary); }
+.bar .count { text-align: right; }
+.track { height: 8px; border-radius: 4px; background: var(--separator); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: 4px; background: var(--tier); }
+
+.presets { padding: 0; margin: 12px 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.presets a { display: block; padding: 4px 12px; border-radius: 980px; font-size: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); }
+details { margin: 12px 0; }
+summary { cursor: pointer; color: var(--accent); }
+pre {
+  margin: 12px 0 0; padding: 16px; border-radius: 12px; overflow-x: auto; background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+  font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.rating { background: var(--surface); border-radius: 16px; padding: 16px 18px; margin-bottom: 12px; box-shadow: inset 0 0 0 1px var(--separator); }
+.rating .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rating time { color: var(--secondary); font-size: 13px; }
+.comment { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; color: var(--secondary); font-size: 13px; }
+.empty { color: var(--secondary); }
+
+footer {
+  border-top: 1px solid var(--separator); margin-top: 56px; padding: 24px 16px 40px; color: var(--secondary); font-size: 13px;
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px;
+}
+footer a { color: inherit; }
+.maker { display: inline-flex; align-items: center; gap: 6px; }
+.maker img { width: 20px; height: 20px; }
+
+@media (max-width: 600px) {
+  h1 { font-size: 34px; }
+  .game { grid-template-columns: 112px minmax(0, 1fr); gap: 16px; }
+  .bar { grid-template-columns: 58px 1fr 20px; gap: 6px; }
+}

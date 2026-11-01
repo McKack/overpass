@@ -14,6 +14,8 @@
 // A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
 // One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and no log either.
 // One with "kind: rating" is a rating alone: no profile or log, and a comment only if it's Bronze or Borked.
+// Ratings go to the games database, for the site's game pages, and the answer is that page's address. Only a
+// submitted profile also makes an issue, for review.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -72,27 +74,29 @@ async function report(request, env, url, app, repo) {
   if (shot && (shot.size > MAX_SHOT || shot.type !== "image/jpeg"))
     return json({ error: "The screenshot must be a JPEG of at most 4 MB." }, 413);
 
+  await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
+  if (rated) return json({ url: await addRating(env, app, block, what, null) });
+
   const id = crypto.randomUUID();
   const name = safeName(zip?.name || "OverPass Logs.zip");
   if (zip) await env.REPORTS.put(`log:${id}`, await zip.arrayBuffer(), { expirationTtl: KEEP_SECONDS, metadata: { name } });
   if (shot) await env.REPORTS.put(`shot:${id}`, await shot.arrayBuffer(), { expirationTtl: KEEP_SECONDS });
-  await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
 
   // encodeURIComponent keeps parentheses, which would end the Markdown link and a check's match early.
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    ...(submitted || rated ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
+    ...(submitted ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
-    ...(feature || submitted || rated ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
+    ...(feature || submitted ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : rated ? "rating" : "report"] }),
+    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : "report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);
@@ -100,7 +104,58 @@ async function report(request, env, url, app, repo) {
     return json({ error: `GitHub refused the issue (${response.status}).` }, 502);
   }
   const issue = await response.json();
+  // The issue is filed: a problem with the rating mustn't fail the report.
+  if (submitted) return json({ url: await addRating(env, app, block, what, issue.html_url).catch(() => issue.html_url) });
   return json({ url: issue.html_url });
+}
+
+/// The key lines of a details block.
+function facts(block) {
+  return Object.fromEntries(block.split("\n").map((line) => line.match(/^([\w-]+): (.*)$/)?.slice(1)).filter(Boolean));
+}
+
+/// A page's address from a game's name, the same as .github/scripts/games-index.js.
+function slug(name) {
+  return name.replace(/[™®©'’]/g, "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/// The game a rating is for: by its store ID, its profile, then its name. One never seen before gets a page.
+async function gameFor(db, fact) {
+  const store = (fact.store || "").match(/^(.+) (\S+)$/);
+  const known = store && store[1] !== "Store" ? [{ Steam: "steam", GOG: "gog", "Epic Games": "epic" }[store[1]] ?? store[1].toLowerCase(), store[2]] : null;
+  const profile = (fact.profile || "none").replace(/ \((changed|own)\)$/, "");
+  const name = String(fact.app || "").slice(0, 120) || "Unknown game";
+  const candidates = [...(known ? [known] : []), ...(profile !== "none" ? [["profile", profile]] : [])];
+  let id = null;
+  for (const [key, value] of candidates) {
+    id ??= (await db.prepare("SELECT game_id FROM game_keys WHERE store = ? AND store_id = ?").bind(key, value).first("game_id"));
+  }
+  const named = slug(name) || (known ? slug(known.join("-")) : "") || "unknown-game";
+  id ??= await db.prepare("SELECT id FROM games WHERE id = ?").bind(named).first("id");
+  if (!id) {
+    id = named;
+    await db.prepare("INSERT OR IGNORE INTO games (id, name, source, steam, gog, created_at) VALUES (?, ?, 'rated', ?, ?, ?)")
+      .bind(id, name, known?.[0] === "steam" ? known[1] : null, known?.[0] === "gog" ? known[1] : null, Date.now()).run();
+  }
+  if (known) await db.prepare("INSERT OR IGNORE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)").bind(...known, id).run();
+  return id;
+}
+
+/// Stores a rating and returns the address of its game's page. The chip is all it keeps of the Mac's facts.
+async function addRating(env, app, block, comment, issueURL) {
+  const fact = facts(block);
+  const tier = ["platinum", "gold", "silver", "bronze", "borked"].find((name) => name === fact.rating);
+  if (!tier) throw new Error("the rating isn't one of the tiers");
+  const game = await gameFor(env.GAMES, fact);
+  await env.GAMES.prepare(
+    `INSERT INTO ratings (id, game_id, tier, comment, chip, macos, overpass, wine, runtime, graphics, backend, fps, profile, issue_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(crypto.randomUUID(), game, tier, comment || null, (fact.mac || "").split(", ")[1] || null,
+    (fact.macos || "").split(" ")[0].replace(/\.0$/, "") || null, fact.overpass || null, fact.wine || null, fact.runtime || null,
+    fact.graphics || null, fact.backend && fact.backend !== "unknown" ? fact.backend : null, parseFloat(fact.frames) || null,
+    fact.profile || null, issueURL, Date.now()).run();
+  return `${JSON.parse(env.SITES)[app]}/games/${game}`;
 }
 
 function github(env, path, token, init = {}) {

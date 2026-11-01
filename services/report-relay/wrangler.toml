@@ -12,7 +12,15 @@ routes = [{ pattern = "reports.arctim.no", custom_domain = true }]
 # Each app's path and the repository its reports go to.
 APPS = '{"overpass": "McKack/overpass"}'
 HOURLY_LIMIT = "5"
+# Where a rating is shown: <site>/games/<id>.
+SITES = '{"overpass": "https://overpass.arctim.no"}'
 
 [[kv_namespaces]]
 binding = "REPORTS"
 id = "dbc4f9b06aa8464ba81e317cb102b906"
+
+# The games database, shared with the site (../site/schema.sql). Ratings go here, not to GitHub.
+[[d1_databases]]
+binding = "GAMES"
+database_name = "overpass-games"
+database_id = "116449a1-9ec7-438c-a3a9-2f2df5a342b3"

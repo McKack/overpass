@@ -7,6 +7,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - One window for telling OverPass how a game ran: How Did It Run? replaces Report Issue and Submit Rating
 - Rating a game no longer sends a profile you haven't changed
 - Game profiles update between OverPass releases
+- After a Wine update, the status bar says when a container is being prepared before a game starts
 - Smaller bug fixes and improvements
 
 ### Details

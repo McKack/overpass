@@ -14,6 +14,8 @@ class BottleManager {
     var recipeTasks: [RecipeTask] = []
     private var recipeBottlesBusy: Set<URL> = []
     private var defaultsBusy: Set<URL> = []
+    /// Containers catching up with a Wine update, so a second start joins the first instead of racing it.
+    private var refreshes: [URL: Task<Void, Never>] = [:]
     /// The light or dark look last written to each bottle this session; user.reg lags behind a running Wine.
     private var appearanceWritten: [URL: Bool] = [:]
     /// Programs running with Wine's log on, for Collect Logs (LogCollector.swift).
@@ -272,10 +274,15 @@ class BottleManager {
     /// Bottles made before OverPass set its defaults (or an older set of them) get them, once, in the background.
     private func applyBottleSetup() {
         guard wineRoot != nil else { return }
-        for bottle in bottles where !BottleSetup.applied(to: bottle) && !defaultsBusy.contains(bottle.path)
-            && FileManager.default.fileExists(atPath: bottle.driveC.path) {
-            defaultsBusy.insert(bottle.path)
-            Task {
+        let waiting = bottles.filter {
+            !BottleSetup.applied(to: $0) && !defaultsBusy.contains($0.path)
+                && FileManager.default.fileExists(atPath: $0.driveC.path)
+        }
+        guard !waiting.isEmpty else { return }
+        defaultsBusy.formUnion(waiting.map(\.path))
+        // One at a time: after a Wine update each of these also refreshes its whole container.
+        Task {
+            for bottle in waiting {
                 // A bottle that failed stays marked until OverPass restarts, so it isn't retried on every refresh.
                 if (try? await BottleSetup.apply(to: bottle, using: self)) != nil { defaultsBusy.remove(bottle.path) }
             }
@@ -555,7 +562,8 @@ class BottleManager {
 
     /// Runs `start` once what the title needs is here. A missing component is offered first, not left to fail
     /// inside Wine. Wrappers can't get here: they start without the app.
-    func whenReady(_ profile: GameProfile?, in bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
+    func whenReady(_ profile: GameProfile?, in bottle: Bottle, name: String, start begin: @escaping @MainActor () throws -> Void) throws {
+        let start: @MainActor () throws -> Void = { [self] in try afterRefresh(bottle, name: name, start: begin) }
         guard !bottle.isMac, let components = ComponentManager.current else { return try start() }
         let needed = (profile?.neededComponents(graphics: profile?.graphics ?? .auto) ?? []) + [bottle.graphics.component].compactMap { $0 }
         var missing: [ComponentID] = []
@@ -590,6 +598,44 @@ class BottleManager {
                 }
                 recipeTasks.removeAll { $0.id == task.id }
                 try start()
+            } catch {
+                if let i = recipeTasks.firstIndex(where: { $0.id == task.id }) {
+                    recipeTasks[i].failed = "\(name) couldn't start: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// True when Wine will refresh this container on its next start: `.update-timestamp` holds the mtime of the
+    /// wine.inf that last did so, or "disable". A container that has never booted has no file and is left alone.
+    nonisolated static func isBehind(_ bottle: Bottle, wine root: URL) -> Bool {
+        let inf = root.appendingPathComponent("share/wine/wine.inf")
+        guard let text = try? String(contentsOf: bottle.path.appendingPathComponent(".update-timestamp"), encoding: .utf8),
+              let stamp = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let date = (try? FileManager.default.attributesOfItem(atPath: inf.path))?[.modificationDate] as? Date
+        else { return false }
+        return stamp != Int(date.timeIntervalSince1970)
+    }
+
+    /// Wine would refresh a container left behind by an update anyway, silently, as part of the title's start. Doing
+    /// it first says why nothing has opened yet.
+    private func afterRefresh(_ bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
+        let running = refreshes[bottle.path]
+        guard running != nil || !bottle.isMac && wineRoot.map({ Self.isBehind(bottle, wine: $0) }) == true else { return try start() }
+        let message = "Preparing the container for \(name)…"
+        guard !recipeTasks.contains(where: { $0.message == message && $0.failed == nil }) else { return }
+        let task = RecipeTask(message: message)
+        recipeTasks.append(task)
+        let refresh = running ?? Task { [self] in
+            _ = try? await run(["wineboot", "-u"], in: bottle)
+            refreshes[bottle.path] = nil
+        }
+        refreshes[bottle.path] = refresh
+        Task {
+            await refresh.value
+            do {
+                try start()
+                recipeTasks.removeAll { $0.id == task.id }
             } catch {
                 if let i = recipeTasks.firstIndex(where: { $0.id == task.id }) {
                     recipeTasks[i].failed = "\(name) couldn't start: \(error.localizedDescription)"

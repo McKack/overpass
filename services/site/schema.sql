@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS ratings (
   profile TEXT,                      -- the profile it ran with, as the app's report says it
   issue_url TEXT,                    -- the review issue of a profile sent with it
   hidden INTEGER NOT NULL DEFAULT 0,
-  install TEXT,                      -- the app's random ID, never shown: a new rating replaces its last one
+  install TEXT,                      -- the app's random ID, never shown: a new rating replaces its last one;
+                                     -- account:<users.id> for a moderator's rating from the game's page
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ratings_install ON ratings (install, game_id);

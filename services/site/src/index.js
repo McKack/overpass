@@ -13,6 +13,7 @@
 //   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
 //   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
 //   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for the accounts in MODERATORS
+//   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person and the username they choose, nothing else: no e-mail, no name
@@ -31,7 +32,8 @@ export default {
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
-      if (request.method === 'POST' && (commented || reported || moderated || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
+      const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
+      if (request.method === 'POST' && (commented || reported || moderated || rated || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
@@ -39,6 +41,10 @@ export default {
         if (!user) return redirect('/account');
         if (reported) return await report(env, user, ...reported.slice(1));
         if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
+        if (rated) {
+          if (!isModerator(env, user)) return redirect('/account');
+          return rated[2] ? await deleteOwnRating(env, user, rated[1]) : await addOwnRating(request, env, user, rated[1]);
+        }
         if (commented) {
           return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
         }
@@ -55,7 +61,10 @@ export default {
           const user = await signedIn(request, env);
           return isModerator(env, user) ? personal(moderationPage(await queue(env))) : redirect('/account');
         }
-        if (path === '/privacy') return html(privacyPage());
+        if (path === '/privacy') {
+          const moderator = isModerator(env, await signedIn(request, env));
+          return (moderator ? personal : html)(privacyPage(moderator));
+        }
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/games') return json(await list(env));
         const api = path.match(/^\/api\/games\/([a-z0-9-]+)$/);
@@ -63,13 +72,18 @@ export default {
           const game = await detail(env, api[1]);
           return game ? json(game) : json({ error: 'No such game.' }, 404);
         }
-        if (path === '/games') return html(gamesPage(await list(env)));
+        if (path === '/games') {
+          const moderator = isModerator(env, await signedIn(request, env));
+          return (moderator ? personal : html)(gamesPage(await list(env), moderator));
+        }
         const page = path.match(/^\/games\/([a-z0-9-]+)$/);
         if (page) {
           const game = await detail(env, page[1]);
           if (!game) return html(missingPage(), 404);
           const user = await signedIn(request, env);
-          return personal(gamePage(game, await comments(env, game.id, user), user, await reportedBy(env, user), url.searchParams.get('error')));
+          const moderator = isModerator(env, user);
+          const own = moderator ? await ownRating(env, user, game.id) : null;
+          return personal(gamePage(game, await comments(env, game.id, user), user, await reportedBy(env, user), url.searchParams.get('error'), moderator, own));
         }
       }
       return env.ASSETS.fetch(request);
@@ -135,7 +149,7 @@ async function detail(env, id) {
   const [rated, { results }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
-      `SELECT id, tier, comment, chip, macos, overpass, wine, runtime, backend, fps, created_at FROM ratings
+      `SELECT id, tier, comment, chip, macos, overpass, wine, runtime, backend, fps, created_at, install LIKE 'account:%' AS admin FROM ratings
        WHERE game_id = ? AND hidden = 0 ORDER BY created_at DESC LIMIT 100`,
     ).bind(id).all(),
   ]);
@@ -293,8 +307,10 @@ async function rename(request, env, user) {
 async function deleteAccount(env, user) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
-    env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1)').bind(user.id),
+    env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1) OR target IN (SELECT id FROM ratings WHERE install = ?2)')
+      .bind(user.id, accountRater(user)),
     env.DB.prepare('DELETE FROM comments WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM ratings WHERE install = ?').bind(accountRater(user)),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return redirect('/account', setCookie('overpass_session', '', 0));
@@ -336,6 +352,44 @@ async function deleteComment(env, user, id, comment) {
   if (meta.changes) await env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(comment).run();
   return redirect(`/games/${id}#comments`);
 }
+
+// Ratings from a moderator
+
+const LOW_TIERS = ['bronze', 'borked'];
+
+/// What stands in `ratings.install` for a moderator. The app's IDs are UUIDs, so the two can't meet.
+const accountRater = (user) => `account:${user.id}`;
+
+const ownRating = (env, user, id) => env.DB.prepare('SELECT id, tier, comment FROM ratings WHERE install = ? AND game_id = ?')
+  .bind(accountRater(user), id).first();
+
+/// Without a run behind it, so the page marks it as an admin's. A new one replaces the last; like the app, low needs a comment.
+async function addOwnRating(request, env, user, id) {
+  const back = `/games/${id}`;
+  const exists = await env.DB.prepare('SELECT id FROM games WHERE id = ?').bind(id).first('id');
+  if (!exists) return html(missingPage(), 404);
+  const form = await request.formData();
+  const tier = String(form.get('tier') || '');
+  const comment = String(form.get('comment') || '').replace(/\r\n/g, '\n').trim();
+  if (!TIERS.includes(tier) || comment.length > COMMENT_LENGTH) return redirect(`${back}?error=rating#ratings`);
+  if (LOW_TIERS.includes(tier) && !comment) return redirect(`${back}?error=low#ratings`);
+  await env.DB.batch([
+    ...forgetOwnRating(env, user, id),
+    env.DB.prepare('INSERT INTO ratings (id, game_id, tier, comment, install, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), id, tier, comment || null, accountRater(user), Date.now()),
+  ]);
+  return redirect(`${back}#ratings`);
+}
+
+async function deleteOwnRating(env, user, id) {
+  await env.DB.batch(forgetOwnRating(env, user, id));
+  return redirect(`/games/${id}#ratings`);
+}
+
+const forgetOwnRating = (env, user, id) => [
+  env.DB.prepare('DELETE FROM reports WHERE target IN (SELECT id FROM ratings WHERE install = ? AND game_id = ?)').bind(accountRater(user), id),
+  env.DB.prepare('DELETE FROM ratings WHERE install = ? AND game_id = ?').bind(accountRater(user), id),
+];
 
 // Reports
 
@@ -412,7 +466,7 @@ function cover(game) {
   return `<div class="cover" style="--hue:${hue(game.name)}"><span>${escape(initials(game.name))}</span>${art}</div>`;
 }
 
-function shell(title, description, body) {
+function shell(title, description, body, moderator = false) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -427,7 +481,7 @@ function shell(title, description, body) {
 <body>
 <nav class="top">
   <a class="brand" href="/"><img src="/icon.svg" alt="">OverPass</a>
-  <span class="links"><a href="/games">Games</a><a href="/account">Account</a></span>
+  <span class="links"><a href="/games">Games</a>${moderator ? '<a href="/moderation">Moderation</a>' : ''}<a href="/account">Account</a></span>
 </nav>
 <main>${body}</main>
 <footer>
@@ -449,7 +503,7 @@ function card(game) {
 </a>`;
 }
 
-function gamesPage(games) {
+function gamesPage(games, moderator) {
   const rated = games.filter((game) => game.tier).length;
   const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated']]
     .map(([value, title]) => `<button type="button" data-filter="${value}" aria-pressed="${value === 'all'}">${title}</button>`).join('');
@@ -483,7 +537,7 @@ function gamesPage(games) {
     for (const other of buttons) other.setAttribute('aria-pressed', other === button);
     apply();
   });
-</script>`);
+</script>`, moderator);
 }
 
 /// One bar a tier, as wide as its share of the ratings.
@@ -500,17 +554,17 @@ function reportButton(game, kind, entry, user, reports) {
   return `<form method="post" action="/games/${game.id}/${kind}/${entry}/report"><button class="link" type="submit">Report</button></form>`;
 }
 
-function ratingCard(game, rating, user, reports) {
+function ratingCard(game, rating, user, reports, own) {
   const facts = [
     rating.chip, rating.macos && `macOS ${rating.macos}`, rating.wine && `Wine ${rating.wine}`,
     rating.runtime && rating.runtime !== 'not installed' && `Runtime ${rating.runtime}`, rating.backend,
-    rating.fps && `${Math.round(rating.fps)} fps`,
+    rating.fps && `${Math.round(rating.fps)} fps`, rating.admin && 'Admin rating',
   ].filter(Boolean);
   return `<article class="rating" id="rating-${rating.id}">
   <div class="line">${medal(rating.tier)}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
-  ${reportButton(game, 'ratings', rating.id, user, reports)}
+  ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports)}
 </article>`;
 }
 
@@ -535,13 +589,32 @@ function commentForm(game, user) {
 </form>`;
 }
 
+/// For a moderator: every tier as a choice, with what they gave this game before.
+function ratingForm(game, own) {
+  const tiers = TIERS.map((tier) => `<label><input type="radio" name="tier" value="${tier}" required${own?.tier === tier ? ' checked' : ''}>${medal(tier)}</label>`).join('');
+  return `<form class="write" method="post" action="/games/${game.id}/ratings">
+  <fieldset class="tiers"><legend>${own ? 'Your rating' : 'Rate this game'}</legend>${tiers}</fieldset>
+  <label for="rating-comment">Comment, needed for Bronze and Borked</label>
+  <textarea id="rating-comment" name="comment" rows="2" maxlength="${COMMENT_LENGTH}">${escape(own?.comment)}</textarea>
+  <div class="decide">
+    <button class="button" type="submit">${own ? 'Update Rating' : 'Save Rating'}</button>
+    ${own ? `<button class="button quiet" type="submit" formaction="/games/${game.id}/ratings/delete" formnovalidate>Remove Rating</button>` : ''}
+  </div>
+</form>`;
+}
+
+const RATING_ERRORS = {
+  rating: `Pick a medal. A comment has at most ${COMMENT_LENGTH} characters.`,
+  low: 'Bronze and Borked need a comment saying what went wrong.',
+};
+
 const COMMENT_ERRORS = {
   comment: `A comment has 1 to ${COMMENT_LENGTH} characters.`,
   limit: `That's ${COMMENTS_A_DAY} comments in a day, the most you can post. Try again tomorrow.`,
   reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
 };
 
-function gamePage(game, said, user, reports, error) {
+function gamePage(game, said, user, reports, error, moderator, own) {
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
   const settings = !hasSettings ? '' : `
@@ -554,7 +627,7 @@ function gamePage(game, said, user, reports, error) {
   <p><a href="${REPOSITORY}/blob/main/${escape(game.profile_file)}">See it on GitHub</a></p>` : ''}
 </section>`;
   const ratings = game.rating_list.length
-    ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports)).join('\n')
+    ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports, own)).join('\n')
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
 <a class="back" href="/games">All games</a>
@@ -568,8 +641,10 @@ function gamePage(game, said, user, reports, error) {
   </div>
 </header>
 ${settings}
-<section>
+<section id="ratings">
   <h2>Ratings</h2>
+  ${RATING_ERRORS[error] ? `<p class="problem" role="alert">${RATING_ERRORS[error]}</p>` : ''}
+  ${moderator ? ratingForm(game, own) : ''}
   ${ratings}
 </section>
 <section id="comments">
@@ -577,7 +652,7 @@ ${settings}
   ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
   ${commentForm(game, user)}
   ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
-</section>`);
+</section>`, moderator);
 }
 
 const ACCOUNT_ERRORS = {
@@ -600,7 +675,7 @@ function moderationCard(entry) {
 
 const moderationPage = (entries) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings.', `
 <header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
-${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}`);
+${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}`, true);
 
 function accountPage(user, error, moderator) {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
@@ -620,15 +695,14 @@ ${problem}
   <button class="button" type="submit">Save</button>
 </form>
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
-${moderator ? '<p><a href="/moderation">Moderation</a></p>' : ''}
 <section>
   <h2>Delete account</h2>
   <p class="muted">Removes your account, username and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
   <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
-</section>`);
+</section>`, moderator);
 }
 
-const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps about you, and for how long.', `
+const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass keeps about you, and for how long.', `
 <header class="page"><h1>Privacy</h1><p>What OverPass and this site keep, and for how long.</p></header>
 <section>
   <h2>Accounts</h2>
@@ -644,6 +718,7 @@ const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps abou
 <section>
   <h2>Ratings from the app</h2>
   <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one. Ratings aren't tied to an account.</p>
+  <p>OverPass admins can also rate a game on its page. Those ratings are marked as an admin's and go with the admin's account.</p>
 </section>
 <section>
   <h2>Logs and reports</h2>
@@ -652,7 +727,7 @@ const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps abou
 <section>
   <h2>Who runs this</h2>
   <p>OverPass is made by <a href="https://arctim.no">Arctic Imaginarium</a>. The site runs on Cloudflare. For a question or to have something removed, open an <a href="${REPOSITORY}/issues">issue</a>.</p>
-</section>`);
+</section>`, moderator);
 
 const missingPage = () => shell('Game not found · OverPass', 'This game has no page yet.', `
 <header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`);

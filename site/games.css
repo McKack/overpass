@@ -80,7 +80,11 @@ section { margin-top: 40px; }
 .heads button:first-child { grid-column: 1 / 3; }
 .heads button[aria-current] { color: var(--text); }
 .heads button::after { content: attr(data-arrow); margin-left: 4px; }
+.group { grid-column: 1 / -1; margin: 16px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--separator); font-size: 20px; }
+.group:first-child { margin-top: 0; }
 .grid.rows { display: block; }
+.grid.rows .group { margin-top: 24px; }
+.grid.rows .group:first-child { margin-top: 12px; }
 .grid.rows .card { border-bottom: 1px solid var(--separator); }
 .grid.rows .card:hover { background: var(--surface); }
 .grid.rows .cover { border-radius: 4px; box-shadow: none; transform: none; }

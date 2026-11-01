@@ -833,15 +833,19 @@ function gamesPage(games, moderator) {
   const cards = [...grid.querySelectorAll('.card')], search = document.getElementById('search');
   const direction = document.getElementById('direction'), views = [...document.querySelectorAll('#views button')];
   const buttons = [...document.querySelectorAll('#filters button')], nothing = document.getElementById('nothing');
-  const tiers = ${JSON.stringify(TIERS)};
-  // What each sort reads from a card, and which way it starts. null sorts last either way.
+  const tiers = ${JSON.stringify(TIERS)}, titles = ${JSON.stringify(TITLES)};
+  // What each sort reads from a card, which way it starts, and the heading of the group a card falls under, for the
+  // sorts where groups make sense. null sorts last either way. NFD splits an accent from its letter: É goes under E.
   const keys = {
-    name: [(card) => card.dataset.name, true],
-    tier: [(card) => tiers.includes(card.dataset.tier) ? tiers.indexOf(card.dataset.tier) : null, true],
+    name: [(card) => card.dataset.name, true, (card) => {
+      const first = [...card.dataset.name.normalize('NFD')][0] ?? '';
+      return /\\p{L}/u.test(first) ? first.toUpperCase() : '#';
+    }],
+    tier: [(card) => tiers.includes(card.dataset.tier) ? tiers.indexOf(card.dataset.tier) : null, true, (card) => titles[card.dataset.tier] ?? 'Not rated'],
     ratings: [(card) => Number(card.dataset.ratings) || null, false],
     last: [(card) => Number(card.dataset.last) || null, false],
-    category: [(card) => card.dataset.category || null, true],
-    kind: [(card) => card.dataset.kind || null, true],
+    category: [(card) => card.dataset.category || null, true, (card) => card.dataset.category || 'No category'],
+    kind: [(card) => card.dataset.kind || null, true, (card) => card.dataset.kind || 'Other'],
   };
   let filter = 'all', state = { key: 'last', up: false, view: 'covers' };
   try { state = { ...state, ...JSON.parse(localStorage.getItem('games-view')) }; } catch {}
@@ -854,15 +858,31 @@ function gamesPage(games, moderator) {
       if (!card.hidden) shown++;
     }
     nothing.hidden = shown > 0;
+    // A heading shows when a card under it does.
+    let heading = null;
+    for (const item of grid.children) {
+      if (item.matches('.group')) { heading = item; heading.hidden = true; } else if (!item.hidden && heading) heading.hidden = false;
+    }
   }
   function arrange() {
-    const read = keys[state.key][0];
+    const [read, , group] = keys[state.key];
     const compare = (a, b) => (typeof a === 'string' ? a.localeCompare(b) : a - b);
-    grid.append(...[...cards].sort((a, b) => {
+    const sorted = [...cards].sort((a, b) => {
       const [first, second] = [read(a), read(b)];
       const order = first === null || second === null ? (first === null) - (second === null) : compare(first, second) * (state.up ? 1 : -1);
       return order || a.dataset.name.localeCompare(b.dataset.name);
+    });
+    let last = null;
+    grid.replaceChildren(...sorted.flatMap((card) => {
+      const title = group?.(card) ?? null;
+      if (title === last) return [card];
+      last = title;
+      const heading = document.createElement('h2');
+      heading.className = 'group';
+      heading.textContent = title;
+      return [heading, card];
     }));
+    apply();
     sort.value = state.key;
     direction.textContent = state.up ? '↑' : '↓';
     grid.classList.toggle('rows', state.view === 'rows');

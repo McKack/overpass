@@ -377,7 +377,8 @@ extension Comparable {
     return short.first { name.localizedCaseInsensitiveContains($0.0) }?.1 ?? name
 }
 
-/// Cover art, downloaded once from the game's store and kept in the media cache (`<service>/Covers`).
+/// Cover art, kept in the media cache (`<service>/Covers`) after one download from the address the games site has for
+/// it, or from the game's store when it has none yet.
 @MainActor
 enum CoverArt {
     private static let memory = NSCache<NSString, NSImage>()
@@ -385,6 +386,12 @@ enum CoverArt {
     private static var loading: [String: Task<NSImage?, Never>] = [:]
     /// How long a title with no art waits before the stores are asked again.
     private static let retryAfter: TimeInterval = 7 * 24 * 3600
+    /// The site is asked about one title at a time at this pace, and only so many times per launch; past that, covers
+    /// come from the stores alone.
+    private static let askEvery: TimeInterval = 0.1
+    private static let asksPerLaunch = 200
+    private static var asks = 0
+    private static var nextAsk = Date.distantPast
 
     static func image(for item: LibraryItem) async -> NSImage? {
         if let cover = item.app.cover { return NSImage(contentsOfFile: cover) }
@@ -420,7 +427,8 @@ enum CoverArt {
         if let date = (try? fm.attributesOfItem(atPath: none.path))?[.modificationDate] as? Date,
            Date.now.timeIntervalSince(date) < retryAfter { return nil }
         try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        for url in await sources(for: item) {
+        let site = await siteCover(service: service, id: id, name: item.app.name)
+        for url in await (site.map { [$0] } ?? []) + sources(for: item) {
             guard let data = url.isFileURL ? try? Data(contentsOf: url) : await download(url),
                   let image = NSImage(data: data) else { continue }
             try? data.write(to: file, options: .atomic)
@@ -439,6 +447,19 @@ enum CoverArt {
 
     private static func json(_ url: URL) async -> [String: Any]? {
         await download(url).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
+    /// The address the games site has for a title's cover. Asking about a title it hasn't seen has it look one up.
+    private static func siteCover(service: String, id: String, name: String) async -> URL? {
+        guard asks < asksPerLaunch else { return nil }
+        asks += 1
+        let turn = max(nextAsk, .now)
+        nextAsk = turn.addingTimeInterval(askEvery)
+        try? await Task.sleep(for: .seconds(turn.timeIntervalSinceNow))
+        var site = URLComponents(string: "https://overpass.arctim.no/api/art/\(service.lowercased())/\(id)")!
+        site.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = site.url else { return nil }
+        return (await json(url)?["cover"] as? String).flatMap(URL.init(string:))
     }
 
     /// Where to look for a title's 2:3 art, best first.

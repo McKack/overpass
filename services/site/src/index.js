@@ -18,9 +18,10 @@
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
 //   POST /moderation/suggestions/<entry>/(approve|reject)   the same accounts decide on a suggested profile
 //   GET  /api/art                what find-covers.mjs needs for each game; needs the SYNC_TOKEN secret
-//   POST /api/art                { id, links, source, origin, image | failed } from the same script; the same secret
+//   POST /api/art                { id, links, source, cover, thumb, icon, hero } from the same script; the same secret
+//   GET  /api/art/<store>/<id>?name=   the art the app shows; a title not seen before joins the queue for find-covers.mjs
 //   POST /games/<id>/cover, /games/<id>/cover/url, /games/<id>/cover/reset   a moderator changes a game's cover
-//   GET  /pictures/covers/<file>  a game's cover
+//   GET  /pictures/covers/<file>  a moderator's upload
 //   GET  /api/profiles           the signed set of profiles the app downloads
 //   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
@@ -103,6 +104,8 @@ export default {
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
         if (path === '/api/art') return await artList(request, env);
+        const asked = path.match(/^\/api\/art\/(steam|gog|epic)\/([A-Za-z0-9-]{1,64})$/);
+        if (asked) return await artFor(env, url, asked[1], asked[2]);
         if (path === '/api/games') return json(await list(env));
         const api = path.match(/^\/api\/games\/([a-z0-9-]+)$/);
         if (api) {
@@ -175,14 +178,19 @@ function summary(game, rated) {
   return {
     id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified,
     tier: overall(counts), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), last_rated: rated?.last ?? null,
-    art: game.art ?? null, brand: game.brand ?? null, stores: storeLinks(game),
+    art: picture(game), brand: game.brand ?? null, stores: storeLinks(game),
   };
+}
+
+/// A moderator's upload from here, or the address of the smallest cover the source has.
+function picture(game) {
+  return game.art ? `/pictures/covers/${game.art}` : game.thumb ?? game.origin ?? null;
 }
 
 async function list(env) {
   const [{ results }, rated] = await Promise.all([
     env.DB.prepare(
-      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, a.file AS art, a.links AS found
+      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, a.file AS art, a.thumb, a.origin, a.links AS found
        FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
     ).all(),
     tally(env),
@@ -197,7 +205,7 @@ async function recent(env) {
 
 async function detail(env, id) {
   const game = await env.DB.prepare(
-    `SELECT g.*, a.file AS art, a.links AS found, a.source AS art_source, a.wanted AS art_wanted
+    `SELECT g.*, a.file AS art, a.thumb, a.origin, a.hero, a.links AS found, a.source AS art_source, a.wanted AS art_wanted
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id WHERE g.id = ?`,
   ).bind(id).first();
   if (!game) return null;
@@ -210,7 +218,7 @@ async function detail(env, id) {
   ]);
   return {
     ...summary(game, rated.get(id)), notes: game.notes, profile_file: game.profile_file, profile_text: game.profile_text,
-    presets: JSON.parse(game.presets), art_source: game.art_source ?? null, art_wanted: game.art_wanted ?? null, rating_list: results,
+    presets: JSON.parse(game.presets), art_source: game.art_source ?? null, hero: game.hero ?? null, art_wanted: game.art_wanted ?? null, rating_list: results,
   };
 }
 
@@ -253,7 +261,7 @@ async function sync(request, env) {
   ).bind(ids));
   steps.push(env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'));
   await env.DB.batch(steps);
-  const { results: gone } = await env.DB.prepare('SELECT game_id, file FROM game_art WHERE game_id NOT IN (SELECT id FROM games)').all();
+  const { results: gone } = await env.DB.prepare(`SELECT game_id, file FROM game_art WHERE game_id NOT IN (SELECT id FROM games) AND game_id NOT LIKE '%:%'`).all();
   for (const entry of gone) {
     if (entry.file) await env.PICTURES.delete(`covers/${entry.file}`);
     await env.DB.prepare('DELETE FROM game_art WHERE game_id = ?').bind(entry.game_id).run();
@@ -415,9 +423,12 @@ async function servePicture(env, key) {
   });
 }
 
-// Covers. find-covers.mjs, on GitHub, finds them and shrinks them; here they're only kept and served.
+// Art. find-covers.mjs, on GitHub, finds the addresses, and the pictures stay where they are. Only a moderator's upload
+// is kept here.
 
 const COVER_BYTES = 256 * 1024;
+/// How many titles from the app can wait for a first look. Past this they're asked about again another day.
+const ART_QUEUE = 500;
 
 /// Replaces a game's cover. A file's name comes from its bytes, so it can be cached for good.
 async function saveCover(env, id, bytes, extension, source, origin, locked) {
@@ -427,7 +438,7 @@ async function saveCover(env, id, bytes, extension, source, origin, locked) {
   await env.PICTURES.put(`covers/${file}`, bytes);
   await env.DB.prepare(
     `INSERT INTO game_art (game_id, file, source, origin, locked, checked_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-     ON CONFLICT (game_id) DO UPDATE SET file = ?2, source = ?3, origin = ?4, locked = ?5, wanted = NULL, checked_at = ?6`,
+     ON CONFLICT (game_id) DO UPDATE SET file = ?2, source = ?3, origin = ?4, thumb = NULL, locked = ?5, wanted = NULL, checked_at = ?6`,
   ).bind(id, file, source, origin, locked ? 1 : 0, Date.now()).run();
   if (before && before !== file) await env.PICTURES.delete(`covers/${before}`);
 }
@@ -447,28 +458,55 @@ async function serveCover(request, env, file) {
 async function artList(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.file, a.wanted, a.locked, a.checked_at
+    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
   ).all();
-  return new Response(JSON.stringify({ games: results }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  const { results: asked } = await env.DB.prepare(`SELECT game_id AS id, name, checked_at FROM game_art WHERE game_id LIKE '%:%'`).all();
+  const titles = asked.map((title) => {
+    const [store, id] = title.id.split(':');
+    return { ...title, [store]: id };
+  });
+  return new Response(JSON.stringify({ games: [...results, ...titles] }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 }
 
-/// What find-covers.mjs found for one game: a shrunk AVIF in `image`, or `failed` when there's nothing new.
+/// What find-covers.mjs found for one game or title. Only a moderator's image replaces a cover a moderator chose.
 async function storeArt(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
-  const { id, links, source, origin, image, failed } = await request.json();
-  if (!await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
-  const found = JSON.stringify((links ?? []).filter(storeName));
+  const { id, links, source, cover: image, thumb, icon, hero } = await request.json();
+  const before = await env.DB.prepare('SELECT file, locked FROM game_art WHERE game_id = ?').bind(id).first();
+  if (!before && !await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
+  const address = (value) => typeof value === 'string' && value.startsWith('https://') && value.length <= 1000 ? value : null;
   await env.DB.prepare(
-    `INSERT INTO game_art (game_id, links, checked_at) VALUES (?1, ?2, ?3)
-     ON CONFLICT (game_id) DO UPDATE SET links = ?2, checked_at = ?3${failed ? ', wanted = NULL' : ''}`,
-  ).bind(id, found, Date.now()).run();
-  if (failed) return json({ stored: false });
-  const bytes = Uint8Array.from(atob(image ?? ''), (character) => character.charCodeAt(0));
-  const avif = String.fromCharCode(...bytes.slice(4, 8)) === 'ftyp';
-  if (!avif || bytes.length > COVER_BYTES) return json({ error: 'Not a cover.' }, 400);
-  await saveCover(env, id, bytes, 'avif', source, origin, source === 'moderator');
+    `INSERT INTO game_art (game_id, links, icon, hero, checked_at) VALUES (?1, ?2, ?3, ?4, ?5)
+     ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(?3, icon), hero = COALESCE(?4, hero), wanted = NULL, checked_at = ?5`,
+  ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), Date.now()).run();
+  const moderator = source === 'moderator';
+  if (!address(image) || (before?.locked && !moderator)) return json({ stored: false });
+  await env.DB.prepare('UPDATE game_art SET file = NULL, source = ?2, origin = ?3, thumb = ?4, locked = ?5 WHERE game_id = ?1')
+    .bind(id, source, address(image), address(thumb), moderator ? 1 : 0).run();
+  if (before?.file) await env.PICTURES.delete(`covers/${before.file}`);
   return json({ stored: true });
+}
+
+/// The art for a title in the app, by its store's ID. A title nobody has asked about joins the queue, and the app falls
+/// back on the store itself meanwhile.
+async function artFor(env, url, store, id) {
+  const key = `${store}:${id}`;
+  const game = await env.DB.prepare('SELECT game_id FROM game_keys WHERE store = ? AND store_id = ?').bind(store, id).first('game_id');
+  const art = await env.DB.prepare(
+    'SELECT file, origin, icon, hero FROM game_art WHERE game_id IN (?1, ?2) ORDER BY file IS NULL AND origin IS NULL LIMIT 1',
+  ).bind(key, game ?? key).first();
+  const name = url.searchParams.get('name')?.trim().slice(0, 200);
+  if (!art && !game && name) {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO game_art (game_id, name) SELECT ?1, ?2
+       WHERE (SELECT COUNT(*) FROM game_art WHERE checked_at = 0 AND game_id LIKE '%:%') < ?3`,
+    ).bind(key, name, ART_QUEUE).run();
+  }
+  const cover = art?.file ? `${url.origin}/pictures/covers/${art.file}` : art?.origin ?? null;
+  return new Response(JSON.stringify({ cover, icon: art?.icon ?? null, hero: art?.hero ?? null }), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': cover ? 'public, max-age=86400' : 'no-store' },
+  });
 }
 
 /// A moderator's picture, already shrunk in the browser; an image's address for find-covers.mjs to fetch; or back to
@@ -715,7 +753,7 @@ function cover(game) {
   if (/^[0-9a-f]{6}$/i.test(game.brand ?? '')) {
     return `<div class="cover tile" style="--brand:#${game.brand};--ink:${ink(game.brand)};--logo:url(/logos/${game.id}.svg)"><i></i></div>`;
   }
-  const art = game.art ? `<img src="/pictures/covers/${escape(game.art)}" alt="" loading="lazy" onerror="this.remove()">` : '';
+  const art = game.art ? `<img src="${escape(game.art)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   return `<div class="cover" style="--hue:${hue(game.name)}"><span>${escape(initials(game.name))}</span>${art}</div>`;
 }
 
@@ -984,6 +1022,7 @@ function gamePage(game, said, user, reports, error, moderator, own) {
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
 <a class="back" href="/games">All games</a>
+${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
 <header class="game">
   ${cover(game)}
   <div>
@@ -1140,6 +1179,11 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 <section>
   <h2>Logs and reports</h2>
   <p>Logs are only sent when you choose to. They file a public issue on <a href="${REPOSITORY}/issues">GitHub</a>, and the log and any screenshot are kept for 180 days. Your name, home folder, computer name and e-mail addresses are taken out first. The report service counts reports per network address to limit abuse, and those counts are gone within two hours.</p>
+</section>
+<section>
+  <h2>Game art</h2>
+  <p>Covers and banners load directly from where they're published, such as Steam, GOG or TheGamesDB, so your browser or the app connects to those services to show them.</p>
+  <p>To find a cover, the app sends this site the title's store ID and name, and nothing about you or your install. A title the site hasn't seen is added to the list it looks up art for.</p>
 </section>
 <section>
   <h2>Who runs this</h2>

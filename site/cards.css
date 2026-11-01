@@ -49,7 +49,10 @@
 .medal.silver, .fill.silver { --tier: var(--silver); }
 .medal.bronze, .fill.bronze { --tier: var(--bronze); }
 .medal.borked, .fill.borked { --tier: var(--borked); }
+.card:hover { text-decoration: none; }
 .card:hover h3 { color: var(--accent); }
+.card:hover .tag, .card:hover .column { color: var(--text); }
+.card:hover .medal { background: color-mix(in srgb, var(--tier) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier) 70%, transparent); }
 @media (max-width: 600px) {
   .cover span { font-size: 26px; }
 }

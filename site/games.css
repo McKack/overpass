@@ -68,6 +68,8 @@ section { margin-top: 40px; }
 #direction { width: 32px; height: 30px; padding: 0; border: 1px solid var(--separator); border-radius: 8px; cursor: pointer; font: inherit; color: var(--text); background: var(--surface); }
 #views { margin-left: auto; }
 
+.hero { display: block; width: 100%; aspect-ratio: 96 / 31; object-fit: cover; border-radius: 12px; margin-bottom: 20px; }
+
 /* Rows: every card a line of a table, under headers that sort it. */
 .heads, .grid.rows .card {
   --columns: 36px minmax(0, 1fr) 88px 64px 104px 112px 76px 104px;

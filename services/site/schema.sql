@@ -29,13 +29,18 @@ CREATE TABLE IF NOT EXISTS game_keys (
 );
 CREATE INDEX IF NOT EXISTS game_keys_game ON game_keys (game_id);
 
--- A game's cover and the store pages found for it. find-covers.mjs fills this from GitHub; the file itself is
--- covers/<file> in the PICTURES store.
+-- The addresses of a game's art, where the pictures stay, and the store pages found for it. find-covers.mjs fills this
+-- from GitHub. A row whose game_id is <store>:<id> is a title the app asked about that has no page; checked_at 0 means it
+-- waits for its first look.
 CREATE TABLE IF NOT EXISTS game_art (
   game_id TEXT PRIMARY KEY,
-  file TEXT,
+  name TEXT,                         -- the name the app gave, for a title with no page
+  file TEXT,                         -- a moderator's upload: covers/<file> in the PICTURES store
   source TEXT,                       -- steam, gog, thegamesdb, steamgriddb or moderator
-  origin TEXT,                       -- the address it came from
+  origin TEXT,                       -- the cover's address
+  thumb TEXT,                        -- a smaller cover, where the source has one
+  icon TEXT,
+  hero TEXT,
   links TEXT NOT NULL DEFAULT '[]',
   wanted TEXT,                       -- an image's address from a moderator, waiting for find-covers.mjs
   locked INTEGER NOT NULL DEFAULT 0, -- a moderator's choice: nothing automatic replaces it

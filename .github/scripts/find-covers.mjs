@@ -1,17 +1,23 @@
-// Finds each game's cover and shrinks it for the site, which keeps and serves it (services/site/src/index.js). Run by
-// sync-games.yml. A cover comes from the first of these that has one: Steam by the game's ID, Steam by the exact name,
-// GOG by ID, GOG by the exact name, TheGamesDB (TGDB_KEY), SteamGridDB (SGDB_KEY). Only an exact name counts: a near
-// match puts the wrong game's cover on a page. A moderator's image goes first and stays. Store pages found on the way
-// go on the game's page.
+// Finds the addresses of each game's art for the site, which keeps the addresses and links to the pictures where they
+// are. Run by sync-games.yml every half hour. Each kind of art comes from the first of these that has it: Steam by the
+// game's ID, Steam by the exact name, GOG by ID, GOG by the exact name, TheGamesDB (TGDB_KEY), and for a cover
+// SteamGridDB (SGDB_KEY). Only an exact name counts: a near match puts the wrong game's art on a page. A moderator's
+// image goes first and stays. Store pages found on the way go on the game's page.
 //
-//   SITE=... SYNC_TOKEN=... node find-covers.mjs            does up to LIMIT games
-//   SITE=... SYNC_TOKEN=... node find-covers.mjs --waiting  exits 0 when there's work, 1 when there's none
+// Every game gets a turn once a month, the longest unchecked first, so the checks spread out evenly. Titles the app has
+// just asked about go ahead of that, up to NEW_A_RUN at a time. TheGamesDB's monthly allowance is shared out the same way.
+//
+//   SITE=... SYNC_TOKEN=... node find-covers.mjs
 
 import { pathToFileURL } from 'node:url';
 
-const LIMIT = 200;
-const RETRY = 7 * 24 * 3600 * 1000;
+const RUN_SECONDS = 1800;
+const RUNS_A_MONTH = 30 * 24 * 3600 / RUN_SECONDS;
+const NEW_A_RUN = 20;
+/// The most games TheGamesDB is asked about in a run, whatever is left of the allowance.
+const TGDB_A_RUN = 5;
 const STEAM_ART = 'https://shared.akamai.steamstatic.com/store_item_assets/';
+const STEAM_ICONS = 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/';
 const SGDB = 'https://www.steamgriddb.com/api/v2';
 /// TheGamesDB's platform number for PC.
 const TGDB_PC = 1;
@@ -22,11 +28,14 @@ export function sameName(a, b) {
   return plain(a) === plain(b);
 }
 
-/// The games to look at now: a moderator's image, or no cover yet and not looked for lately. Launchers and programs
+/// The games to look at now: a moderator's image, new titles, and this run's share of the month. Launchers and programs
 /// that aren't games keep their tiles.
-export function waiting(games, now = Date.now()) {
-  return games.filter((game) => game.wanted
-    || (!game.locked && !game.file && !game.brand && [null, 'Games'].includes(game.category) && now - (game.checked_at ?? 0) > RETRY));
+export function due(games) {
+  const turns = games.filter((game) => !game.brand && [null, undefined, 'Games'].includes(game.category));
+  const fresh = turns.filter((game) => !game.checked_at).slice(0, NEW_A_RUN);
+  const oldest = turns.filter((game) => game.checked_at).sort((a, b) => a.checked_at - b.checked_at);
+  const picked = [...fresh, ...oldest.slice(0, Math.ceil(turns.length / RUNS_A_MONTH))];
+  return [...games.filter((game) => game.wanted && !picked.includes(game)), ...picked];
 }
 
 async function json(get, url, headers) {
@@ -34,12 +43,18 @@ async function json(get, url, headers) {
   return response?.ok ? response.json().catch(() => null) : null;
 }
 
-async function steamCover(get, id) {
+async function steamArt(get, id) {
   const input = { ids: [{ appid: Number(id) }], context: { language: 'english', country_code: 'US', steam_realm: 1 }, data_request: { include_assets: true } };
   const answer = await json(get, `https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${encodeURIComponent(JSON.stringify(input))}`);
   const assets = answer?.response?.store_items?.[0]?.assets;
-  const file = assets?.library_capsule_2x ?? assets?.library_capsule;
-  return file ? STEAM_ART + assets.asset_url_format.replace('${FILENAME}', file) : null;
+  if (!assets?.asset_url_format) return {};
+  const address = (file) => file ? STEAM_ART + assets.asset_url_format.replace('${FILENAME}', file) : undefined;
+  return {
+    cover: address(assets.library_capsule_2x ?? assets.library_capsule),
+    thumb: address(assets.library_capsule),
+    hero: address(assets.library_hero),
+    icon: assets.community_icon ? `${STEAM_ICONS}${id}/${assets.community_icon}.jpg` : undefined,
+  };
 }
 
 async function steamMatch(get, name) {
@@ -52,18 +67,37 @@ async function gogMatch(get, name) {
   return answer?.products?.find((product) => sameName(product.title, name)) ?? null;
 }
 
-async function gogCover(get, id) {
-  const answer = await json(get, `https://gamesdb.gog.com/platforms/gog/external_releases/${id}`);
-  return answer?.game?.vertical_cover?.url_format?.replace('{formatter}', '').replace('{ext}', 'jpg') ?? null;
+async function gogArt(get, id) {
+  const game = (await json(get, `https://gamesdb.gog.com/platforms/gog/external_releases/${id}`))?.game;
+  const address = (art, extension) => art?.url_format?.replace('{formatter}', '').replace('{ext}', extension);
+  return { cover: address(game?.vertical_cover, 'jpg'), hero: address(game?.background, 'jpg'), icon: address(game?.square_icon, 'png') };
 }
 
-async function tgdbCover(get, name, key) {
+/// How many games TheGamesDB can be asked about in this run, so what's left of the allowance lasts until it refills. A
+/// share under one becomes one now and then. Each game takes two requests. Asking this doesn't count against it.
+export async function tgdbShare(get, key, chance = Math.random()) {
+  const limit = await json(get, `https://api.thegamesdb.net/v1/API/Limit?apikey=${encodeURIComponent(key)}`);
+  if (!limit) return 0;
+  if (limit.allowance_refresh_timer == null) return TGDB_A_RUN;
+  const left = (limit.remaining_monthly_allowance ?? 0) + (limit.extra_allowance ?? 0);
+  return Math.min(TGDB_A_RUN, Math.floor(left / 2 / Math.max(1, limit.allowance_refresh_timer / RUN_SECONDS) + chance));
+}
+
+async function tgdbArt(get, name, key) {
   const query = new URLSearchParams({ apikey: key, name, include: 'boxart', 'filter[platform]': TGDB_PC });
   const answer = await json(get, `https://api.thegamesdb.net/v1.1/Games/ByGameName?${query}`);
   const game = answer?.data?.games?.find((entry) => sameName(entry.game_title, name));
-  const boxart = answer?.include?.boxart;
-  const front = boxart?.data?.[game?.id]?.find((image) => image.side === 'front');
-  return front ? boxart.base_url.original + front.filename : null;
+  if (!game) return {};
+  const boxart = answer.include?.boxart;
+  const front = boxart?.data?.[game.id]?.find((image) => image.side === 'front');
+  const images = new URLSearchParams({ apikey: key, games_id: game.id, 'filter[type]': 'fanart' });
+  const fanart = (await json(get, `https://api.thegamesdb.net/v1/Games/Images?${images}`))?.data;
+  const hero = fanart?.images?.[game.id]?.[0];
+  return {
+    cover: front && boxart.base_url.original + front.filename,
+    thumb: front && boxart.base_url.medium + front.filename,
+    hero: hero && fanart.base_url.original + hero.filename,
+  };
 }
 
 async function sgdbCover(get, game, steam, key) {
@@ -78,56 +112,53 @@ async function sgdbCover(get, game, steam, key) {
   return answer?.data?.[0]?.url ?? null;
 }
 
-/// Addresses of images for a game, best first as { source, url }, and the store pages found.
-export async function candidates(game, { get = fetch, tgdb, sgdb } = {}) {
-  const found = [];
-  const add = async (source, url) => { const address = await url; if (address) found.push({ source, url: address }); };
-  const steam = game.steam ?? await steamMatch(get, game.name);
-  const gog = await gogMatch(get, game.name);
-  if (game.wanted) found.push({ source: 'moderator', url: game.wanted });
-  else {
-    if (steam) await add('steam', steamCover(get, steam));
-    if (!found.length && game.gog) await add('gog', gogCover(get, game.gog));
-    if (!found.length && gog?.coverVertical) await add('gog', gog.coverVertical);
-    if (!found.length && tgdb) await add('thegamesdb', tgdbCover(get, game.name, tgdb));
-    if (!found.length && sgdb) await add('steamgriddb', sgdbCover(get, game, steam, sgdb));
+/// The addresses of a game's art, the source of its cover, and the store pages found. `tgdb` is { key, share }, and uses up
+/// the share.
+export async function findArt(game, { get = fetch, tgdb, sgdb } = {}) {
+  const art = {};
+  const fill = (source, found) => {
+    if (found.cover && !art.cover) { art.source = source; art.thumb = found.thumb; }
+    for (const kind of ['cover', 'hero', 'icon']) if (found[kind]) art[kind] ??= found[kind];
+  };
+  const steam = game.steam ?? (game.name ? await steamMatch(get, game.name) : null);
+  const gog = game.name ? await gogMatch(get, game.name) : null;
+  if (steam) fill('steam', await steamArt(get, steam));
+  const release = game.gog ?? gog?.id;
+  if (release) {
+    const found = await gogArt(get, release);
+    fill('gog', found);
+    // Steam's icons are only 32 px.
+    if (found.icon) art.icon = found.icon;
   }
+  if (gog?.coverVertical) fill('gog', { cover: gog.coverVertical });
+  if ((!art.cover || !art.hero) && tgdb?.share > 0) {
+    tgdb.share -= 1;
+    fill('thegamesdb', await tgdbArt(get, game.name, tgdb.key));
+  }
+  if (!art.cover && sgdb) fill('steamgriddb', { cover: await sgdbCover(get, game, steam, sgdb) });
   const links = [...(steam ? [`https://store.steampowered.com/app/${steam}`] : []), ...(gog?.storeLink ? [gog.storeLink] : [])];
-  return { found, links };
+  return { art, links };
 }
 
-/// The first candidate that downloads and shrinks.
-async function firstImage(found, { get, shrink }) {
-  for (const { source, url } of found) {
-    const response = await get(url).catch(() => null);
-    if (!response?.ok) continue;
-    const image = await shrink(Buffer.from(await response.arrayBuffer())).catch(() => null);
-    if (image) return { source, origin: url, image: image.toString('base64') };
-  }
-  return null;
+async function isImage(get, url) {
+  const response = await get(url).catch(() => null);
+  return Boolean(response?.ok && response.headers.get('Content-Type')?.startsWith('image/'));
 }
 
-export async function run({ site, token, get = fetch, shrink, tgdb, sgdb, log = console.log }) {
+export async function run({ site, token, get = fetch, tgdb, sgdb, log = console.log }) {
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const answer = await get(`${site}/api/art`, { headers });
   if (!answer.ok) throw new Error(`GET /api/art: ${answer.status}`);
   const { games } = await answer.json();
-  for (const game of waiting(games).slice(0, LIMIT)) {
-    const { found, links } = await candidates(game, { get, tgdb, sgdb });
-    const image = await firstImage(found, { get, shrink });
-    const posted = await get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify({ id: game.id, links, ...(image ?? { failed: true }) }) });
-    log(`${game.id}: ${image ? image.source : 'nothing'} ${posted.ok ? '' : `(the site said ${posted.status})`}`);
+  const allowance = tgdb ? { key: tgdb, share: await tgdbShare(get, tgdb) } : null;
+  for (const game of due(games)) {
+    const { art, links } = await findArt(game, { get, tgdb: allowance, sgdb });
+    if (game.wanted && await isImage(get, game.wanted)) Object.assign(art, { source: 'moderator', cover: game.wanted, thumb: undefined });
+    const posted = await get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify({ id: game.id, links, ...art }) });
+    log(`${game.id}: ${art.source ?? 'nothing'} ${posted.ok ? '' : `(the site said ${posted.status})`}`);
   }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const site = process.env.SITE, token = process.env.SYNC_TOKEN;
-  if (process.argv.includes('--waiting')) {
-    const answer = await fetch(`${site}/api/art`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!answer.ok) throw new Error(`GET /api/art: ${answer.status}`);
-    process.exit(waiting((await answer.json()).games).length ? 0 : 1);
-  }
-  const { default: sharp } = await import('sharp');
-  const shrink = (bytes) => sharp(bytes).resize(400, 600, { fit: 'cover' }).avif({ quality: 50, effort: 6 }).toBuffer();
-  await run({ site, token, shrink, tgdb: process.env.TGDB_KEY, sgdb: process.env.SGDB_KEY });
+  await run({ site: process.env.SITE, token: process.env.SYNC_TOKEN, tgdb: process.env.TGDB_KEY, sgdb: process.env.SGDB_KEY });
 }

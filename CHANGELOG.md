@@ -21,6 +21,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 - OverPass picks up new and changed game profiles when it checks for updates, so a fix no longer has to wait for a release. Updates are signed, and your own profiles still win.
 - Settings you share wait for review on the site instead of filing a public issue.
 
+**Covers**
+- Covers can now come from the games site, so a corrected cover and games a store has no art for reach the app. OverPass sends the site a title's store ID and name to ask for one, and nothing about you.
+
 **Home**
 - Home shows which version of OverPass you're on.
 

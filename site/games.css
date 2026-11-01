@@ -84,6 +84,7 @@ section { margin-top: 40px; }
 .choice { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
 .choice legend { padding: 0; margin-bottom: 8px; font-size: 15px; color: var(--secondary); }
 .rating .author { margin-right: auto; }
+.role { padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent); box-shadow: inset 0 0 0 1px currentColor; }
 .group { grid-column: 1 / -1; margin: 16px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--separator); font-size: 20px; }
 .group:first-child { margin-top: 0; }
 .grid.rows { display: block; }

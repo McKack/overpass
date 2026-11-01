@@ -13,10 +13,11 @@
 //   POST /account/picture, /account/picture/delete   set or remove one's picture; GET /pictures/<key>.jpg
 //   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
 //   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
-//   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for the accounts in MODERATORS
+//   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for Admins and Mods
+//   POST /moderation/mods, /moderation/mods/<user>/remove   Admins make an account a Mod, or stop it being one
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
-//   POST /moderation/suggestions/<entry>/(approve|reject)   the same accounts decide on a suggested profile
+//   POST /moderation/suggestions/<entry>/(approve|reject)   Admins decide on a suggested profile
 //   GET  /api/art                what find-covers.mjs needs for each game; needs the SYNC_TOKEN secret
 //   POST /api/art                { id, links, source, cover, thumb, icon, hero } from the same script; the same secret
 //   GET  /api/art/<store>/<id>?name=   the art the app shows; a title not seen before joins the queue for find-covers.mjs
@@ -59,13 +60,14 @@ export default {
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
       const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
       const decided = path.match(/^\/moderation\/suggestions\/([0-9a-f-]+)\/(approve|reject)$/);
+      const modded = path.match(/^\/moderation\/mods(?:\/([0-9a-f-]+)\/remove)?$/);
       const covered = path.match(/^\/games\/([a-z0-9-]+)\/cover(?:\/(url|reset))?$/);
       const ticket = path.match(/^\/report\/([0-9a-f]{64})$/);
       if (ticket && request.method === 'POST') {
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         return await sendReport(request, env, ticket[1], await signedIn(request, env));
       }
-      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || covered
+      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || modded || covered
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
@@ -75,7 +77,8 @@ export default {
         if (reported) return await report(env, user, ...reported.slice(1));
         if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
         if (unpictured) return isModerator(env, user) ? await takeDownPicture(env, unpictured[1]) : redirect('/account');
-        if (decided) return isModerator(env, user) ? await decide(env, ...decided.slice(1)) : redirect('/account');
+        if (decided) return isAdmin(user) ? await decide(env, ...decided.slice(1)) : redirect('/account');
+        if (modded) return isAdmin(user) ? await changeMods(request, env, modded[1]) : redirect('/account');
         if (covered) return isModerator(env, user) ? await changeCover(request, env, covered[1], covered[2]) : redirect('/account');
         if (rated) {
           if (!isModerator(env, user)) return redirect('/account');
@@ -102,7 +105,8 @@ export default {
         }
         if (path === '/moderation') {
           const user = await signedIn(request, env);
-          return isModerator(env, user) ? personal(moderationPage(await queue(env), await suggestions(env))) : redirect('/account');
+          if (!isModerator(env, user)) return redirect('/account');
+          return personal(moderationPage(await queue(env), isAdmin(user) ? await suggestions(env) : null, isAdmin(user) ? await mods(env) : null, url.searchParams.get('error')));
         }
         if (path === '/privacy') {
           const moderator = isModerator(env, await signedIn(request, env));
@@ -221,7 +225,7 @@ async function detail(env, id) {
   const [rated, { results }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
-      `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, r.install LIKE 'account:%' AS admin,
+      `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, ${badgeOf('u')},
          CASE WHEN u.public = 1 THEN u.name END AS author, CASE WHEN u.public = 1 THEN u.picture END AS author_picture
        FROM ratings r LEFT JOIN users u ON u.id = r.user_id
        WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
@@ -312,7 +316,7 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name, users.picture, users.public FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.picture, users.public, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -560,7 +564,7 @@ const COMMENTS_A_DAY = 20;
 /// A hidden comment still shows to the person who wrote it, so they can delete it.
 async function comments(env, id, user) {
   const { results } = await env.DB.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture FROM comments
+    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture, ${badgeOf('users')} FROM comments
      JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND (comments.hidden = 0 OR comments.user_id = ?)
      ORDER BY comments.created_at DESC LIMIT 200`,
   ).bind(id, user?.id ?? null).all();
@@ -611,8 +615,8 @@ async function addOwnRating(request, env, user, id) {
   if (LOW_TIERS.includes(tier) && !comment) return redirect(`${back}?error=low#ratings`);
   await env.DB.batch([
     ...forgetOwnRating(env, user, id),
-    env.DB.prepare('INSERT INTO ratings (id, game_id, tier, comment, install, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(crypto.randomUUID(), id, tier, comment || null, accountRater(user), Date.now()),
+    env.DB.prepare('INSERT INTO ratings (id, game_id, tier, comment, install, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), id, tier, comment || null, accountRater(user), user.id, Date.now()),
   ]);
   return redirect(`${back}#ratings`);
 }
@@ -632,7 +636,27 @@ const forgetOwnRating = (env, user, id) => [
 const REPORTS_TO_HIDE = 3;
 const REPORTS_A_DAY = 20;
 
-const isModerator = (env, user) => Boolean(user) && (env.MODERATORS || '').split(',').includes(user.id);
+const isAdmin = (user) => user?.role === 'admin';
+const isModerator = (env, user) => isAdmin(user) || user?.role === 'mod';
+
+/// The badge a person shows. An Admin who chooses to be a Member shows as a Mod.
+const badgeOf = (users) => `CASE WHEN ${users}.role = 'admin' AND ${users}.public = 1 THEN 'Admin' WHEN ${users}.role IN ('admin', 'mod') THEN 'Mod' END AS badge`;
+
+async function mods(env) {
+  const { results } = await env.DB.prepare("SELECT id, name, picture FROM users WHERE role = 'mod' ORDER BY name COLLATE NOCASE").all();
+  return results;
+}
+
+/// Only ever between no role and Mod: this can't touch an Admin, or make one.
+async function changeMods(request, env, id) {
+  if (id) {
+    await env.DB.prepare("UPDATE users SET role = NULL WHERE id = ? AND role = 'mod'").bind(id).run();
+    return redirect('/moderation#mods');
+  }
+  const name = String((await request.formData()).get('name') || '').trim();
+  const made = await env.DB.prepare("UPDATE users SET role = 'mod' WHERE name = ? COLLATE NOCASE AND role IS NULL").bind(name).run();
+  return redirect(made.meta.changes ? '/moderation#mods' : '/moderation?error=mod#mods');
+}
 
 async function reportedBy(env, user) {
   if (!user) return new Set();
@@ -747,6 +771,7 @@ async function serveProfiles(env) {
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const date = (time) => new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const roleBadge = (title) => (title ? `<span class="role">${escape(title)}</span>` : '');
 const hue = (name) => [...name].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 360, 7);
 const initials = (name) => name.replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join('').toUpperCase() || '?';
 
@@ -950,10 +975,10 @@ function ratingCard(game, rating, user, reports, own) {
   const facts = [
     rating.chip, rating.macos && `macOS ${rating.macos}`, rating.wine && `Wine ${rating.wine}`,
     rating.runtime && rating.runtime !== 'not installed' && `Runtime ${rating.runtime}`, rating.backend,
-    rating.fps && `${Math.round(rating.fps)} fps`, rating.admin && 'Admin rating',
+    rating.fps && `${Math.round(rating.fps)} fps`,
   ].filter(Boolean);
   return `<article class="rating" id="rating-${rating.id}">
-  <div class="line">${medal(rating.tier)}${rating.author ? `<span class="who author">${avatar(rating.author, rating.author_picture)}${escape(rating.author)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
+  <div class="line">${medal(rating.tier)}${rating.author || rating.badge ? `<span class="who author">${rating.author ? `${avatar(rating.author, rating.author_picture)}${escape(rating.author)}` : ''}${roleBadge(rating.badge)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
   ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports)}
@@ -963,7 +988,7 @@ function ratingCard(game, rating, user, reports, own) {
 function commentCard(game, comment, user, reports) {
   const mine = comment.user_id === user?.id;
   return `<article class="rating" id="comment-${comment.id}">
-  <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${escape(comment.name)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
+  <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${escape(comment.name)}${roleBadge(comment.badge)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
   <p class="comment">${escape(comment.body)}</p>
   ${comment.hidden ? '<p class="muted">Hidden after reports. Only you can see this.</p>' : ''}
   ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
@@ -1174,16 +1199,27 @@ function moderationCard(entry) {
 </article>`;
 }
 
-const moderationPage = (entries, suggested) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings, and suggested profiles.', `
-<header class="page"><h1>Moderation</h1><p>Suggested profiles, and reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
-<section>
+/// `suggested` and `team` are only there for an Admin.
+const moderationPage = (entries, suggested, team, error) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings, and suggested profiles.', `
+<header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings${suggested ? ', suggested profiles and Mods' : ''}. Deciding clears an entry's reports.</p></header>
+${suggested ? `<section>
   <h2>Suggested profiles</h2>
   ${suggested.length ? suggested.map(suggestionCard).join('\n') : '<p class="empty">None waiting.</p>'}
-</section>
+</section>` : ''}
 <section>
   <h2>Reports</h2>
   ${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}
-</section>`, true);
+</section>
+${team ? `<section id="mods">
+  <h2>Mods</h2>
+  ${error === 'mod' ? '<p class="problem" role="alert">No account without a role has that username.</p>' : ''}
+  ${team.map((mod) => `<article class="rating"><div class="line"><span class="who">${avatar(mod.name ?? '?', mod.picture)}${escape(mod.name ?? 'No username yet')}</span><form method="post" action="/moderation/mods/${mod.id}/remove"><button class="link" type="submit">Remove</button></form></div></article>`).join('\n')}
+  <form class="account" method="post" action="/moderation/mods">
+    <label for="mod-name">Make a Mod, by username</label>
+    <input id="mod-name" name="name" required maxlength="30" autocomplete="off">
+    <button class="button" type="submit">Add Mod</button>
+  </form>
+</section>` : ''}`, true);
 
 /// Crops to a square and shrinks it here, so only a small JPEG is ever sent.
 function pictureForm(user) {
@@ -1215,8 +1251,8 @@ function publicForm(user) {
   const choice = (value, title, about) => `<label><input type="radio" name="public" value="${value}"${(user.public ? 1 : 0) === value ? ' checked' : ''}> <strong>${title}</strong>: ${about}</label>`;
   return `<form class="write" method="post" action="/account/public">
   <fieldset class="choice"><legend>Your ratings</legend>
-    ${choice(0, 'Member', "your ratings are on your account, and your name isn't shown with them")}
-    ${choice(1, 'Public Contributor', 'your username and picture are shown with your ratings')}
+    ${choice(0, 'Member', user.role ? "your name isn't shown with your ratings, only a Mod badge" : "your ratings are on your account, and your name isn't shown with them")}
+    ${choice(1, 'Public Contributor', `your username and picture are shown with your ratings${user.role ? `, with ${user.role === 'admin' ? 'an Admin' : 'a Mod'} badge` : ''}`)}
   </fieldset>
   <button class="button quiet" type="submit">Save</button>
 </form>`;
@@ -1268,7 +1304,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
   <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one.</p>
   <p>A rating is anonymous unless you're signed in and send it from your account. As a Member your name isn't shown with your ratings; as a Public Contributor your username and picture are. You choose on your account page and can change it at any time. Deleting your account leaves your ratings on the site, anonymous.</p>
   <p>The app uploads what it knows and opens a private page where you finish the rating. What you don't send is deleted after a day.</p>
-  <p>OverPass admins can also rate a game on its page. Those ratings are marked as an admin's and go with the admin's account.</p>
+  <p>OverPass Admins and Mods can also rate a game on its page. Their ratings and comments carry a badge, and ratings made on the page go with their account.</p>
   <p>If you share your settings, they wait for an admin along with your comment and versions. Approved settings become public in the game's profile on GitHub, without your comment or anything that says who sent them.</p>
 </section>
 <section>

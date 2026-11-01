@@ -2,6 +2,8 @@
 --   ALTER TABLE ratings ADD COLUMN user_id TEXT;
 --   ALTER TABLE users ADD COLUMN public INTEGER NOT NULL DEFAULT 0;
 --   CREATE INDEX ratings_user ON ratings (user_id);
+--   ALTER TABLE users ADD COLUMN role TEXT;
+-- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
 -- The games database (D1 "overpass-games"), shared by the site's worker, which reads it and stores the list of games
 -- from profiles/, and the report relay, which adds ratings. Apply with:
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS users (
   picture TEXT,                      -- its key in the PICTURES store, when they added one
   created_at INTEGER NOT NULL,
   public INTEGER NOT NULL DEFAULT 0, -- a Public Contributor: their name shows on their ratings. 0 is a Member: it doesn't
+  role TEXT,                         -- admin, or mod, which Admins hand out on /moderation
   UNIQUE (provider, provider_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (name) WHERE name IS NOT NULL;

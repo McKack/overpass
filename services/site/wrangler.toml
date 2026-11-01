@@ -18,8 +18,6 @@ run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/acc
 # Google Cloud project named-berm-513401-i3, web client "OverPass site". The redirect URI there is
 # https://overpass.arctim.no/auth/google/callback.
 GOOGLE_CLIENT_ID = "17484810858-687cnl3es1se4v9tn8evvcsr34kvuc6n.apps.googleusercontent.com"
-# Account IDs (users.id), comma-separated, that can open /moderation.
-MODERATORS = "5e5b27e4-7922-44ad-ac52-b2515e7a2fc8"
 REPORT_RELAY = "https://reports.arctim.no/overpass"
 
 # The report relay: a report finished on /report/<ticket> goes out through it.

@@ -131,6 +131,7 @@ class ComponentManager {
         async let runtime = try? GitHubRelease.latest(repo: "McKack/overpass-runtime") { $0.hasSuffix(".tar.xz") }
         async let tricks = try? GitHubRelease.latestTag(repo: "Winetricks/winetricks")
         await ComponentCatalog.refresh()
+        if await ProfileUpdates.refresh() { ProfileStore.current?.load() }
 
         var found: [ComponentID: String] = [:]
         appRelease = await app.flatMap { AppUpdate.isNewer($0.version, than: AppUpdate.currentVersion) ? $0 : nil }

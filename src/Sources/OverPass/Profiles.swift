@@ -431,8 +431,11 @@ enum Direct3D9Backend: String, CaseIterable, Identifiable {
 class ProfileStore {
     private(set) var profiles: [GameProfile] = []
 
+    private(set) static weak var current: ProfileStore?
+
     init() {
         load()
+        Self.current = self
     }
 
     /// SwiftPM's generated Bundle.module looks next to the .app rather than in Contents/Resources,
@@ -496,8 +499,14 @@ class ProfileStore {
     /// Edited profiles whose bundled original has changed since the copy was made.
     private(set) var originalChanged: Set<String> = []
 
-    nonisolated static var bundledDirectory: URL? {
+    nonisolated static var shippedDirectory: URL? {
         resourceBundle.url(forResource: "Profiles", withExtension: nil)
+    }
+
+    /// OverPass's own profiles: the set that came with the app, or a newer one from ProfileUpdates.
+    nonisolated static var bundledDirectory: URL? {
+        ProfileUpdates.serial(of: ProfileUpdates.directory) > ProfileUpdates.serial(of: shippedDirectory)
+            ? ProfileUpdates.directory : shippedDirectory
     }
 
     private static func iniFiles(in dir: URL?) -> [String: URL] {

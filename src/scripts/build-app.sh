@@ -17,6 +17,8 @@ cp -R "$BIN/OverPass_OverPass.bundle" "$APP/Contents/Resources/"
 # The profiles live at the top of the repository, where they're easy to find and edit.
 rm -rf "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 cp -R ../profiles "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
+# When they last changed, so OverPass can tell whether a downloaded set is newer (ProfileUpdates.swift).
+git log -1 --format=%ct -- ../profiles > "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles/serial"
 # The Credits window shows the repository's CREDITS.md.
 cp ../CREDITS.md "$APP/Contents/Resources/CREDITS.md"
 # The What's New window shows the plain lists from the repository's CHANGELOG.md.

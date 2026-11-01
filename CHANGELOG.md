@@ -6,6 +6,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 
 - One window for telling OverPass how a game ran: How Did It Run? replaces Report Issue and Submit Rating
 - Rating a game no longer sends a profile you haven't changed
+- Game profiles update between OverPass releases
 - Smaller bug fixes and improvements
 
 ### Details
@@ -15,6 +16,10 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Rating a game again on the same versions replaces your last rating. A random ID for your install makes that work; it's never shown.
 - A game with no profile can now share its settings too.
 - Help › Report Issue… and Request Feature… stay as they are, and so does the report key while a game runs.
+
+**Profiles**
+- OverPass picks up new and changed game profiles when it checks for updates, so a fix no longer has to wait for a release. Updates are signed, and your own profiles still win.
+- Settings you share wait for review on the site instead of filing a public issue.
 
 **Home**
 - Home shows which version of OverPass you're on.

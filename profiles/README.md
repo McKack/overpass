@@ -1,7 +1,8 @@
 # Profiles
 
 OverPass's open database of per-game settings, in the top folder of the repository so anyone can read it, use it
-in their own tools, or send a fix as a pull request. The app ships with a copy of this folder.
+in their own tools, or send a fix as a pull request. The app ships with a copy of this folder and picks up signed
+updates between releases. People can also suggest settings from the app: once approved, they land here.
 
 One INI file per app, named after it: `<id>.ini` (the id is the file name without the extension, for
 example `gog-galaxy`). You can edit these files without building anything.

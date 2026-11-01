@@ -137,6 +137,9 @@ footer a { color: inherit; }
 .link:hover { text-decoration: underline; }
 .reported { margin: 8px 0 0; font-size: 13px; color: var(--secondary); }
 .decide { display: flex; gap: 10px; margin-top: 12px; }
+.diff { margin: 10px 0 0; padding: 10px 12px; overflow-x: auto; font-size: 13px; line-height: 1.5; border-radius: 8px; background: rgba(127, 127, 127, .12); }
+.diff del { color: #d9534f; text-decoration: none; }
+.diff ins { color: #2e9e5b; text-decoration: none; }
 .tiers { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
 .tiers legend { padding: 0; margin-bottom: 8px; font-size: 15px; color: var(--secondary); }
 .tiers label { cursor: pointer; }

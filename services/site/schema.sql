@@ -91,3 +91,28 @@ CREATE TABLE IF NOT EXISTS reports (
   PRIMARY KEY (target, user_id)
 );
 CREATE INDEX IF NOT EXISTS reports_user ON reports (user_id, created_at);
+
+-- Profiles people suggest from the app. A moderator's Approve only marks one; publish-profiles.mjs, which runs on GitHub,
+-- checks it, commits it to profiles/ and marks it published.
+CREATE TABLE IF NOT EXISTS suggestions (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,          -- the file it would become: profiles/<profile_id>.ini
+  body TEXT NOT NULL,
+  comment TEXT,
+  overpass TEXT,
+  wine TEXT,
+  runtime TEXT,
+  install TEXT,                      -- the app's random ID: a newer suggestion from it replaces a waiting one
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending, approved or published; a refused one is deleted
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS suggestions_status ON suggestions (status, created_at);
+CREATE INDEX IF NOT EXISTS suggestions_install ON suggestions (install, game_id);
+
+-- The latest signed set of profiles, as the app downloads it. Signed on GitHub with a key this site doesn't hold.
+CREATE TABLE IF NOT EXISTS profile_set (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  serial INTEGER NOT NULL,
+  body TEXT NOT NULL
+);

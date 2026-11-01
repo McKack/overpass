@@ -12,11 +12,11 @@
 // Only reports whose details block carries a valid checksum are accepted, at most HOURLY_LIMIT per address an
 // hour. The issue has the same sections as the app repository's forms, so its check workflow treats it the same.
 // A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
-// One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and no log either.
+// One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and a log if asked for.
 // One with "kind: rating" is a rating alone: no profile or log, and a comment only if it's Bronze or Borked.
-// Ratings go to the games database, for the site's game pages, and the answer is that page's address. Only a
-// submitted profile also makes an issue, for review. A report with a log can carry a `rating:` line as well, with or
-// without a profile: it makes its issue and the rating goes to the database too, and the answer is the issue.
+// Ratings go to the games database, for the site's game pages, and the answer is that page's address. A submitted
+// profile waits there too, for a moderator. A report with a log can carry a `rating:` line as well, with or without a
+// profile: it makes its issue, the rating and profile go to the database too, and the answer is the issue.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -79,6 +79,10 @@ async function report(request, env, url, app, repo) {
 
   await env.REPORTS.put(countKey, String(count + 1), { expirationTtl: 7200 });
   if (rated) return json({ url: await addRating(env, app, block, what, null, install) });
+  if (submitted && !zip) {
+    await addSuggestion(env, block, profile, what, install);
+    return json({ url: await addRating(env, app, block, what, null, install) });
+  }
 
   const id = crypto.randomUUID();
   const name = safeName(zip?.name || "OverPass Logs.zip");
@@ -89,17 +93,17 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    ...(submitted && !zip ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
+    feature ? "### What would you like?" : "### What happened", "", what, "",
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
-    ...(feature || (submitted && !zip) ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
+    ...(feature ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: feature ? ["feature"] : submitted ? (zip ? ["profile", "report"] : ["profile"]) : ["report"] }),
+    body: JSON.stringify({ title, body, labels: feature ? ["feature"] : submitted ? ["profile", "report"] : ["report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);
@@ -107,7 +111,8 @@ async function report(request, env, url, app, repo) {
     return json({ error: `GitHub refused the issue (${response.status}).` }, 502);
   }
   const issue = await response.json();
-  // The issue is filed: a problem with the rating mustn't fail the report.
+  // The issue is filed: a problem with the rating or the profile mustn't fail the report.
+  if (submitted) await addSuggestion(env, block, profile, what, install).catch(() => {});
   if (!/^rating: /m.test(block)) return json({ url: issue.html_url });
   const page = await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url);
   return json({ url: zip ? issue.html_url : page });
@@ -168,6 +173,18 @@ async function addRating(env, app, block, comment, issueURL, install) {
     fact.graphics || null, fact.backend && fact.backend !== "unknown" ? fact.backend : null, parseFloat(fact.frames) || null,
     fact.profile || null, issueURL, hidden, install, Date.now()).run();
   return `${JSON.parse(env.SITES)[app]}/games/${game}`;
+}
+
+/// Keeps a suggested profile for a moderator. A newer one from the same install replaces one still waiting.
+async function addSuggestion(env, block, text, comment, install) {
+  const fact = facts(block);
+  const game = await gameFor(env.GAMES, fact);
+  const file = await env.GAMES.prepare("SELECT profile_file FROM games WHERE id = ?").bind(game).first("profile_file");
+  const profile = file?.match(/^profiles\/([a-z0-9-]+)\.ini$/)?.[1] ?? game;
+  if (install) await env.GAMES.prepare("DELETE FROM suggestions WHERE install = ? AND game_id = ? AND status = 'pending'").bind(install, game).run();
+  await env.GAMES.prepare(
+    "INSERT INTO suggestions (id, game_id, profile_id, body, comment, overpass, wine, runtime, install, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(crypto.randomUUID(), game, profile, text, comment || null, fact.overpass || null, fact.wine || null, fact.runtime || null, install, Date.now()).run();
 }
 
 function github(env, path, token, init = {}) {

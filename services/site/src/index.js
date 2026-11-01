@@ -16,11 +16,22 @@
 //   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for the accounts in MODERATORS
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
+//   POST /moderation/suggestions/<entry>/(approve|reject)   the same accounts decide on a suggested profile
+//   GET  /api/profiles           the signed set of profiles the app downloads
+//   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
+//   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
+//   POST /api/suggestions        { published, refused }: lists of their IDs, from the same script; the same secret
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
 // else: no e-mail, no name from Google. A session is a random token in a cookie; the database keeps only its hash.
 // Pictures are small JPEGs, cropped and shrunk in the browser, in the PICTURES store.
+//
+// This site can't change what people's Macs get. Approve marks a suggested profile and nothing more: a GitHub workflow
+// reads the approved ones, checks them itself, commits them to profiles/ and signs the whole set with a key that's only
+// on GitHub (publish-profiles.mjs). The set is stored here for downloading; the app checks its signature.
+
+import { profileProblems } from './profile-check.js';
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
@@ -32,12 +43,15 @@ export default {
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
+      if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
+      if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
       const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
-      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured
+      const decided = path.match(/^\/moderation\/suggestions\/([0-9a-f-]+)\/(approve|reject)$/);
+      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
@@ -47,6 +61,7 @@ export default {
         if (reported) return await report(env, user, ...reported.slice(1));
         if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
         if (unpictured) return isModerator(env, user) ? await takeDownPicture(env, unpictured[1]) : redirect('/account');
+        if (decided) return isModerator(env, user) ? await decide(env, ...decided.slice(1)) : redirect('/account');
         if (rated) {
           if (!isModerator(env, user)) return redirect('/account');
           return rated[2] ? await deleteOwnRating(env, user, rated[1]) : await addOwnRating(request, env, user, rated[1]);
@@ -69,13 +84,15 @@ export default {
         }
         if (path === '/moderation') {
           const user = await signedIn(request, env);
-          return isModerator(env, user) ? personal(moderationPage(await queue(env))) : redirect('/account');
+          return isModerator(env, user) ? personal(moderationPage(await queue(env), await suggestions(env))) : redirect('/account');
         }
         if (path === '/privacy') {
           const moderator = isModerator(env, await signedIn(request, env));
           return (moderator ? personal : html)(privacyPage(moderator));
         }
         if (path === '/api/recent') return json(await recent(env));
+        if (path === '/api/profiles') return await serveProfiles(env);
+        if (path === '/api/suggestions') return await approvedSuggestions(request, env);
         if (path === '/api/games') return json(await list(env));
         const api = path.match(/^\/api\/games\/([a-z0-9-]+)$/);
         if (api) {
@@ -494,6 +511,67 @@ async function review(env, kind, entry, action) {
   return redirect('/moderation');
 }
 
+// Suggested profiles
+
+const fromGitHub = (request, env) => Boolean(env.SYNC_TOKEN) && request.headers.get('Authorization') === `Bearer ${env.SYNC_TOKEN}`;
+
+/// What's waiting for a decision, with the file each one would replace and why it can't go in as it stands.
+async function suggestions(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT suggestions.*, games.name AS game, games.profile_text AS current FROM suggestions LEFT JOIN games ON games.id = suggestions.game_id
+     WHERE status IN ('pending', 'approved') ORDER BY created_at LIMIT 100`,
+  ).all();
+  return results.map((entry) => ({ ...entry, problems: profileProblems(entry.body, entry.current) }));
+}
+
+async function decide(env, entry, action) {
+  if (action === 'reject') {
+    await env.DB.prepare("DELETE FROM suggestions WHERE id = ? AND status = 'pending'").bind(entry).run();
+    return redirect('/moderation');
+  }
+  const found = await env.DB.prepare(
+    'SELECT body, profile_text AS current FROM suggestions LEFT JOIN games ON games.id = suggestions.game_id WHERE suggestions.id = ?',
+  ).bind(entry).first();
+  if (found && !profileProblems(found.body, found.current).length) {
+    await env.DB.prepare("UPDATE suggestions SET status = 'approved' WHERE id = ? AND status = 'pending'").bind(entry).run();
+  }
+  return redirect('/moderation');
+}
+
+async function approvedSuggestions(request, env) {
+  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
+  const { results } = await env.DB.prepare("SELECT id, game_id, profile_id, body FROM suggestions WHERE status = 'approved' ORDER BY created_at").all();
+  return new Response(JSON.stringify({ suggestions: results }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+}
+
+/// The workflow's answer: what went into profiles/, and what it wouldn't take, which goes back to waiting.
+async function settleSuggestions(request, env) {
+  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
+  const { published = [], refused = [] } = await request.json();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE suggestions SET status = 'published' WHERE id IN (SELECT value FROM json_each(?)) AND status = 'approved'").bind(JSON.stringify(published)),
+    env.DB.prepare("UPDATE suggestions SET status = 'pending' WHERE id IN (SELECT value FROM json_each(?)) AND status = 'approved'").bind(JSON.stringify(refused)),
+  ]);
+  return json({ published: published.length, refused: refused.length });
+}
+
+/// Keeps a newer signed set. The signature is the app's to check; an older set never replaces this one.
+async function storeProfiles(request, env) {
+  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
+  const { serial, body } = await request.json();
+  if (!Number.isInteger(serial) || typeof body !== 'string') return json({ error: 'No profiles.' }, 400);
+  await env.DB.prepare(
+    'INSERT INTO profile_set (id, serial, body) VALUES (1, ?1, ?2) ON CONFLICT (id) DO UPDATE SET serial = ?1, body = ?2 WHERE serial < ?1',
+  ).bind(serial, body).run();
+  return json({ serial });
+}
+
+async function serveProfiles(env) {
+  const set = await env.DB.prepare('SELECT serial, body FROM profile_set WHERE id = 1').first();
+  if (!set) return json({ error: 'No profiles yet.' }, 404);
+  return new Response(set.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300', 'X-Profiles-Serial': String(set.serial) } });
+}
+
 // Pages
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -716,6 +794,32 @@ const ACCOUNT_ERRORS = {
   picture: 'That picture didn\'t work. Try a JPEG or PNG.',
 };
 
+/// The lines a suggestion takes away and adds, against the file it would replace.
+function difference(entry) {
+  const lines = (text) => String(text ?? '').split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
+  const before = lines(entry.current);
+  const after = lines(entry.body);
+  const changed = [
+    ...before.filter((line) => !after.includes(line)).map((line) => `<del>- ${escape(line)}</del>`),
+    ...after.filter((line) => !before.includes(line)).map((line) => `<ins>+ ${escape(line)}</ins>`),
+  ];
+  return changed.length ? changed.join('\n') : 'Same as the current file.';
+}
+
+function suggestionCard(entry) {
+  const facts = [entry.overpass && `OverPass ${entry.overpass}`, entry.wine && `Wine ${entry.wine}`, entry.runtime && `Runtime ${entry.runtime}`].filter(Boolean).map(escape).join(' · ');
+  const buttons = entry.status === 'approved' ? '<p class="muted">Approved. Goes out with the next publish, within the hour.</p>'
+    : `<div class="decide">${entry.problems.length ? '' : `<form method="post" action="/moderation/suggestions/${entry.id}/approve"><button class="button" type="submit">Approve</button></form>`}<form method="post" action="/moderation/suggestions/${entry.id}/reject"><button class="button quiet" type="submit">Reject</button></form></div>`;
+  return `<article class="rating">
+  <div class="line"><span class="who"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a></span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
+  <p class="muted">profiles/${escape(entry.profile_id)}.ini · ${entry.current ? 'changes the file' : 'a new file'}${facts ? ` · ${facts}` : ''}</p>
+  ${entry.comment ? `<p class="comment">${escape(entry.comment)}</p>` : ''}
+  <pre class="diff">${difference(entry)}</pre>
+  ${entry.problems.length ? `<p class="muted">Can't be approved here: ${entry.problems.map(escape).join('; ')}.</p>` : ''}
+  ${buttons}
+</article>`;
+}
+
 function moderationCard(entry) {
   const buttons = entry.hidden
     ? [['show', 'Show', 'quiet']]
@@ -728,9 +832,16 @@ function moderationCard(entry) {
 </article>`;
 }
 
-const moderationPage = (entries) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings.', `
-<header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
-${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}`, true);
+const moderationPage = (entries, suggested) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings, and suggested profiles.', `
+<header class="page"><h1>Moderation</h1><p>Suggested profiles, and reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
+<section>
+  <h2>Suggested profiles</h2>
+  ${suggested.length ? suggested.map(suggestionCard).join('\n') : '<p class="empty">None waiting.</p>'}
+</section>
+<section>
+  <h2>Reports</h2>
+  ${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}
+</section>`, true);
 
 /// Crops to a square and shrinks it here, so only a small JPEG is ever sent.
 function pictureForm(user) {
@@ -801,6 +912,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
   <h2>Ratings from the app</h2>
   <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one. Ratings aren't tied to an account.</p>
   <p>OverPass admins can also rate a game on its page. Those ratings are marked as an admin's and go with the admin's account.</p>
+  <p>If you share your settings, they wait for an admin along with your comment and versions. Approved settings become public in the game's profile on GitHub, without your comment or anything that says who sent them.</p>
 </section>
 <section>
   <h2>Logs and reports</h2>

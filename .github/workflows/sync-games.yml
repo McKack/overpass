@@ -1,23 +1,41 @@
-# Keeps the site's list of games in step with profiles/: every change there updates overpass.arctim.no/games.
-# Needs the repository secret GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml).
+# Keeps the site in step with profiles/: approved suggestions go in (publish-profiles.mjs), the set the app downloads is
+# signed, and every change updates overpass.arctim.no/games.
+# Needs the repository secrets GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml), and
+# PROFILES_SIGNING_KEY, whose public half is in the app (ProfileUpdates.swift).
 name: Sync games
 
 on:
   push:
     branches: [main]
-    paths: ['profiles/**', '.github/scripts/games-index.js']
+    paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', 'services/site/src/profile-check.js']
+  schedule:
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
+# One at a time, so two runs can't sign or push over each other.
+concurrency: sync-games
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node .github/scripts/games-index.js > games.json
-      - run: |
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: publish
+        run: node .github/scripts/publish-profiles.mjs
+        env:
+          SITE: https://overpass.arctim.no
+          SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
+          PROFILES_SIGNING_KEY: ${{ secrets.PROFILES_SIGNING_KEY }}
+      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true'
+        run: node .github/scripts/games-index.js > games.json
+      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true'
+        run: |
           curl --fail-with-body -sS -X POST https://overpass.arctim.no/api/sync \
             -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
         env:

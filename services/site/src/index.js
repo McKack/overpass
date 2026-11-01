@@ -10,6 +10,7 @@
 //   GET  /auth/google, /auth/google/callback   sign-in with Google (GOOGLE_CLIENT_ID, secret GOOGLE_CLIENT_SECRET)
 //   GET  /account                the signed-in person's page
 //   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
+//   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person and the username they choose, nothing else: no e-mail, no name
@@ -25,12 +26,16 @@ export default {
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
-      if (request.method === 'POST' && ['/account', '/account/delete', '/auth/signout'].includes(path)) {
+      const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
+      if (request.method === 'POST' && (commented || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
         const user = await signedIn(request, env);
         if (!user) return redirect('/account');
+        if (commented) {
+          return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
+        }
         return path === '/account' ? await rename(request, env, user) : await deleteAccount(env, user);
       }
       if (request.method === 'GET' || request.method === 'HEAD') {
@@ -49,7 +54,8 @@ export default {
         const page = path.match(/^\/games\/([a-z0-9-]+)$/);
         if (page) {
           const game = await detail(env, page[1]);
-          return game ? html(gamePage(game)) : html(missingPage(), 404);
+          if (!game) return html(missingPage(), 404);
+          return personal(gamePage(game, await comments(env, game.id), await signedIn(request, env), url.searchParams.get('error')));
         }
       }
       return env.ASSETS.fetch(request);
@@ -125,8 +131,8 @@ async function detail(env, id) {
   };
 }
 
-/// Replaces the list of games. A game that gained a profile takes over the ratings of the page it had; one that lost
-/// its file keeps its page while it has ratings.
+/// Replaces the list of games. A game that gained a profile takes over the ratings and comments of the page it had;
+/// one that lost its file keeps its page while it has either.
 async function sync(request, env) {
   const token = request.headers.get('Authorization');
   if (!env.SYNC_TOKEN || token !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
@@ -147,12 +153,15 @@ async function sync(request, env) {
       steps.push(env.DB.prepare(
         `UPDATE ratings SET game_id = ?1 WHERE game_id IN (SELECT game_id FROM game_keys WHERE store = ?2 AND store_id = ?3 AND game_id <> ?1)`,
       ).bind(game.id, store, id));
+      steps.push(env.DB.prepare(
+        `UPDATE comments SET game_id = ?1 WHERE game_id IN (SELECT game_id FROM game_keys WHERE store = ?2 AND store_id = ?3 AND game_id <> ?1)`,
+      ).bind(game.id, store, id));
       steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, id, game.id));
     }
   }
   const ids = JSON.stringify(games.map((game) => game.id));
   steps.push(env.DB.prepare(
-    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings)`,
+    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`,
   ).bind(ids));
   steps.push(env.DB.prepare(
     `UPDATE games SET source = 'rated', verified = NULL, notes = NULL, profile_file = NULL, profile_text = NULL, presets = '[]'
@@ -214,9 +223,14 @@ async function startGoogle(url, env) {
 async function finishGoogle(request, url, env) {
   const [state, verifier, ...next] = (cookie(request, 'overpass_signin') || '').split('.');
   const clear = setCookie('overpass_signin', '', 0);
-  const failed = redirect('/account?error=signin', clear);
+  const failed = (reason) => {
+    console.error(`Google sign-in failed: ${reason}`);
+    return redirect('/account?error=signin', clear);
+  };
   const code = url.searchParams.get('code');
-  if (!code || !state || url.searchParams.get('state') !== state) return failed;
+  if (!code) return failed(`no code, ${url.searchParams.get('error')}`);
+  if (!state) return failed('no sign-in cookie');
+  if (url.searchParams.get('state') !== state) return failed('state differs from the cookie');
   const answer = await fetch(env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -225,12 +239,14 @@ async function finishGoogle(request, url, env) {
       grant_type: 'authorization_code', redirect_uri: `${url.origin}/auth/google/callback`,
     }),
   });
-  if (!answer.ok) return failed;
+  if (!answer.ok) return failed(`token ${answer.status}, ${(await answer.text()).slice(0, 300)}`);
   const { id_token: idToken } = await answer.json();
   const payload = (idToken || '').split('.')[1];
-  if (!payload) return failed;
+  if (!payload) return failed('no ID token');
   const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
-  if (claims.aud !== env.GOOGLE_CLIENT_ID || !GOOGLE_ISSUERS.includes(claims.iss) || !claims.sub || claims.exp * 1000 < Date.now()) return failed;
+  if (claims.aud !== env.GOOGLE_CLIENT_ID || !GOOGLE_ISSUERS.includes(claims.iss) || !claims.sub || claims.exp * 1000 < Date.now()) {
+    return failed(`claims, aud ${claims.aud === env.GOOGLE_CLIENT_ID}, iss ${claims.iss}, exp ${claims.exp}`);
+  }
 
   const now = Date.now();
   await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at) VALUES (?, ?, ?, ?)')
@@ -263,9 +279,45 @@ async function rename(request, env, user) {
 async function deleteAccount(env, user) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM comments WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return redirect('/account', setCookie('overpass_session', '', 0));
+}
+
+// Comments
+
+const COMMENT_LENGTH = 2000;
+const COMMENTS_A_DAY = 20;
+
+async function comments(env, id) {
+  const { results } = await env.DB.prepare(
+    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.name FROM comments
+     JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND comments.hidden = 0
+     ORDER BY comments.created_at DESC LIMIT 200`,
+  ).bind(id).all();
+  return results;
+}
+
+async function addComment(request, env, user, id) {
+  const back = `/games/${id}`;
+  const exists = await env.DB.prepare('SELECT id FROM games WHERE id = ?').bind(id).first('id');
+  if (!exists) return html(missingPage(), 404);
+  if (!user.name) return redirect('/account');
+  const body = String((await request.formData()).get('body') || '').replace(/\r\n/g, '\n').trim();
+  if (!body || body.length > COMMENT_LENGTH) return redirect(`${back}?error=comment#comments`);
+  const now = Date.now();
+  const today = await env.DB.prepare('SELECT COUNT(*) AS n FROM comments WHERE user_id = ? AND created_at > ?')
+    .bind(user.id, now - 24 * 3600 * 1000).first('n');
+  if (today >= COMMENTS_A_DAY) return redirect(`${back}?error=limit#comments`);
+  await env.DB.prepare('INSERT INTO comments (id, game_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), id, user.id, body, now).run();
+  return redirect(`${back}#comments`);
+}
+
+async function deleteComment(env, user, id, comment) {
+  await env.DB.prepare('DELETE FROM comments WHERE id = ? AND user_id = ?').bind(comment, user.id).run();
+  return redirect(`/games/${id}#comments`);
 }
 
 // Pages
@@ -383,7 +435,31 @@ function ratingCard(rating) {
 </article>`;
 }
 
-function gamePage(game) {
+function commentCard(game, comment, user) {
+  return `<article class="rating">
+  <div class="line"><span class="who"><span class="avatar" style="--hue:${hue(comment.name)}">${escape(initials(comment.name))}</span>${escape(comment.name)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
+  <p class="comment">${escape(comment.body)}</p>
+  ${comment.user_id === user?.id ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : ''}
+</article>`;
+}
+
+function commentForm(game, user) {
+  const back = encodeURIComponent(`/games/${game.id}#comments`);
+  if (!user) return `<p><a class="button quiet" href="/auth/google?next=${back}">Sign in to comment</a></p>`;
+  if (!user.name) return `<p><a class="button quiet" href="/account">Choose a username to comment</a></p>`;
+  return `<form class="write" method="post" action="/games/${game.id}/comments">
+  <label for="body">Comment as ${escape(user.name)}</label>
+  <textarea id="body" name="body" rows="3" required maxlength="${COMMENT_LENGTH}"></textarea>
+  <button class="button" type="submit">Post Comment</button>
+</form>`;
+}
+
+const COMMENT_ERRORS = {
+  comment: `A comment has 1 to ${COMMENT_LENGTH} characters.`,
+  limit: `That's ${COMMENTS_A_DAY} comments in a day, the most you can post. Try again tomorrow.`,
+};
+
+function gamePage(game, said, user, error) {
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
   const settings = !hasSettings ? '' : `
@@ -413,6 +489,12 @@ ${settings}
 <section>
   <h2>Ratings</h2>
   ${ratings}
+</section>
+<section id="comments">
+  <h2>Comments</h2>
+  ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
+  ${commentForm(game, user)}
+  ${said.map((comment) => commentCard(game, comment, user)).join('\n')}
 </section>`);
 }
 
@@ -426,7 +508,7 @@ function accountPage(user, error) {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
   if (!user) {
     return shell('Sign in · OverPass', 'Sign in to OverPass.', `
-<header class="page"><h1>Sign in</h1><p>An account will let you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
+<header class="page"><h1>Sign in</h1><p>An account lets you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
 ${problem}
 <p><a class="button" href="/auth/google">Sign in with Google</a></p>
 <p class="muted">OverPass keeps Google's ID for your account and the username you choose, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
@@ -442,7 +524,7 @@ ${problem}
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
 <section>
   <h2>Delete account</h2>
-  <p class="muted">Removes your account and username at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
+  <p class="muted">Removes your account, username and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
   <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
 </section>`);
 }
@@ -453,7 +535,11 @@ const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps abou
   <h2>Accounts</h2>
   <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and no picture is stored.</p>
   <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
-  <p>You can delete your account on <a href="/account">its page</a>. It's removed at once.</p>
+  <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your comments.</p>
+</section>
+<section>
+  <h2>Comments</h2>
+  <p>A comment is public on the game's page, with your username and the date. You can delete your own at any time.</p>
 </section>
 <section>
   <h2>Ratings from the app</h2>

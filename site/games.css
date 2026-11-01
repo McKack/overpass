@@ -117,3 +117,17 @@ footer a { color: inherit; }
 .account input:focus { outline: 2px solid var(--accent); }
 .problem { color: #d70015; }
 @media (prefers-color-scheme: dark) { .problem { color: #ff6961; } }
+.write { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
+.write label { font-size: 15px; color: var(--secondary); }
+.write textarea {
+  width: 100%; padding: 10px 14px; border: 0; border-radius: 12px; font: inherit; color: var(--text); resize: vertical;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+}
+.write textarea:focus { outline: 2px solid var(--accent); }
+.who { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.avatar {
+  flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  font-size: 12px; font-weight: 600; color: #ffffff; background: hsl(var(--hue) 45% 42%);
+}
+.link { margin-top: 8px; padding: 0; border: 0; font: inherit; font-size: 13px; color: var(--secondary); background: none; cursor: pointer; }
+.link:hover { text-decoration: underline; }

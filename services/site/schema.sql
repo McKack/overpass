@@ -4,6 +4,7 @@
 --   CREATE INDEX ratings_user ON ratings (user_id);
 --   ALTER TABLE users ADD COLUMN role TEXT;
 --   ALTER TABLE comments ADD COLUMN parent_id TEXT;
+--   ALTER TABLE users ADD COLUMN password TEXT;
 --   CREATE INDEX comments_parent ON comments (parent_id);
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL,
   public INTEGER NOT NULL DEFAULT 0, -- a Public Contributor: their name shows on their ratings. 0 is a Member: it doesn't
   role TEXT,                         -- admin, or mod, which Admins hand out on /moderation
+  password TEXT,                     -- e-mail accounts: salt.hash. Their provider_id is the address's keyed hash
   UNIQUE (provider, provider_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (name) WHERE name IS NOT NULL;
@@ -176,3 +178,23 @@ CREATE TABLE IF NOT EXISTS profile_set (
   serial INTEGER NOT NULL,
   body TEXT NOT NULL
 );
+
+-- A code on its way to someone. The address isn't here, only its keyed hash, and the cookie's token only as a hash.
+CREATE TABLE IF NOT EXISTS email_codes (
+  token_hash TEXT PRIMARY KEY,
+  purpose TEXT NOT NULL,             -- signup, signin or reset
+  address_hash TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  password TEXT,                     -- signup: the hash of the password chosen, until the code proves the address
+  next TEXT NOT NULL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS email_codes_expires ON email_codes (expires_at);
+
+-- Counts for the rate limits: one row per attempt, hashed, gone after a day.
+CREATE TABLE IF NOT EXISTS email_attempts (
+  key TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS email_attempts_key ON email_attempts (key, at);

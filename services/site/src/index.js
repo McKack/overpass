@@ -8,6 +8,8 @@
 //   GET  /api/recent             the games rated last
 //   POST /api/sync               { games } from .github/scripts/games-index.js; needs the SYNC_TOKEN secret
 //   GET  /auth/google, /auth/google/callback   sign-in with Google (GOOGLE_CLIENT_ID, secret GOOGLE_CLIENT_SECRET)
+//   GET  /auth/email, POST /auth/email/(signin|signup|reset)   sign-in with an address, a password and a mailed code
+//   GET  /auth/email/code, POST /auth/email/code   typing that code (secret EMAIL_KEY; MAIL_URL, secret MAIL_TOKEN)
 //   GET  /account                the signed-in person's page
 //   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
 //   POST /account/picture, /account/picture/delete   set or remove one's picture; GET /pictures/<key>.jpg
@@ -33,7 +35,9 @@
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person, the username they choose and a picture if they add one, nothing
-// else: no e-mail, no name from Google. A session is a random token in a cookie; the database keeps only its hash.
+// else: no e-mail, no name from Google. An e-mail account's ID is a keyed hash of the address, so the address itself
+// is never kept: it's typed at each sign-in, the code goes to what was typed. A session is a random token in a cookie;
+// the database keeps only its hash.
 // Pictures are small JPEGs, cropped and shrunk in the browser, in the PICTURES store.
 //
 // This site can't change what people's Macs get. Approve marks a suggested profile and nothing more: a GitHub workflow
@@ -41,13 +45,14 @@
 // on GitHub (publish-profiles.mjs). The set is stored here for downloading; the app checks its signature.
 
 import { profileProblems, storeName } from './profile-check.js';
+import { addressHash, checkPassword, cleanAddress, cleanCode, codeHash, hashPassword, newCode, same, validAddress, validPassword } from './email-auth.js';
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
 const REPOSITORY = 'https://github.com/McKack/overpass';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
@@ -67,6 +72,10 @@ export default {
       if (ticket && request.method === 'POST') {
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         return await sendReport(request, env, ticket[1], await signedIn(request, env));
+      }
+      if (request.method === 'POST' && path.startsWith('/auth/email/')) {
+        if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
+        return await emailPost(request, env, context, path.slice('/auth/email/'.length));
       }
       if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || modded || covered
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/auth/signout'].includes(path))) {
@@ -101,9 +110,11 @@ export default {
         if (art) return await serveCover(request, env, art[1]);
         if (path === '/auth/google') return await startGoogle(url, env);
         if (path === '/auth/google/callback') return await finishGoogle(request, url, env);
+        if (path === '/auth/email') return personal(emailPage(url.searchParams.get('mode'), url.searchParams.get('error'), localPath(url.searchParams.get('next'))));
+        if (path === '/auth/email/code') return await codePageFor(request, env, url);
         if (path === '/account') {
           const user = await signedIn(request, env);
-          return personal(accountPage(user, url.searchParams.get('error'), isModerator(env, user)));
+          return personal(accountPage(user, url.searchParams.get('error'), isModerator(env, user), localPath(url.searchParams.get('next'))));
         }
         if (path === '/moderation') {
           const user = await signedIn(request, env);
@@ -318,7 +329,7 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name, users.picture, users.public, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.picture, users.public, users.role, users.provider FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -366,13 +377,135 @@ async function finishGoogle(request, url, env) {
   await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at) VALUES (?, ?, ?, ?)')
     .bind(crypto.randomUUID(), 'google', claims.sub, now).run();
   const user = await env.DB.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').bind('google', claims.sub).first('id');
-  const token = randomToken();
+  return redirect(localPath(decodeURIComponent(next.join('.'))), clear, await newSession(env, user));
+}
+
+/// Stores a new session and gives back the cookie that holds it.
+async function newSession(env, user) {
+  const token = randomToken(), now = Date.now();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now),
     env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
       .bind(await hashed(token), user, now + SESSION_SECONDS * 1000),
   ]);
-  return redirect(localPath(decodeURIComponent(next.join('.'))), clear, setCookie('overpass_session', token, SESSION_SECONDS));
+  return setCookie('overpass_session', token, SESSION_SECONDS);
+}
+
+const CODE_SECONDS = 600;
+const CODE_TRIES = 5;
+const HOUR = 3600 * 1000;
+// Per hour. Asking for a code counts whether or not a mail goes out, so a limit says nothing about who has an account.
+const LIMITS = { address: 5, ip: 15, wrong: 10 };
+
+/// True when this attempt is within its limit, and counts it.
+async function within(env, kind, value) {
+  const key = `${kind}:${await addressHash(env, value)}`, now = Date.now();
+  const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM email_attempts WHERE key = ? AND at > ?').bind(key, now - HOUR).first('count');
+  if (count >= LIMITS[kind]) return false;
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM email_attempts WHERE at <= ?').bind(now - 24 * HOUR),
+    env.DB.prepare('INSERT INTO email_attempts (key, at) VALUES (?, ?)').bind(key, now),
+  ]);
+  return true;
+}
+
+async function sendMail(env, to, kind, code) {
+  const answer = await fetch(env.MAIL_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.MAIL_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, kind, code }),
+  });
+  if (!answer.ok) console.error(`Mail failed: ${answer.status}`);
+}
+
+/// Everything sign-up and reset show is the same with or without an account, so these never tell which it is. The mail
+/// goes after the answer, so the time taken doesn't tell either. A row is made even when nobody will get its code.
+async function askForCode(env, context, purpose, address, hash, mailed, password, next) {
+  const token = randomToken(), code = newCode(), now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM email_codes WHERE expires_at <= ? OR (address_hash = ? AND purpose = ?)').bind(now, hash, purpose),
+    env.DB.prepare('INSERT INTO email_codes (token_hash, purpose, address_hash, code_hash, password, next, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(await hashed(token), purpose, hash, await codeHash(env, token, code), password, next, now + CODE_SECONDS * 1000),
+  ]);
+  if (mailed) context.waitUntil(sendMail(env, address, mailed, mailed === 'exists' ? undefined : code).catch((error) => console.error(`Mail failed: ${error.message}`)));
+  return redirect('/auth/email/code', setCookie('overpass_email', token, CODE_SECONDS));
+}
+
+async function emailPost(request, env, context, step) {
+  const form = await request.formData();
+  if (step === 'code') return await enterCode(request, env, form);
+  if (!['signin', 'signup', 'reset'].includes(step)) return html(failedPage(), 404);
+  const next = localPath(form.get('next'));
+  const back = (error) => redirect(`/auth/email?mode=${step}&error=${error}&next=${encodeURIComponent(next)}`);
+  const address = cleanAddress(form.get('address')), password = form.get('password');
+  if (!validAddress(address)) return back('address');
+  if (step !== 'reset' && !validPassword(password)) return back(step === 'signup' ? 'password' : 'wrong');
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const hash = await addressHash(env, address);
+  const account = await env.DB.prepare('SELECT password FROM users WHERE provider = ? AND provider_id = ?').bind('email', hash).first();
+
+  if (step === 'signin') {
+    const wrongs = await env.DB.prepare('SELECT COUNT(*) AS count FROM email_attempts WHERE key = ? AND at > ?').bind(`wrong:${hash}`, Date.now() - HOUR).first('count');
+    if (wrongs >= LIMITS.wrong) return back('busy');
+    if (!await checkPassword(env, password, account?.password) || !account) {
+      await env.DB.prepare('INSERT INTO email_attempts (key, at) VALUES (?, ?)').bind(`wrong:${hash}`, Date.now()).run();
+      return back('wrong');
+    }
+  }
+  if (!await within(env, 'address', address) || !await within(env, 'ip', ip)) return back('busy');
+  if (step === 'signin') return await askForCode(env, context, step, address, hash, 'signin', null, next);
+  if (step === 'reset') return await askForCode(env, context, step, address, hash, account ? 'reset' : null, null, next);
+  return await askForCode(env, context, step, address, hash, account ? 'exists' : 'signup', account ? null : await hashPassword(env, password), next);
+}
+
+const waitingCode = async (request, env) => {
+  const token = cookie(request, 'overpass_email');
+  if (!token) return null;
+  const row = await env.DB.prepare('SELECT * FROM email_codes WHERE token_hash = ? AND expires_at > ?').bind(await hashed(token), Date.now()).first();
+  return row && { ...row, token };
+};
+
+async function codePageFor(request, env, url) {
+  const row = await waitingCode(request, env);
+  if (!row) return redirect('/auth/email?error=expired');
+  return personal(codePage(row.purpose, url.searchParams.get('error')));
+}
+
+async function enterCode(request, env, form) {
+  const row = await waitingCode(request, env);
+  const gone = setCookie('overpass_email', '', 0);
+  if (!row) return redirect('/auth/email?error=expired', gone);
+  const remove = env.DB.prepare('DELETE FROM email_codes WHERE token_hash = ?').bind(row.token_hash);
+  if (!same(await codeHash(env, row.token, cleanCode(form.get('code'))), row.code_hash)) {
+    if (row.tries + 1 >= CODE_TRIES) {
+      await remove.run();
+      return redirect('/auth/email?error=expired', gone);
+    }
+    await env.DB.prepare('UPDATE email_codes SET tries = tries + 1 WHERE token_hash = ?').bind(row.token_hash).run();
+    return redirect('/auth/email/code?error=code');
+  }
+  const password = form.get('password');
+  if (row.purpose === 'reset' && !validPassword(password)) return redirect('/auth/email/code?error=password');
+  await remove.run();
+
+  let user;
+  if (row.purpose === 'signup') {
+    user = crypto.randomUUID();
+    const made = await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at, password) VALUES (?, ?, ?, ?, ?)')
+      .bind(user, 'email', row.address_hash, Date.now(), row.password).run();
+    if (!made.meta.changes) return redirect('/auth/email?error=expired', gone);
+  } else {
+    user = await env.DB.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').bind('email', row.address_hash).first('id');
+    if (!user) return redirect('/auth/email?error=expired', gone);
+  }
+  if (row.purpose === 'reset') {
+    // A new password puts out anyone who got in with the old one.
+    await env.DB.batch([
+      env.DB.prepare('UPDATE users SET password = ? WHERE id = ?').bind(await hashPassword(env, password), user),
+      env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user),
+    ]);
+  }
+  return redirect(localPath(row.next), gone, await newSession(env, user));
 }
 
 async function signOut(request, env) {
@@ -1034,14 +1167,14 @@ function ratingCard(game, rating, user, reports, own) {
 function voteButton(game, comment, user) {
   const back = encodeURIComponent(`/games/${game.id}#comment-${comment.id}`);
   const label = `<span>${comment.votes}</span>`;
-  if (!user) return `<a class="vote" href="/auth/google?next=${back}" aria-label="Sign in to upvote, ${comment.votes} so far">${label}</a>`;
+  if (!user) return `<a class="vote" href="/account?next=${back}" aria-label="Sign in to upvote, ${comment.votes} so far">${label}</a>`;
   if (comment.user_id === user.id || comment.hidden) return `<span class="vote" aria-label="${comment.votes} upvotes">${label}</span>`;
   return `<form method="post" action="/games/${game.id}/comments/${comment.id}/vote"><button class="vote" type="submit" aria-label="Upvote" aria-pressed="${Boolean(comment.voted)}">${label}</button></form>`;
 }
 
 function replyForm(game, comment, user) {
   const back = encodeURIComponent(`/games/${game.id}#comment-${comment.id}`);
-  if (!user) return `<a class="link" href="/auth/google?next=${back}">Reply</a>`;
+  if (!user) return `<a class="link" href="/account?next=${back}">Reply</a>`;
   if (!user.name) return '<a class="link" href="/account">Reply</a>';
   return `<details><summary>Reply</summary><form class="write" method="post" action="/games/${game.id}/comments">
   <input type="hidden" name="parent" value="${comment.id}">
@@ -1068,7 +1201,7 @@ function commentCard(game, comment, user, reports) {
 
 function commentForm(game, user) {
   const back = encodeURIComponent(`/games/${game.id}#comments`);
-  if (!user) return `<p><a class="button quiet" href="/auth/google?next=${back}">Sign in to comment</a></p>`;
+  if (!user) return `<p><a class="button quiet" href="/account?next=${back}">Sign in to comment</a></p>`;
   if (!user.name) return `<p><a class="button quiet" href="/account">Choose a username to comment</a></p>`;
   return `<form class="write" method="post" action="/games/${game.id}/comments">
   <label for="body">Comment as ${escape(user.name)}</label>
@@ -1245,6 +1378,51 @@ const ACCOUNT_ERRORS = {
   picture: 'That picture didn\'t work. Try a JPEG or PNG.',
 };
 
+const EMAIL_ERRORS = {
+  address: 'That doesn\'t look like an e-mail address.',
+  password: 'A password has 10 to 128 characters.',
+  wrong: 'That address and password don\'t match.',
+  busy: 'Too many tries. Wait an hour and try again.',
+  expired: 'That code has run out. Start again.',
+  code: 'That code isn\'t right. Check it and try again.',
+};
+
+/// Sign in, make an account or start a password reset. None of them shows whether an address has an account.
+function emailPage(mode, error, next) {
+  const step = ['signup', 'reset'].includes(mode) ? mode : 'signin';
+  const [title, button, about] = {
+    signin: ['Sign in with e-mail', 'Sign In', 'We\'ll mail you a code to finish.'],
+    signup: ['Make an account', 'Make Account', 'We\'ll mail you a code to prove the address is yours. Only a scrambled form of it is kept, so you type it each time you sign in.'],
+    reset: ['Choose a new password', 'Send Code', 'If this address has an account, we\'ll mail you a code.'],
+  }[step];
+  const link = (target, text) => `<a href="/auth/email?mode=${target}&next=${encodeURIComponent(next)}">${text}</a>`;
+  return shell(`${title} · OverPass`, title, `
+<header class="page"><h1>${title}</h1><p>${about}</p></header>
+${EMAIL_ERRORS[error] ? `<p class="problem" role="alert">${EMAIL_ERRORS[error]}</p>` : ''}
+<form class="account" method="post" action="/auth/email/${step}">
+  <input type="hidden" name="next" value="${escape(next)}">
+  <label for="address">E-mail address</label>
+  <input id="address" name="address" type="email" required maxlength="254" autocomplete="email">
+  ${step === 'reset' ? '' : `<label for="password">Password</label>
+  <input id="password" name="password" type="password" required ${step === 'signup' ? 'minlength="10" ' : ''}maxlength="128" autocomplete="${step === 'signup' ? 'new-password' : 'current-password'}">`}
+  <button class="button" type="submit">${button}</button>
+</form>
+<p class="muted">${step === 'signin' ? `${link('signup', 'Make an account')} · ${link('reset', 'Forgot your password?')}` : link('signin', 'Sign in instead')}</p>`);
+}
+
+function codePage(purpose, error) {
+  return shell('Enter your code · OverPass', 'Enter the code we mailed you.', `
+<header class="page"><h1>Check your mail</h1><p>Type the 6-character code. It works for 10 minutes, and the mail may land in spam.</p></header>
+${EMAIL_ERRORS[error] ? `<p class="problem" role="alert">${EMAIL_ERRORS[error]}</p>` : ''}
+<form class="account" method="post" action="/auth/email/code">
+  <label for="code">Code</label>
+  <input id="code" name="code" required maxlength="8" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" autofocus>
+  ${purpose === 'reset' ? `<label for="password">New password</label>
+  <input id="password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password">` : ''}
+  <button class="button" type="submit">Continue</button>
+</form>`);
+}
+
 /// The lines a suggestion takes away and adds, against the file it would replace.
 function difference(entry) {
   const lines = (text) => String(text ?? '').split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
@@ -1366,20 +1544,23 @@ function publicForm(user) {
 </form>`;
 }
 
-function accountPage(user, error, moderator) {
+function accountPage(user, error, moderator, next = '/account') {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
   if (!user) {
     return shell('Sign in · OverPass', 'Sign in to OverPass.', `
 <header class="page"><h1>Sign in</h1><p>An account lets you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
 ${problem}
-<p><a class="button" href="/auth/google">Sign in with Google</a></p>
-<p class="muted">OverPass keeps Google's ID for your account, the username you choose and a picture if you add one, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
+<p class="choices"><a class="button" href="/auth/google?next=${encodeURIComponent(next)}">Sign in with Google</a> <a class="button quiet" href="/auth/email?next=${encodeURIComponent(next)}">Sign in with E-mail</a></p>
+<p class="muted">OverPass keeps the username you choose, a picture if you add one, and either Google's ID for you or a scrambled form of your address that can't be read back. Not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
   }
   return shell('Your account · OverPass', 'Your OverPass account.', `
 ${profileHeader(user)}
 ${problem}
 ${user.name ? publicForm(user) : ''}
-<form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
+<div class="choices">
+  <form method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
+  ${user.provider === 'email' ? '<a class="button quiet" href="/auth/email?mode=reset">Change Password</a>' : ''}
+</div>
 <section>
   <h2>Delete account</h2>
   <p class="muted">Removes your account, username, picture and comments at once. Ratings you sent from the app stay on the site, anonymous.</p>
@@ -1392,6 +1573,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 <section>
   <h2>Accounts</h2>
   <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and nothing comes from your Google profile.</p>
+  <p>Signing in with e-mail keeps a keyed hash of your address, which can't be turned back into it, and a salted hash of your password. You type your address each time, and the code goes to what you typed. The mail goes out through our web host (web23.osl1.nordkapp.net), whose mail logs show the address and when, as any mail server's do. While you sign in we keep hashes of your address and your network address for up to a day, to limit tries.</p>
   <p>You can add a picture on your account page. It's public next to your comments, shrunk before it's sent, and gone as soon as you replace or remove it, or delete your account. Admins can remove it.</p>
   <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
   <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your picture and comments.</p>
@@ -1442,7 +1624,7 @@ ${error ? `<p class="problem">${escape(error)}</p>` : ''}
   <label for="report-comment">${draft.log_name ? 'What happened? Needed, since logs are going with it' : 'Comment, needed for Bronze and Borked'}</label>
   <textarea id="report-comment" name="comment" rows="5" maxlength="20000"${draft.log_name ? ' required' : ''}>${escape(comment ?? draft.what)}</textarea>
   ${going.length ? `<ul class="muted">${going.map((line) => `<li>${line}</li>`).join('')}</ul>` : ''}
-  ${user ? sendAs(user, earlier, anonymous, linking) : `<p class="muted">Sent anonymously. <a href="/auth/google?next=/report/${ticket}">Sign in</a> to send it from your account instead.</p>`}
+  ${user ? sendAs(user, earlier, anonymous, linking) : `<p class="muted">Sent anonymously. <a href="/account?next=/report/${ticket}">Sign in</a> to send it from your account instead.</p>`}
   <p class="muted">Shown with your rating: the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and macOS version.</p>
   <details class="muted"><summary>Everything that's sent</summary><pre>${escape(lines.join('\n'))}</pre>${draft.profile ? `<pre>${escape(draft.profile)}</pre>` : ''}</details>
   <div class="decide"><button class="button" type="submit">Send</button></div>

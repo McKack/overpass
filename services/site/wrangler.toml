@@ -1,7 +1,8 @@
 # overpass.arctim.no: the landing page in ../../site as static files, and the game pages from src/index.js.
 # Deploy: npx wrangler deploy (from this folder). The install script is served at /install.
 # Secrets: SYNC_TOKEN, also the repository secret GAMES_SYNC_TOKEN (sync-games.yml sends the list of games with it);
-# GOOGLE_CLIENT_SECRET, the secret of the web client below.
+# GOOGLE_CLIENT_SECRET, the secret of the web client below; EMAIL_KEY, which e-mail accounts depend on: losing it locks
+# them out for good; MAIL_TOKEN, the same as ~/overpass-mail.token on the web host (services/mailer).
 name = "overpass-site"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
@@ -19,6 +20,7 @@ run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/acc
 # https://overpass.arctim.no/auth/google/callback.
 GOOGLE_CLIENT_ID = "17484810858-687cnl3es1se4v9tn8evvcsr34kvuc6n.apps.googleusercontent.com"
 REPORT_RELAY = "https://reports.arctim.no/overpass"
+MAIL_URL = "https://arctim.no/overpass-mail/overpass.php"
 
 # The report relay: a report finished on /report/<ticket> goes out through it.
 [[services]]

@@ -150,6 +150,7 @@ footer a { color: inherit; }
   background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
 }
 .account input:focus { outline: 2px solid var(--accent); }
+.choices { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
 .problem { color: #d70015; }
 @media (prefers-color-scheme: dark) { .problem { color: #ff6961; } }
 .write { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 20px; }

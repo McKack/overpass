@@ -50,7 +50,7 @@ function profile(id, text) {
     verified: [undefined, 'untested'].includes(first(app, 'rating')) ? null : first(app, 'rating'),
     notes: first(app, 'notes') || first(app, 'rating-notes') || null,
     profile_file: `profiles/${id}.ini`, profile_text: text.trim(), presets: all(app, 'preset'), steam, gog,
-    links: all(store, 'link'), brand: first(app, 'brand-color') || null,
+    links: all(store, 'link'), brand: first(app, 'brand-color') || null, color: first(app, 'brand-color') || null,
     keys: [['profile', id], ...(steam ? [['steam', steam]] : []), ...(gog ? [['gog', gog]] : []), ...(epic ? [['epic', epic]] : [])],
   };
 }
@@ -88,7 +88,7 @@ function buildIndex(folder) {
       if (!game) {
         game = {
           id, name, source: 'preset', category: 'Games', verified: null, notes: null, profile_file: null, profile_text: null,
-          presets: [], steam: null, gog: null, links: [], brand: null, keys: [['profile', id]],
+          presets: [], steam: null, gog: null, links: [], brand: null, color: null, keys: [['profile', id]],
         };
         games.set(id, game);
       }

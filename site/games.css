@@ -83,7 +83,6 @@ section { margin-top: 40px; }
 .grid.rows .card { border-bottom: 1px solid var(--separator); }
 .grid.rows .card:hover { background: var(--surface); }
 .grid.rows .cover { border-radius: 4px; box-shadow: none; transform: none; }
-.grid.rows .cover span { font-size: 13px; }
 .grid.rows h3 { margin: 0; }
 .grid.rows .tag { display: none; }
 .grid.rows .column { display: block; min-width: 0; overflow: hidden; font-size: 13px; color: var(--secondary); white-space: nowrap; text-overflow: ellipsis; }

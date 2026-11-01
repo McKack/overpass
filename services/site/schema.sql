@@ -5,6 +5,7 @@
 --   ALTER TABLE users ADD COLUMN role TEXT;
 --   ALTER TABLE comments ADD COLUMN parent_id TEXT;
 --   ALTER TABLE users ADD COLUMN password TEXT;
+--   ALTER TABLE games ADD COLUMN color TEXT;
 --   CREATE INDEX comments_parent ON comments (parent_id);
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS games (
   gog TEXT,
   links TEXT NOT NULL DEFAULT '[]',  -- the profile's store pages
   brand TEXT,                        -- a launcher's colour: its cover is its logo on this, as on the app's Home
+  color TEXT,                        -- the profile's colour, logo or not: a made cover is painted with it
   created_at INTEGER NOT NULL
 );
 

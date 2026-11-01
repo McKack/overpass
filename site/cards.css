@@ -24,18 +24,24 @@
 .column { display: none; }
 
 .cover {
-  position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; display: grid; place-items: center;
+  container-type: inline-size; position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; display: grid; place-items: center;
   background: linear-gradient(150deg, hsl(var(--hue) 45% 42%), hsl(calc(var(--hue) + 40) 50% 22%));
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16); transition: transform 0.15s;
 }
 .card:hover .cover { transform: translateY(-3px); }
-.cover span { color: rgba(255, 255, 255, 0.92); font: 700 34px -apple-system, "SF Pro Display", sans-serif; letter-spacing: 0.02em; }
-.cover.tile { background: linear-gradient(170deg, color-mix(in srgb, var(--brand) 85%, white), var(--brand)); }
-.cover.tile i {
-  width: 56%; aspect-ratio: 1; background: var(--ink);
-  -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat;
+/* As ArtStyle in the app's Covers.swift: the mark at 74% of the width with a soft shadow, over a washed-out blur of itself. */
+.cover.tinted { background: linear-gradient(170deg, color-mix(in srgb, var(--brand) 85%, white), var(--brand)); }
+.cover span { color: var(--ink, rgba(255, 255, 255, 0.92)); font: 700 30cqw -apple-system, "SF Pro Display", sans-serif; letter-spacing: 0.02em; }
+.cover i { display: block; width: 100%; height: 100%; background: var(--ink, rgba(255, 255, 255, 0.92)); -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
+.cover .mark { position: relative; filter: drop-shadow(0 1.5cqw 3cqw rgba(0, 0, 0, 0.35)); }
+.cover img.mark { width: 74cqw; aspect-ratio: 1; object-fit: contain; }
+.cover b.mark { width: 56cqw; aspect-ratio: 1; }
+.cover .frost {
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%; scale: 2.2; opacity: .75;
+  filter: blur(22cqw) saturate(1.1) contrast(.75) brightness(.95);
 }
-.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover b.frost, .cover img.frost { width: 74cqw; aspect-ratio: 1; object-fit: cover; }
+.cover .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
 .medal {
   display: inline-block; border-radius: 980px; padding: 2px 9px; font-size: 12px; font-weight: 600; line-height: 1.5;
@@ -54,5 +60,4 @@
 .card:hover .tag, .card:hover .column { color: var(--text); }
 .card:hover .medal { background: color-mix(in srgb, var(--tier) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier) 70%, transparent); }
 @media (max-width: 600px) {
-  .cover span { font-size: 26px; }
 }

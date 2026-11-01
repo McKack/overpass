@@ -204,7 +204,7 @@ function summary(game, rated) {
   return {
     id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified,
     tier: overall(counts), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), last_rated: rated?.last ?? null,
-    art: picture(game), brand: game.brand ?? null, stores: storeLinks(game),
+    art: picture(game), brand: game.brand ?? null, color: game.color ?? game.brand ?? null, icon: game.icon ?? null, stores: storeLinks(game),
   };
 }
 
@@ -216,7 +216,7 @@ function picture(game) {
 async function list(env) {
   const [{ results }, rated] = await Promise.all([
     env.DB.prepare(
-      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, a.file AS art, a.thumb, a.origin, a.links AS found
+      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, g.color, a.file AS art, a.thumb, a.origin, a.icon, a.links AS found
        FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
     ).all(),
     tally(env),
@@ -261,14 +261,14 @@ async function sync(request, env) {
   const steps = [];
   for (const game of games) {
     steps.push(env.DB.prepare(
-      `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, color, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET name = excluded.name, category = excluded.category, source = excluded.source,
          verified = excluded.verified, notes = excluded.notes, profile_file = excluded.profile_file,
          profile_text = excluded.profile_text, presets = excluded.presets, steam = excluded.steam, gog = excluded.gog,
-         links = excluded.links, brand = excluded.brand`,
+         links = excluded.links, brand = excluded.brand, color = excluded.color`,
     ).bind(game.id, game.name, game.category, game.source, game.verified, game.notes, game.profile_file, game.profile_text,
-      JSON.stringify(game.presets), game.steam, game.gog, JSON.stringify(game.links ?? []), game.brand ?? null, now));
+      JSON.stringify(game.presets), game.steam, game.gog, JSON.stringify(game.links ?? []), game.brand ?? null, game.color ?? null, now));
     for (const [store, id] of game.keys) {
       steps.push(env.DB.prepare(
         `UPDATE ratings SET game_id = ?1 WHERE game_id IN (SELECT game_id FROM game_keys WHERE store = ?2 AND store_id = ?3 AND game_id <> ?1)`,
@@ -943,7 +943,13 @@ const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.ch
 const date = (time) => new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const roleBadge = (title) => (title ? `<span class="role">${escape(title)}</span>` : '');
 const hue = (name) => [...name].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 360, 7);
-const initials = (name) => name.replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join('').toUpperCase() || '?';
+/// Words first, split at anything that isn't a letter or digit, then a capital after a small letter inside one word:
+/// Super!Blast and MusicBee give two letters, Musicbee and DOOM one. The same rule as `initials` in the app's HomeView.
+function initials(name) {
+  const words = name.replace(/['’]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const parts = words.length === 1 ? words[0].split(/(?<=\p{Ll})(?=\p{Lu})/u) : words;
+  return parts.slice(0, 2).map((word) => [...word][0]).join('').toUpperCase() || '?';
+}
 
 function medal(tier, large = false) {
   if (!tier) return '<span class="medal none">Not rated</span>';
@@ -962,14 +968,21 @@ function ink(brand) {
   return 0.299 * red + 0.587 * green + 0.114 * blue > 160 ? '#000' : '#fff';
 }
 
-/// A launcher's logo on its colour, as on the app's Home; otherwise the game's cover over a tile made from the name,
-/// which shows when there's no cover.
+/// The game's cover. Under it, and when there's none, a cover made the way the app makes one: a mark over a frosted
+/// blur of itself, on the game's colour. The mark is the game's icon, a launcher's logo or the name's initials.
 function cover(game) {
-  if (/^[0-9a-f]{6}$/i.test(game.brand ?? '')) {
-    return `<div class="cover tile" style="--brand:#${game.brand};--ink:${ink(game.brand)};--logo:url(/logos/${game.id}.svg)"><i></i></div>`;
-  }
-  const art = game.art ? `<img src="${escape(game.art)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
-  return `<div class="cover" style="--hue:${hue(game.name)}"><span>${escape(initials(game.name))}</span>${art}</div>`;
+  const hex = /^[0-9a-f]{6}$/i.test(game.color ?? '') ? game.color : null;
+  const logo = /^[0-9a-f]{6}$/i.test(game.brand ?? '');
+  const art = !logo && game.art ? `<img class="art" src="${escape(game.art)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+  const icon = (name) => `<img class="${name}" src="${escape(game.icon)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+  const letters = (name) => `<span class="${name}">${escape(initials(game.name))}</span>`;
+  const mark = (name) => {
+    // In a wrapper: a browser masks after it filters, so a blur on the logo itself would stay sharp.
+    if (logo) return `<b class="${name}"><i></i></b>`;
+    return game.icon ? icon(name) : letters(name);
+  };
+  const paint = hex ? `--brand:#${hex};--ink:${ink(hex)}` : `--hue:${hue(game.name)}`;
+  return `<div class="cover${hex ? ' tinted' : ''}" style="${paint}${logo ? `;--logo:url(/logos/${game.id}.svg)` : ''}">${art ? '' : mark('frost')}${mark('mark')}${art}</div>`;
 }
 
 /// `tab` is the header's tab this page belongs to.

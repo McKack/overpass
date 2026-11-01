@@ -416,12 +416,24 @@ struct StoreIcon: View {
         .accessibilityLabel(profile.name)
     }
 
-    /// "Music Bee" and "MusicBee" give MB (words first, then capitals inside one word), "Musicbee" gives M.
+    /// "Music Bee", "Super!Blast" and "MusicBee" give two letters (words first, split at anything that isn't a letter or
+    /// digit, then a capital after a small letter inside one word); "Musicbee" and "DOOM" give one. The site's `initials`
+    /// is the same rule.
     private var initials: String {
-        let words = profile.name.split(separator: " ")
-        if words.count > 1 { return words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased() }
-        let capitals = profile.name.filter(\.isUppercase)
-        return String((capitals.count > 1 ? capitals : String(profile.name.prefix(1))).prefix(2)).uppercased()
+        let words = profile.name.filter { $0 != "'" && $0 != "’" }.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        var parts = words
+        if words.count == 1 {
+            parts = words[0].reduce(into: [String]()) { humps, letter in
+                if letter.isUppercase, humps.last?.last?.isLowercase == true || humps.isEmpty {
+                    humps.append(String(letter))
+                } else if humps.isEmpty {
+                    humps.append(String(letter))
+                } else {
+                    humps[humps.count - 1].append(letter)
+                }
+            }
+        }
+        return parts.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
     }
 
     /// The profile's brand colour, or one picked from its name.

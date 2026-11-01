@@ -277,7 +277,7 @@ struct ProfileEditor: View {
                 .labelsHidden()
             }
             .fixedSize()
-            Button("Submit Rating & Profile") {
+            Button(profileChanged ? "Submit Rating & Profile" : "Submit Rating") {
                 // A title rated as it is keeps coming from OverPass's own profile.
                 if builtText() == text || save() { submitting = true }
             }
@@ -287,15 +287,22 @@ struct ProfileEditor: View {
         .onAppear { started = manager.hasStarted(item) }
         .sheet(isPresented: $submitting) {
             if let rating {
-                ProfileSubmitSheet(item: item, profileID: profileID, builtProfile: builtText(), rating: rating)
+                ProfileSubmitSheet(item: item, profileID: profileID, builtProfile: builtText(), rating: rating,
+                                   sendsProfile: profileChanged)
             }
         }
+    }
+
+    /// Whether the title runs with anything but OverPass's own profile: changes in this window or a saved one.
+    private var profileChanged: Bool {
+        profiles.edited.contains(profileID) || profiles.custom.contains(profileID) || builtText() != text
     }
 
     private var submitHelp: String {
         if !started { return "Run \(item.app.name) at least once first, even if it doesn't start" }
         if rating == nil { return "Rate how \(item.app.name) runs first" }
-        return "Saves the profile and sends it with your rating to OverPass for review"
+        return profileChanged ? "Saves the profile and sends it with your rating to OverPass for review"
+            : "Sends your rating to OverPass for review"
     }
 
     /// Where the title comes from, how much room its install takes and how well it runs, between the icon

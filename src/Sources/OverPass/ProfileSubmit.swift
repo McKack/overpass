@@ -1,11 +1,11 @@
 import SwiftUI
 import AppKit
 
-// Submit Rating & Profile in the profile editor: a rating of how the title runs and the profile it ran with go to
-// OverPass's issues through the report relay, for review. The title has to have been started first (it may have
-// failed: that's what Borked is for). What's sent is the profile without the person's own artwork, the frame rate
-// overpass-runtime measured, and an optional comment. The details block's `kind: profile` tells the report check
-// and the relay what it is.
+// Submit Rating in the profile editor: a rating of how the title runs goes to OverPass's issues through the report
+// relay, for review, with the profile it ran with if that isn't OverPass's own (Submit Rating & Profile). The title
+// has to have been started first (it may have failed: that's what Borked is for). What's sent is the profile without
+// the person's own artwork, the frame rate overpass-runtime measured, and a comment, which Bronze and Borked need.
+// The details block's `kind: rating` or `kind: profile` tells the report check and the relay what it is.
 
 /// Titles started from OverPass or their Mac app wrapper. Kept for good: one start allows a rating, however long ago.
 enum StartedTitles {
@@ -88,7 +88,7 @@ extension BottleManager {
     }
 }
 
-/// What Submit Rating & Profile asks last: an optional comment.
+/// What Submit Rating asks last: a comment, optional unless the title barely runs.
 struct ProfileSubmitSheet: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
@@ -98,18 +98,20 @@ struct ProfileSubmitSheet: View {
     /// The profile as it goes out, for a title that has none saved.
     let builtProfile: String
     let rating: GameProfile.Rating.Tier
+    let sendsProfile: Bool
     @State private var comment = ""
     @State private var sending = false
     @State private var error: String?
 
     private var trimmed: String { comment.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var commentNeeded: Bool { rating == .bronze || rating == .borked }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Want to add a comment with this submission?").font(.headline)
-            ReportTextEditor(text: $comment, placeholder: "Optional", height: 84)
-            Text("Goes to OverPass's public issues with your rating (\(rating.title)), the profile, the frame rate of the last "
-                 + "run, your OverPass, Wine and Runtime versions and your Mac's model and macOS version.")
+            Text(commentNeeded ? "What went wrong?" : "Want to add a comment with this submission?").font(.headline)
+            ReportTextEditor(text: $comment, placeholder: commentNeeded ? "Required" : "Optional", height: 84)
+            Text("Goes to OverPass's public issues with your rating (\(rating.title))\(sendsProfile ? ", the profile" : ""), "
+                 + "the frame rate of the last run, your OverPass, Wine and Runtime versions and your Mac's model and macOS version.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
@@ -118,9 +120,9 @@ struct ProfileSubmitSheet: View {
                 if sending { ProgressView().controlSize(.small); Text("Sending…").foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(trimmed.isEmpty ? "Just send" : "Send", action: send)
+                Button(trimmed.isEmpty && !commentNeeded ? "Just send" : "Send", action: send)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(sending)
+                    .disabled(sending || (commentNeeded && trimmed.isEmpty))
             }
         }
         .padding(20)
@@ -144,11 +146,12 @@ struct ProfileSubmitSheet: View {
         error = nil
         Task {
             do {
-                let block = manager.reportBlock(for: item, recording: nil, profile: profiles.reportTag(of: profileID),
-                                                rating: rating.rawValue, frames: FrameStats.latest(for: item)?.summary)
-                NSWorkspace.shared.open(try await ReportRelay.send(title: "Profile: \(item.app.name) + \(rating.title)",
+                let tag = profiles.profile(id: profileID) == nil ? nil : profiles.reportTag(of: profileID)
+                let block = manager.reportBlock(for: item, recording: nil, profile: tag, rating: rating.rawValue,
+                                                sendsProfile: sendsProfile, frames: FrameStats.latest(for: item)?.summary)
+                NSWorkspace.shared.open(try await ReportRelay.send(title: "\(sendsProfile ? "Profile" : "Rating"): \(item.app.name) + \(rating.title)",
                                                                    what: LogCollector.scrub(trimmed), block: block, zip: nil,
-                                                                   screenshot: nil, profile: shareable))
+                                                                   screenshot: nil, profile: sendsProfile ? shareable : nil))
                 dismiss()
             } catch {
                 self.error = error.localizedDescription

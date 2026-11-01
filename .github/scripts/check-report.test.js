@@ -218,6 +218,14 @@ test('a comment and frame rates are optional on a submitted profile', async () =
   assert.ok(borked.labels.some(([name]) => name === 'rating borked'));
 });
 
+test('a rating alone gets `rating` and needs no profile text', async () => {
+  const body = `### Details\n\n\`\`\`text\n${block({ kind: 'rating', rating: 'silver', ...game({ log: 'none' }) })}\n\`\`\`\n`;
+  const { kind, broken, odd, labels } = await check(body, released);
+  assert.deepStrictEqual([broken, odd], [[], []]);
+  assert.deepStrictEqual(kind.label, ['rating', 'fbca04']);
+  assert.ok(labels.some(([name]) => name === 'rating silver'));
+});
+
 test('a report on OverPass is a report', async () => {
   const f = fake(issue(relayed(general(), noLog)));
   await run(f);

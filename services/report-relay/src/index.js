@@ -13,6 +13,7 @@
 // hour. The issue has the same sections as the app repository's forms, so its check workflow treats it the same.
 // A block with "kind: feature" is a feature request: it takes the feature form's heading, no log and no `report`.
 // One with "kind: profile" is a rating and a profile: the text in `profile`, an optional comment, and no log either.
+// One with "kind: rating" is a rating alone: no profile or log, and a comment only if it's Bronze or Borked.
 
 const MAX_ZIP = 20 * 1024 * 1024;
 const MAX_SHOT = 4 * 1024 * 1024;
@@ -58,8 +59,10 @@ async function report(request, env, url, app, repo) {
   const shot = file(form.get("screenshot"));
   const feature = /^kind: feature$/m.test(block);
   const submitted = /^kind: profile$/m.test(block);
-  // A submitted profile's comment is optional.
-  if (!title || (!what && !submitted)) return json({ error: "The report needs a title and what happened." }, 400);
+  const rated = /^kind: rating$/m.test(block);
+  // A submitted profile's comment is optional, and a rating's unless it's low.
+  if (!title || (!what && !submitted && !rated)) return json({ error: "The report needs a title and what happened." }, 400);
+  if (rated && !what && /^rating: (bronze|borked)$/m.test(block)) return json({ error: "A low rating needs a comment." }, 400);
   if (!(await validBlock(block))) return json({ error: "The details block is missing or was changed." }, 400);
   const profile = String(form.get("profile") || "").replace(/\r\n/g, "\n").trim().slice(0, 20000);
   const withoutLog = /^log: none$/m.test(block);
@@ -79,17 +82,17 @@ async function report(request, env, url, app, repo) {
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
-    ...(submitted ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
+    ...(submitted || rated ? (what ? ["### Comment", "", what, ""] : []) : [feature ? "### What would you like?" : "### What happened", "", what, ""]),
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
-    ...(feature || submitted ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
+    ...(feature || submitted || rated ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
     ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
   const response = await github(env, `/repos/${repo}/issues`, await issueToken(env, repo), {
     method: "POST",
-    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : "report"] }),
+    body: JSON.stringify({ title, body, labels: [feature ? "feature" : submitted ? "profile" : rated ? "rating" : "report"] }),
   });
   if (!response.ok) {
     await env.REPORTS.delete(`log:${id}`);

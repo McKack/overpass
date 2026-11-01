@@ -2,6 +2,19 @@
 
 What changed in each release of OverPass, newest first. The short list at the top of each version is what OverPass shows after an update.
 
+## 0.6.9 - Unreleased
+
+- Rating a game no longer sends a profile you haven't changed
+- Smaller bug fixes and improvements
+
+### Details
+
+**Profiles**
+- The profile editor's button says Submit Rating unless you've changed the profile, and only then sends it along. A Bronze or Borked rating asks what went wrong.
+
+**Home**
+- Home shows which version of OverPass you're on.
+
 ## 0.6.8 - 2026-11-01
 
 - Add ready-made settings to a game from its profile

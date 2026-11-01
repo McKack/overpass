@@ -21,6 +21,7 @@
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
 //   POST /moderation/suggestions/<entry>/(approve|reject)   Admins decide on a suggested profile
+//   POST /api/issues             { issues } from link-issues.mjs: every GitHub issue and what it says about its game; the same secret
 //   GET  /api/art                what find-covers.mjs needs for each game; needs the SYNC_TOKEN secret
 //   POST /api/art                { id, links, source, cover, thumb, icon, hero } from the same script; the same secret
 //   GET  /api/art/<store>/<id>?name=   the art the app shows; a title not seen before joins the queue for find-covers.mjs
@@ -60,6 +61,7 @@ export default {
       if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
+      if (path === '/api/issues' && request.method === 'POST') return await storeIssues(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/(delete|vote))?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
@@ -231,11 +233,11 @@ async function recent(env) {
 
 async function detail(env, id) {
   const game = await env.DB.prepare(
-    `SELECT g.*, a.file AS art, a.thumb, a.origin, a.hero, a.links AS found, a.source AS art_source, a.wanted AS art_wanted
+    `SELECT g.*, a.file AS art, a.thumb, a.origin, a.hero, a.icon, a.about, a.about_source, a.links AS found, a.source AS art_source, a.wanted AS art_wanted
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id WHERE g.id = ?`,
   ).bind(id).first();
   if (!game) return null;
-  const [rated, { results }] = await Promise.all([
+  const [rated, { results }, { results: issues }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
       `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, ${badgeOf('u')},
@@ -243,10 +245,12 @@ async function detail(env, id) {
        FROM ratings r LEFT JOIN users u ON u.id = r.user_id
        WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
     ).bind(id).all(),
+    env.DB.prepare("SELECT number, title, url, state FROM game_issues WHERE game_id = ? ORDER BY state = 'open' DESC, number DESC").bind(id).all(),
   ]);
   return {
     ...summary(game, rated.get(id)), notes: game.notes, profile_file: game.profile_file, profile_text: game.profile_text,
-    presets: JSON.parse(game.presets), art_source: game.art_source ?? null, hero: game.hero ?? null, art_wanted: game.art_wanted ?? null, rating_list: results,
+    presets: JSON.parse(game.presets), art_source: game.art_source ?? null, hero: game.hero ?? null, art_wanted: game.art_wanted ?? null, rating_list: results, issues,
+    about: game.about ?? null, about_source: game.about_source ?? null,
   };
 }
 
@@ -617,7 +621,7 @@ async function serveCover(request, env, file) {
 async function artList(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at, COALESCE(a.file, a.origin) AS cover, a.hero, a.icon
+    `SELECT g.id, g.name, g.category, g.steam, g.gog, g.brand, a.wanted, a.locked, a.checked_at, COALESCE(a.file, a.origin) AS cover, a.hero, a.icon, a.about
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
   ).all();
   const { results: asked } = await env.DB.prepare(`SELECT game_id AS id, name, checked_at, COALESCE(file, origin) AS cover, hero, icon FROM game_art WHERE game_id LIKE '%:%'`).all();
@@ -632,14 +636,16 @@ async function artList(request, env) {
 /// image coming in. A stored copy from before covers were linked counts as a gap; a moderator's upload doesn't.
 async function storeArt(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
-  const { id, links, source, cover: image, thumb, icon, hero } = await request.json();
+  const { id, links, source, cover: image, thumb, icon, hero, about, about_source: aboutSource } = await request.json();
   const before = await env.DB.prepare('SELECT file, origin, locked FROM game_art WHERE game_id = ?').bind(id).first();
   if (!before && !await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
   const address = (value) => typeof value === 'string' && value.startsWith('https://') && value.length <= 1000 ? value : null;
   await env.DB.prepare(
-    `INSERT INTO game_art (game_id, links, icon, hero, checked_at) VALUES (?1, ?2, ?3, ?4, ?5)
-     ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(icon, ?3), hero = COALESCE(hero, ?4), wanted = NULL, checked_at = ?5`,
-  ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), Date.now()).run();
+    `INSERT INTO game_art (game_id, links, icon, hero, about, about_source, checked_at) VALUES (?1, ?2, ?3, ?4, ?6, ?7, ?5)
+     ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(icon, ?3), hero = COALESCE(hero, ?4),
+       about_source = CASE WHEN about IS NULL THEN ?7 ELSE about_source END, about = COALESCE(about, ?6), wanted = NULL, checked_at = ?5`,
+  ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), Date.now(),
+    typeof about === 'string' ? about.slice(0, 1000) : null, ABOUT_SOURCES[aboutSource] ? aboutSource : null).run();
   const moderator = source === 'moderator';
   const gap = !before?.locked && (!before?.origin || before.file);
   if (!address(image) || !(gap || moderator)) return json({ stored: false });
@@ -647,6 +653,46 @@ async function storeArt(request, env) {
     .bind(id, source, address(image), address(thumb), moderator ? 1 : 0).run();
   if (before?.file) await env.PICTURES.delete(`covers/${before.file}`);
   return json({ stored: true });
+}
+
+/// Every GitHub issue, from link-issues.mjs. The rows are replaced each time, so a closed or removed issue shows at once.
+/// An issue is about the game its report block names, or the one its title starts with. A report about a game with no
+/// page gives it one, as a rating does.
+async function storeIssues(request, env) {
+  if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
+  const { issues } = await request.json();
+  const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
+  const { results: games } = await env.DB.prepare('SELECT id FROM games').all();
+  const byKey = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
+  const known = new Set(games.map((game) => game.id));
+  const steps = [env.DB.prepare('DELETE FROM game_issues')];
+  for (const issue of issues) {
+    const store = (issue.store ?? '').match(/^(.+) (\S+)$/);
+    const name = String(issue.app ?? '').slice(0, 120);
+    if (name === 'OverPass' || !/^https:\/\/github\.com\//.test(issue.url)) continue;
+    const key = store && `${{ Steam: 'steam', GOG: 'gog', 'Epic Games': 'epic' }[store[1]] ?? store[1].toLowerCase()}:${store[2]}`;
+    const profile = (issue.profile ?? 'none').replace(/ \((changed|own)\)$/, '');
+    let game = byKey.get(key) ?? byKey.get(`profile:${profile}`);
+    if (!game) game = [slug(name), slug(issue.named ?? '')].find((id) => known.has(id));
+    if (!game && name && slug(name)) {
+      game = slug(name);
+      known.add(game);
+      const [kind, id] = key?.split(':') ?? [];
+      steps.push(env.DB.prepare("INSERT OR IGNORE INTO games (id, name, source, steam, gog, created_at) VALUES (?, ?, 'rated', ?, ?, ?)")
+        .bind(game, name, kind === 'steam' ? id : null, kind === 'gog' ? id : null, Date.now()));
+    }
+    if (!game) continue;
+    steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_issues (number, game_id, title, url, state) VALUES (?, ?, ?, ?, ?)')
+      .bind(issue.number, game, String(issue.title).slice(0, 200), issue.url, ['open', 'fixed', 'closed'].includes(issue.state) ? issue.state : 'open'));
+  }
+  await env.DB.batch(steps);
+  return json({ linked: steps.length - 1 });
+}
+
+/// A page's address from a game's name, the same as games-index.js.
+function slug(name) {
+  return name.replace(/[™®©'’]/g, '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 /// The art for a title in the app, by its store's ID. A title nobody has asked about joins the queue, and the app falls
@@ -1289,14 +1335,15 @@ const COMMENT_ERRORS = {
   reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
 };
 
+const ABOUT_SOURCES = { steam: 'Steam', gog: 'GOG', thegamesdb: 'TheGamesDB' };
 const COVER_SOURCES = { steam: 'Steam', gog: 'GOG', thegamesdb: 'TheGamesDB', steamgriddb: 'SteamGridDB', moderator: 'a moderator' };
 
 /// For a moderator: a picture from the Mac, shrunk in the browser; an image's address; or back to automatic.
 function coverForm(game, error) {
   const said = game.art_wanted ? `Waiting for ${escape(game.art_wanted)}. It's fetched within half an hour.`
     : game.art ? `This cover came from ${COVER_SOURCES[game.art_source] ?? 'an unknown source'}.` : 'No cover found yet.';
-  return `<section id="cover">
-  <details${error === 'cover' ? ' open' : ''}><summary>Change Cover</summary>
+  return `<section id="cover" popover>
+  <h2>Change Cover</h2>
   ${error === 'cover' ? `<p class="problem" role="alert">That didn't work. Use a picture, or an https:// address of an image.</p>` : ''}
   <p class="muted">${said}</p>
   <div class="decide">
@@ -1308,8 +1355,8 @@ function coverForm(game, error) {
     <input id="cover-url" name="url" type="url" required maxlength="1000" placeholder="https://">
     <button class="button quiet" type="submit">Use This Image</button>
   </form>
-  </details>
   <script>
+    ${error === 'cover' ? "document.getElementById('cover').showPopover();" : ''}
     document.getElementById('cover-file').addEventListener('change', async (event) => {
       const image = await createImageBitmap(event.target.files[0]).catch(() => null);
       if (!image) return location.assign('/games/${game.id}?error=cover#cover');
@@ -1328,6 +1375,38 @@ function coverForm(game, error) {
 </section>`;
 }
 
+/// The middle of what players got, which one odd run can't pull around. Rates at or below 1 are menus and loading.
+function median(values) {
+  const sorted = values.filter((value) => value > 1).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = sorted.length >> 1;
+  return Math.round(sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+/// What frame rate to expect, from the ratings on the page, and by chip when more than one is among them.
+function expectedRate(game) {
+  const runs = game.rating_list.filter((rating) => rating.fps > 1);
+  const fps = median(runs.map((rating) => rating.fps));
+  if (!fps) return { stat: '', chips: '' };
+  const chips = [...new Set(runs.map((rating) => rating.chip).filter(Boolean))];
+  return {
+    stat: `<span class="stat" title="The middle of ${runs.length === 1 ? '1 run' : `${runs.length} runs`} players rated">Expect about <strong>${fps} fps</strong></span>`,
+    chips: chips.length < 2 ? '' : `<p class="muted">${chips.map((chip) => `${escape(chip)}: ${median(runs.filter((rating) => rating.chip === chip).map((rating) => rating.fps))} fps`).join(' · ')}</p>`,
+  };
+}
+
+const ISSUE_STATES = { open: 'Open', fixed: 'Fixed', closed: 'Closed' };
+
+/// GitHub issues about the game, open ones first.
+function issueList(game) {
+  if (!game.issues.length) return '';
+  const short = (title) => (title.startsWith(`${game.name}: `) ? title.slice(game.name.length + 2) : title);
+  return `<section id="issues">
+  <h2>Issues</h2>
+  <ul class="issues">${game.issues.map((issue) => `<li><a href="${escape(issue.url)}" rel="noopener">${escape(short(issue.title))}</a><span class="state ${issue.state}">${ISSUE_STATES[issue.state]}</span></li>`).join('')}</ul>
+</section>`;
+}
+
 function gamePage(game, said, user, reports, error, moderator, own) {
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
@@ -1340,36 +1419,43 @@ function gamePage(game, said, user, reports, error, moderator, own) {
   ${game.profile_text ? `<details><summary>Show the profile</summary><pre>${escape(game.profile_text)}</pre></details>
   <p><a href="${REPOSITORY}/blob/main/${escape(game.profile_file)}">See it on GitHub</a></p>` : ''}
 </section>`;
+  const rate = expectedRate(game), side = issueList(game) + settings;
   const ratings = game.rating_list.length
     ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports, own)).join('\n')
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
-<a class="back" href="/games">All games</a>
 ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+<a class="back" href="/games">All games</a>
 <header class="game">
-  ${cover(game)}
-  <div>
+  ${moderator ? `<button class="cover-button" type="button" popovertarget="cover" aria-label="Change Cover">${cover(game)}<span class="upload">Change Cover</span></button>` : cover(game)}
+  <div class="game-intro">
     <h1>${escape(game.name)}</h1>
-    <p class="summary">${medal(game.tier, true)}<span>${game.ratings === 1 ? '1 rating' : `${game.ratings} ratings`}</span></p>
+    <p class="summary">${medal(game.tier, true)}<span>${game.ratings === 1 ? '1 rating' : `${game.ratings} ratings`}</span>${rate.stat}</p>
+    ${rate.chips}
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
-    ${game.ratings ? breakdown(game) : ''}
+    ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
     ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a href="${escape(store.url)}" rel="noopener">${escape(store.name)}</a>`).join('')}</p>` : ''}
   </div>
 </header>
 ${moderator ? coverForm(game, error) : ''}
-${settings}
-<section id="ratings">
-  <h2>Ratings</h2>
-  ${RATING_ERRORS[error] ? `<p class="problem" role="alert">${RATING_ERRORS[error]}</p>` : ''}
-  ${moderator ? ratingForm(game, own) : ''}
-  ${ratings}
-</section>
-<section id="comments">
-  <h2>Comments</h2>
-  ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
-  ${commentForm(game, user)}
-  ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
-</section>
+<div class="columns">
+  ${side ? `<aside>${side}</aside>` : ''}
+  <div>
+    <section id="ratings">
+      <h2>Ratings</h2>
+      ${RATING_ERRORS[error] ? `<p class="problem" role="alert">${RATING_ERRORS[error]}</p>` : ''}
+      ${game.ratings ? breakdown(game) : ''}
+      ${moderator ? ratingForm(game, own) : ''}
+      ${ratings}
+    </section>
+    <section id="comments">
+      <h2>Comments</h2>
+      ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
+      ${commentForm(game, user)}
+      ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
+    </section>
+  </div>
+</div>
 <script>
   // Upvotes without leaving the place on the page. The form still works by itself.
   document.getElementById('comments').addEventListener('submit', (event) => {

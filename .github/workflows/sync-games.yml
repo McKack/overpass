@@ -1,5 +1,6 @@
 # Keeps the site in step with profiles/: approved suggestions go in (publish-profiles.mjs), the set the app downloads is
-# signed, every change updates overpass.arctim.no/games, and each run checks a share of the games' art (find-covers.mjs).
+# signed, every change updates overpass.arctim.no/games, each run links issues to their games (link-issues.mjs) and checks a share
+# of the games' art and descriptions (find-covers.mjs).
 # Needs the repository secrets GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml), and
 # PROFILES_SIGNING_KEY, whose public half is in the app (ProfileUpdates.swift). TGDB_KEY and SGDB_KEY are optional: without
 # them, art comes from Steam and GOG only.
@@ -8,7 +9,7 @@ name: Sync games
 on:
   push:
     branches: [main]
-    paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', '.github/scripts/find-covers.mjs', 'services/site/src/profile-check.js']
+    paths: ['profiles/**', '.github/scripts/games-index.js', '.github/scripts/publish-profiles.mjs', '.github/scripts/find-covers.mjs', '.github/scripts/link-issues.mjs', 'services/site/src/profile-check.js']
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:
@@ -18,6 +19,7 @@ concurrency: sync-games
 
 permissions:
   contents: write
+  issues: read
 
 jobs:
   sync:
@@ -41,6 +43,12 @@ jobs:
             -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
         env:
           TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
+      - name: Issues
+        run: node .github/scripts/link-issues.mjs
+        env:
+          SITE: https://overpass.arctim.no
+          SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
       - name: Art
         run: node .github/scripts/find-covers.mjs
         env:

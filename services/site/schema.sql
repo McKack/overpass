@@ -6,6 +6,8 @@
 --   ALTER TABLE comments ADD COLUMN parent_id TEXT;
 --   ALTER TABLE users ADD COLUMN password TEXT;
 --   ALTER TABLE games ADD COLUMN color TEXT;
+--   ALTER TABLE game_art ADD COLUMN about TEXT;
+--   ALTER TABLE game_art ADD COLUMN about_source TEXT;
 --   CREATE INDEX comments_parent ON comments (parent_id);
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
@@ -49,6 +51,8 @@ CREATE TABLE IF NOT EXISTS game_art (
   name TEXT,                         -- the name the app gave, for a title with no page
   file TEXT,                         -- a moderator's upload: covers/<file> in the PICTURES store
   source TEXT,                       -- steam, gog, thegamesdb, steamgriddb or moderator
+  about TEXT,                        -- the store's description
+  about_source TEXT,                 -- steam, gog or thegamesdb
   origin TEXT,                       -- the cover's address
   thumb TEXT,                        -- a smaller cover, where the source has one
   icon TEXT,
@@ -200,3 +204,13 @@ CREATE TABLE IF NOT EXISTS email_attempts (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS email_attempts_key ON email_attempts (key, at);
+
+-- GitHub issues about a game, kept up to date by .github/scripts/link-issues.mjs. The relay adds one as soon as it's filed.
+CREATE TABLE IF NOT EXISTS game_issues (
+  number INTEGER PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  state TEXT NOT NULL                -- open, fixed or closed
+);
+CREATE INDEX IF NOT EXISTS game_issues_game ON game_issues (game_id);

@@ -37,7 +37,7 @@ h1 { font: 700 44px/1.1 -apple-system, "SF Pro Display", sans-serif; letter-spac
 h2 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 12px; }
 section { margin-top: 40px; }
 .muted { color: var(--secondary); font-size: 15px; }
-.back { font-size: 15px; }
+.back { display: inline-block; margin-bottom: 8px; font-size: 15px; }
 .back::before { content: "‹ "; }
 
 .controls { display: flex; flex-direction: column; gap: 12px; margin: 20px 0 24px; }
@@ -58,7 +58,44 @@ section { margin-top: 40px; }
 #direction { width: 32px; height: 30px; padding: 0; border: 1px solid var(--separator); border-radius: 8px; cursor: pointer; font: inherit; color: var(--text); background: var(--surface); }
 #views { margin-left: auto; }
 
-.hero { display: block; width: 100%; aspect-ratio: 96 / 31; object-fit: cover; border-radius: 12px; margin-bottom: 20px; }
+/* The hero runs the width of the window under the top bar, trimmed, and fades into the page where the cover sits on it. */
+body { overflow-x: clip; }
+main:has(> .hero) { position: relative; }
+.hero {
+  --reach: 94px; /* the top bar and main's padding */
+  display: block; width: 100vw; height: clamp(230px, 25vw, 380px); margin: calc(-1 * var(--reach)) 0 0 calc(50% - 50vw);
+  object-fit: cover; object-position: center 30%;
+  -webkit-mask-image: linear-gradient(#000 40%, transparent); mask-image: linear-gradient(#000 40%, transparent);
+}
+.hero + .back {
+  position: absolute; top: 12px; left: 16px; padding: 4px 12px; border-radius: 980px; color: #ffffff; font-size: 14px;
+  background: rgba(0, 0, 0, .45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.hero ~ .game { position: relative; margin-top: -96px; }
+.hero ~ .game .game-intro { padding-top: 64px; }
+.cover-button { position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: none; cursor: pointer; }
+.cover-button:hover .upload, .cover-button:focus-visible .upload { opacity: 1; }
+#cover { width: min(440px, calc(100vw - 32px)); padding: 20px 24px; border: 0; border-radius: 16px; color: var(--text); background: var(--surface); box-shadow: 0 12px 40px rgba(0, 0, 0, .4), inset 0 0 0 1px var(--separator); }
+#cover::backdrop { background: rgba(0, 0, 0, .5); }
+#cover h2 { margin-top: 0; }
+.about { margin: 14px 0 2px; font-size: 16px; line-height: 1.45; }
+.credit { margin: 0; font-size: 12px; }
+.stat { color: var(--secondary); }
+.stat strong { color: var(--text); font-weight: 600; }
+.columns { display: grid; gap: 0 32px; margin-top: 12px; }
+.columns > * { min-width: 0; }
+@media (min-width: 860px) {
+  .columns:has(aside) { grid-template-columns: minmax(0, 1fr) 300px; }
+  .columns aside { grid-column: 2; grid-row: 1; }
+}
+aside h2 { font-size: 20px; }
+aside pre { overflow-x: auto; }
+.issues { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 15px; }
+.issues li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.issues a { min-width: 0; overflow-wrap: anywhere; }
+.state { flex: none; padding: 0 7px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--secondary); box-shadow: inset 0 0 0 1px currentColor; }
+.state.open { color: #c77700; }
+.state.fixed { color: #1a8f3c; }
 
 /* Rows: every card a line of a table, under headers that sort it. */
 .heads, .grid.rows .card {
@@ -99,8 +136,9 @@ section { margin-top: 40px; }
 #cover-url { width: 100%; padding: 9px 12px; border: 0; border-radius: 10px; font: inherit; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); }
 
 .game { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 16px; align-items: start; }
-.summary { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; color: var(--secondary); }
-.bars { display: grid; gap: 4px; max-width: 420px; margin-top: 16px; }
+.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 12px; color: var(--secondary); }
+.summary > * { white-space: nowrap; }
+.bars { display: grid; gap: 4px; max-width: 420px; margin: 0 0 20px; }
 .bar { display: grid; grid-template-columns: 70px 1fr 28px; align-items: center; gap: 10px; font-size: 13px; color: var(--secondary); }
 .bar .count { text-align: right; }
 .track { height: 8px; border-radius: 4px; background: var(--separator); overflow: hidden; }
@@ -131,7 +169,12 @@ footer a { color: inherit; }
 
 @media (max-width: 600px) {
   h1 { font-size: 34px; }
-  .game { grid-template-columns: 112px minmax(0, 1fr); gap: 16px; }
+  .game { grid-template-columns: 112px minmax(0, 1fr); gap: 0 16px; }
+  .game .game-intro { display: contents; }
+  .game > .cover, .game > .cover-button { grid-row: 1 / span 3; }
+  .game h1, .game .summary { grid-column: 2; }
+  .game-intro > :not(h1, .summary) { grid-column: 1 / -1; }
+  .hero ~ .game h1 { margin-top: 64px; font-size: 28px; }
   .bar { grid-template-columns: 58px 1fr 20px; gap: 6px; }
 }
 

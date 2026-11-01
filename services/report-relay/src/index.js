@@ -226,14 +226,25 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
   const issue = await response.json();
   // The issue is filed: a problem with the rating or the profile mustn't fail the report.
   if (submitted) await addSuggestion(env, block, profile, what, install).catch(() => {});
+  await linkIssue(env, block, issue).catch(() => {});
   if (!/^rating: /m.test(block)) return json({ url: issue.html_url });
-  const page = await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url);
-  return json({ url: zip ? issue.html_url : page });
+  // The game's page lists the issue, so that's where the person goes.
+  return json({ url: await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url) });
 }
 
 /// The key lines of a details block.
 function facts(block) {
   return Object.fromEntries(block.split("\n").map((line) => line.match(/^([\w-]+): (.*)$/)?.slice(1)).filter(Boolean));
+}
+
+/// Puts a new issue on its game's page straight away; link-issues.mjs keeps it up to date from then on. A report about the
+/// app itself has no game.
+async function linkIssue(env, block, issue) {
+  const fact = facts(block);
+  if (!fact.app || fact.app === "OverPass") return;
+  const game = await gameFor(env.GAMES, fact);
+  await env.GAMES.prepare("INSERT OR REPLACE INTO game_issues (number, game_id, title, url, state) VALUES (?, ?, ?, ?, 'open')")
+    .bind(issue.number, game, String(issue.title).slice(0, 200), issue.html_url).run();
 }
 
 /// A page's address from a game's name, the same as .github/scripts/games-index.js.

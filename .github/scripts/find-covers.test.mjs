@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { due, findArt, run, sameName, tgdbShare } from './find-covers.mjs';
+import { plainText, due, findArt, run, sameName, tgdbShare } from './find-covers.mjs';
 
 const answer = (body, status = 200, type = 'application/json') => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'Content-Type': type } });
 
@@ -20,7 +20,7 @@ test('names match past marks and punctuation, not past extra words', () => {
 test('the queue goes first, then those missing art, a month after their last look', () => {
   const month = 30 * 24 * 3600 * 1000, now = 2 * month;
   const looked = { category: 'Games', checked_at: 1000 };
-  const complete = { cover: 'c', hero: 'h', icon: 'i' };
+  const complete = { cover: 'c', hero: 'h', icon: 'i', about: 'a' };
   assert.deepEqual(due([{ ...looked, ...complete }], now), []);
   assert.equal(due([{ ...looked, cover: 'c', hero: 'h' }], now).length, 1);
   assert.deepEqual(due([{ ...looked, checked_at: now - 1000 }], now), []);
@@ -107,4 +107,12 @@ test('a moderator\'s image wins if it is one, and either way the wait ends', asy
   };
   await run({ site: 'https://site', token: 't', get, log: () => {} });
   assert.deepEqual(sent.map(({ id, source, cover }) => [id, source, cover]), [['a', 'moderator', 'https://art/a.png'], ['b', undefined, undefined]]);
+});
+
+test('a store description comes out as plain text', () => {
+  assert.equal(plainText('<a href="x"><img src="y"></a>\n\n<i>A truly &amp; good</i> game.<br>It&#39;s fun.'), "A truly & good game.\nIt's fun.");
+  assert.equal(plainText(undefined), undefined);
+  assert.equal(plainText('<img src="y">'), undefined);
+  const long = plainText(`${'Word word word. '.repeat(100)}`);
+  assert.ok(long.length <= 700 && long.endsWith('.'));
 });

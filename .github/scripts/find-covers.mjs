@@ -21,6 +21,7 @@ const TGDB_A_RUN = 5;
 const STEAM_ART = 'https://shared.akamai.steamstatic.com/store_item_assets/';
 const STEAM_ICONS = 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/';
 const SGDB = 'https://www.steamgriddb.com/api/v2';
+const ABOUT_LENGTH = 700;
 /// TheGamesDB's platform number for PC.
 const TGDB_PC = 1;
 
@@ -35,10 +36,27 @@ export function sameName(a, b) {
 export function due(games, now = Date.now()) {
   const turns = games.filter((game) => !game.brand && [null, undefined, 'Games'].includes(game.category));
   const fresh = turns.filter((game) => !game.checked_at).slice(0, NEW_A_RUN);
-  const missing = turns.filter((game) => game.checked_at && !(game.cover && game.hero && game.icon));
+  const missing = turns.filter((game) => game.checked_at && !(game.cover && game.hero && game.icon && game.about));
   const ready = missing.filter((game) => now - game.checked_at >= MONTH_SECONDS * 1000).sort((a, b) => a.checked_at - b.checked_at);
   const picked = [...fresh, ...ready.slice(0, Math.ceil(missing.length / RUNS_A_MONTH))];
   return [...games.filter((game) => game.wanted && !picked.includes(game)), ...picked];
+}
+
+/// A store's description as plain text, at most `ABOUT_LENGTH` characters and ending on a sentence where it can. Stores
+/// write HTML and paste banners into it.
+export function plainText(text) {
+  if (typeof text !== 'string') return undefined;
+  const words = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  const plain = text.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/li>/gi, '\n').replace(/<[^>]*>/g, ' ')
+    .replace(/&(?:#(\d+)|#x([0-9a-f]+)|(\w+));/gi, (all, number, hex, name) => {
+      if (name) return words[name.toLowerCase()] ?? all;
+      return String.fromCodePoint(number ? Number(number) : parseInt(hex, 16));
+    })
+    .replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{2,}/g, '\n\n').trim();
+  if (plain.length <= ABOUT_LENGTH) return plain || undefined;
+  const cut = plain.slice(0, ABOUT_LENGTH);
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('.\n'), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return stop > ABOUT_LENGTH / 2 ? cut.slice(0, stop + 1) : `${cut.slice(0, cut.lastIndexOf(' '))}…`;
 }
 
 async function json(get, url, headers) {
@@ -47,16 +65,19 @@ async function json(get, url, headers) {
 }
 
 async function steamArt(get, id) {
-  const input = { ids: [{ appid: Number(id) }], context: { language: 'english', country_code: 'US', steam_realm: 1 }, data_request: { include_assets: true } };
+  const input = { ids: [{ appid: Number(id) }], context: { language: 'english', country_code: 'US', steam_realm: 1 }, data_request: { include_assets: true, include_basic_info: true } };
   const answer = await json(get, `https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${encodeURIComponent(JSON.stringify(input))}`);
-  const assets = answer?.response?.store_items?.[0]?.assets;
-  if (!assets?.asset_url_format) return {};
+  const item = answer?.response?.store_items?.[0];
+  const about = plainText(item?.basic_info?.short_description);
+  const assets = item?.assets;
+  if (!assets?.asset_url_format) return { about };
   const address = (file) => file ? STEAM_ART + assets.asset_url_format.replace('${FILENAME}', file) : undefined;
   return {
     cover: address(assets.library_capsule_2x ?? assets.library_capsule),
     thumb: address(assets.library_capsule),
     hero: address(assets.library_hero),
     icon: assets.community_icon ? `${STEAM_ICONS}${id}/${assets.community_icon}.jpg` : undefined,
+    about,
   };
 }
 
@@ -73,7 +94,10 @@ async function gogMatch(get, name) {
 async function gogArt(get, id) {
   const game = (await json(get, `https://gamesdb.gog.com/platforms/gog/external_releases/${id}`))?.game;
   const address = (art, extension) => art?.url_format?.replace('{formatter}', '').replace('{ext}', extension);
-  return { cover: address(game?.vertical_cover, 'jpg'), hero: address(game?.background, 'jpg'), icon: address(game?.square_icon, 'png') };
+  return {
+    cover: address(game?.vertical_cover, 'jpg'), hero: address(game?.background, 'jpg'), icon: address(game?.square_icon, 'png'),
+    about: plainText(game?.summary?.['en-US'] ?? game?.summary?.['*']),
+  };
 }
 
 /// How many games TheGamesDB can be asked about in this run, so what's left of the allowance lasts until it refills. A
@@ -87,7 +111,7 @@ export async function tgdbShare(get, key, chance = Math.random()) {
 }
 
 async function tgdbArt(get, name, key) {
-  const query = new URLSearchParams({ apikey: key, name, include: 'boxart', 'filter[platform]': TGDB_PC });
+  const query = new URLSearchParams({ apikey: key, name, include: 'boxart', fields: 'overview', 'filter[platform]': TGDB_PC });
   const answer = await json(get, `https://api.thegamesdb.net/v1.1/Games/ByGameName?${query}`);
   const game = answer?.data?.games?.find((entry) => sameName(entry.game_title, name));
   if (!game) return {};
@@ -100,6 +124,7 @@ async function tgdbArt(get, name, key) {
     cover: front && boxart.base_url.original + front.filename,
     thumb: front && boxart.base_url.medium + front.filename,
     hero: hero && fanart.base_url.original + hero.filename,
+    about: plainText(game.overview),
   };
 }
 
@@ -122,6 +147,7 @@ export async function findArt(game, { get = fetch, tgdb, sgdb } = {}) {
   const fill = (source, found) => {
     if (found.cover && !art.cover) { art.source = source; art.thumb = found.thumb; }
     for (const kind of ['cover', 'hero', 'icon']) if (found[kind]) art[kind] ??= found[kind];
+    if (found.about && !art.about) Object.assign(art, { about: found.about, about_source: source });
   };
   const steam = game.steam ?? (game.name ? await steamMatch(get, game.name) : null);
   const gog = game.name ? await gogMatch(get, game.name) : null;

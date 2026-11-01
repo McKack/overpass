@@ -12,12 +12,14 @@ routes = [{ pattern = "overpass.arctim.no", custom_domain = true }]
 directory = "../../site"
 binding = "ASSETS"
 html_handling = "auto-trailing-slash"
-run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/account/*", "/privacy"]
+run_worker_first = ["/api/*", "/games", "/games/*", "/auth/*", "/account", "/account/*", "/moderation", "/moderation/*", "/privacy"]
 
 [vars]
 # Google Cloud project named-berm-513401-i3, web client "OverPass site". The redirect URI there is
 # https://overpass.arctim.no/auth/google/callback.
 GOOGLE_CLIENT_ID = "17484810858-687cnl3es1se4v9tn8evvcsr34kvuc6n.apps.googleusercontent.com"
+# Account IDs (users.id), comma-separated, that can open /moderation.
+MODERATORS = "5e5b27e4-7922-44ad-ac52-b2515e7a2fc8"
 
 [[d1_databases]]
 binding = "DB"

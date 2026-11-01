@@ -11,6 +11,8 @@
 //   GET  /account                the signed-in person's page
 //   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
 //   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment, delete one's own
+//   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
+//   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for the accounts in MODERATORS
 //   GET  /privacy                what's kept, and for how long
 //
 // An account holds the provider's ID for the person and the username they choose, nothing else: no e-mail, no name
@@ -27,12 +29,16 @@ export default {
     try {
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/delete)?$/);
-      if (request.method === 'POST' && (commented || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
+      const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
+      const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
+      if (request.method === 'POST' && (commented || reported || moderated || ['/account', '/account/delete', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
         const user = await signedIn(request, env);
         if (!user) return redirect('/account');
+        if (reported) return await report(env, user, ...reported.slice(1));
+        if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
         if (commented) {
           return commented[2] ? await deleteComment(env, user, commented[1], commented[2]) : await addComment(request, env, user, commented[1]);
         }
@@ -41,7 +47,14 @@ export default {
       if (request.method === 'GET' || request.method === 'HEAD') {
         if (path === '/auth/google') return await startGoogle(url, env);
         if (path === '/auth/google/callback') return await finishGoogle(request, url, env);
-        if (path === '/account') return personal(accountPage(await signedIn(request, env), url.searchParams.get('error')));
+        if (path === '/account') {
+          const user = await signedIn(request, env);
+          return personal(accountPage(user, url.searchParams.get('error'), isModerator(env, user)));
+        }
+        if (path === '/moderation') {
+          const user = await signedIn(request, env);
+          return isModerator(env, user) ? personal(moderationPage(await queue(env))) : redirect('/account');
+        }
         if (path === '/privacy') return html(privacyPage());
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/games') return json(await list(env));
@@ -55,7 +68,8 @@ export default {
         if (page) {
           const game = await detail(env, page[1]);
           if (!game) return html(missingPage(), 404);
-          return personal(gamePage(game, await comments(env, game.id), await signedIn(request, env), url.searchParams.get('error')));
+          const user = await signedIn(request, env);
+          return personal(gamePage(game, await comments(env, game.id, user), user, await reportedBy(env, user), url.searchParams.get('error')));
         }
       }
       return env.ASSETS.fetch(request);
@@ -121,7 +135,7 @@ async function detail(env, id) {
   const [rated, { results }] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
-      `SELECT tier, comment, chip, macos, overpass, wine, runtime, backend, fps, created_at FROM ratings
+      `SELECT id, tier, comment, chip, macos, overpass, wine, runtime, backend, fps, created_at FROM ratings
        WHERE game_id = ? AND hidden = 0 ORDER BY created_at DESC LIMIT 100`,
     ).bind(id).all(),
   ]);
@@ -279,6 +293,7 @@ async function rename(request, env, user) {
 async function deleteAccount(env, user) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM reports WHERE user_id = ?1 OR target IN (SELECT id FROM comments WHERE user_id = ?1)').bind(user.id),
     env.DB.prepare('DELETE FROM comments WHERE user_id = ?').bind(user.id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
@@ -290,12 +305,13 @@ async function deleteAccount(env, user) {
 const COMMENT_LENGTH = 2000;
 const COMMENTS_A_DAY = 20;
 
-async function comments(env, id) {
+/// A hidden comment still shows to the person who wrote it, so they can delete it.
+async function comments(env, id, user) {
   const { results } = await env.DB.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.name FROM comments
-     JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND comments.hidden = 0
+    `SELECT comments.id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name FROM comments
+     JOIN users ON users.id = comments.user_id WHERE comments.game_id = ? AND (comments.hidden = 0 OR comments.user_id = ?)
      ORDER BY comments.created_at DESC LIMIT 200`,
-  ).bind(id).all();
+  ).bind(id, user?.id ?? null).all();
   return results;
 }
 
@@ -316,8 +332,64 @@ async function addComment(request, env, user, id) {
 }
 
 async function deleteComment(env, user, id, comment) {
-  await env.DB.prepare('DELETE FROM comments WHERE id = ? AND user_id = ?').bind(comment, user.id).run();
+  const { meta } = await env.DB.prepare('DELETE FROM comments WHERE id = ? AND user_id = ?').bind(comment, user.id).run();
+  if (meta.changes) await env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(comment).run();
   return redirect(`/games/${id}#comments`);
+}
+
+// Reports
+
+const REPORTS_TO_HIDE = 3;
+const REPORTS_A_DAY = 20;
+
+const isModerator = (env, user) => Boolean(user) && (env.MODERATORS || '').split(',').includes(user.id);
+
+async function reportedBy(env, user) {
+  if (!user) return new Set();
+  const { results } = await env.DB.prepare('SELECT target FROM reports WHERE user_id = ?').bind(user.id).all();
+  return new Set(results.map((row) => row.target));
+}
+
+/// `kind` is a table's name, from the route. A moderator's report hides the entry at once.
+async function report(env, user, id, kind, entry) {
+  const anchor = `/games/${id}#${kind === 'comments' ? 'comment' : 'rating'}-${entry}`;
+  const target = await env.DB.prepare(`SELECT id, ${kind === 'comments' ? 'user_id' : 'NULL AS user_id'} FROM ${kind} WHERE id = ? AND game_id = ?`)
+    .bind(entry, id).first();
+  if (!target || target.user_id === user.id) return redirect(anchor);
+  const now = Date.now();
+  const today = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE user_id = ? AND created_at > ?')
+    .bind(user.id, now - 24 * 3600 * 1000).first('n');
+  if (today >= REPORTS_A_DAY) return redirect(`/games/${id}?error=reports#comments`);
+  await env.DB.prepare('INSERT OR IGNORE INTO reports (target, user_id, created_at) VALUES (?, ?, ?)').bind(entry, user.id, now).run();
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE target = ?').bind(entry).first('n');
+  if (count >= REPORTS_TO_HIDE || isModerator(env, user)) await env.DB.prepare(`UPDATE ${kind} SET hidden = 1 WHERE id = ?`).bind(entry).run();
+  return redirect(anchor);
+}
+
+/// Everything reported or hidden. A rating replaced in the meantime has a new ID, so its reports are simply not found.
+async function queue(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT 'comments' AS kind, comments.id, comments.body AS text, NULL AS tier, comments.hidden, comments.created_at AS created_at, comments.game_id,
+       users.name AS author, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = comments.id) AS reports
+     FROM comments JOIN users ON users.id = comments.user_id LEFT JOIN games ON games.id = comments.game_id
+     WHERE comments.hidden = 1 OR comments.id IN (SELECT target FROM reports)
+     UNION ALL
+     SELECT 'ratings', ratings.id, ratings.comment, ratings.tier, ratings.hidden, ratings.created_at, ratings.game_id,
+       NULL, games.name, (SELECT COUNT(*) FROM reports WHERE target = ratings.id)
+     FROM ratings LEFT JOIN games ON games.id = ratings.game_id
+     WHERE ratings.hidden = 1 OR ratings.id IN (SELECT target FROM reports)
+     ORDER BY reports DESC, created_at DESC LIMIT 200`,
+  ).all();
+  return results;
+}
+
+/// Settles an entry: its reports go either way, so it only comes back if people report it again.
+async function review(env, kind, entry, action) {
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE ${kind} SET hidden = ? WHERE id = ?`).bind(action === 'hide' ? 1 : 0, entry),
+    env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(entry),
+  ]);
+  return redirect('/moderation');
 }
 
 // Pages
@@ -422,24 +494,33 @@ function breakdown(game) {
   }).join('')}</div>`;
 }
 
-function ratingCard(rating) {
+function reportButton(game, kind, entry, user, reports) {
+  if (!user) return '';
+  if (reports.has(entry)) return '<p class="reported">Reported</p>';
+  return `<form method="post" action="/games/${game.id}/${kind}/${entry}/report"><button class="link" type="submit">Report</button></form>`;
+}
+
+function ratingCard(game, rating, user, reports) {
   const facts = [
     rating.chip, rating.macos && `macOS ${rating.macos}`, rating.wine && `Wine ${rating.wine}`,
     rating.runtime && rating.runtime !== 'not installed' && `Runtime ${rating.runtime}`, rating.backend,
     rating.fps && `${Math.round(rating.fps)} fps`,
   ].filter(Boolean);
-  return `<article class="rating">
+  return `<article class="rating" id="rating-${rating.id}">
   <div class="line">${medal(rating.tier)}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
+  ${reportButton(game, 'ratings', rating.id, user, reports)}
 </article>`;
 }
 
-function commentCard(game, comment, user) {
-  return `<article class="rating">
+function commentCard(game, comment, user, reports) {
+  const mine = comment.user_id === user?.id;
+  return `<article class="rating" id="comment-${comment.id}">
   <div class="line"><span class="who"><span class="avatar" style="--hue:${hue(comment.name)}">${escape(initials(comment.name))}</span>${escape(comment.name)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
   <p class="comment">${escape(comment.body)}</p>
-  ${comment.user_id === user?.id ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : ''}
+  ${comment.hidden ? '<p class="muted">Hidden after reports. Only you can see this.</p>' : ''}
+  ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
 </article>`;
 }
 
@@ -457,9 +538,10 @@ function commentForm(game, user) {
 const COMMENT_ERRORS = {
   comment: `A comment has 1 to ${COMMENT_LENGTH} characters.`,
   limit: `That's ${COMMENTS_A_DAY} comments in a day, the most you can post. Try again tomorrow.`,
+  reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
 };
 
-function gamePage(game, said, user, error) {
+function gamePage(game, said, user, reports, error) {
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
   const settings = !hasSettings ? '' : `
@@ -472,7 +554,7 @@ function gamePage(game, said, user, error) {
   <p><a href="${REPOSITORY}/blob/main/${escape(game.profile_file)}">See it on GitHub</a></p>` : ''}
 </section>`;
   const ratings = game.rating_list.length
-    ? game.rating_list.map(ratingCard).join('\n')
+    ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports)).join('\n')
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
 <a class="back" href="/games">All games</a>
@@ -494,7 +576,7 @@ ${settings}
   <h2>Comments</h2>
   ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
   ${commentForm(game, user)}
-  ${said.map((comment) => commentCard(game, comment, user)).join('\n')}
+  ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
 </section>`);
 }
 
@@ -504,7 +586,23 @@ const ACCOUNT_ERRORS = {
   taken: 'That username is taken.',
 };
 
-function accountPage(user, error) {
+function moderationCard(entry) {
+  const buttons = entry.hidden
+    ? [['show', 'Show', 'quiet']]
+    : [['hide', 'Hide', 'danger'], ['show', 'Keep', 'quiet']];
+  return `<article class="rating">
+  <div class="line"><span class="who">${entry.tier ? medal(entry.tier) : escape(entry.author)}</span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
+  ${entry.text ? `<p class="comment">${escape(entry.text)}</p>` : ''}
+  <p class="muted"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a> · ${entry.hidden ? 'Hidden' : 'Showing'} · ${entry.reports === 1 ? '1 report' : `${entry.reports} reports`}</p>
+  <div class="decide">${buttons.map(([action, title, style]) => `<form method="post" action="/moderation/${entry.kind}/${entry.id}/${action}"><button class="button ${style}" type="submit">${title}</button></form>`).join('')}</div>
+</article>`;
+}
+
+const moderationPage = (entries) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings.', `
+<header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings. Deciding clears an entry's reports.</p></header>
+${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}`);
+
+function accountPage(user, error, moderator) {
   const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
   if (!user) {
     return shell('Sign in · OverPass', 'Sign in to OverPass.', `
@@ -522,6 +620,7 @@ ${problem}
   <button class="button" type="submit">Save</button>
 </form>
 <form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
+${moderator ? '<p><a href="/moderation">Moderation</a></p>' : ''}
 <section>
   <h2>Delete account</h2>
   <p class="muted">Removes your account, username and comments at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
@@ -540,6 +639,7 @@ const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps abou
 <section>
   <h2>Comments</h2>
   <p>A comment is public on the game's page, with your username and the date. You can delete your own at any time.</p>
+  <p>Signed-in people can report a comment or a rating. Three reports hide it until it's reviewed. Who reported what is never shown, and it's removed when the report is settled or the account is deleted.</p>
 </section>
 <section>
   <h2>Ratings from the app</h2>

@@ -79,3 +79,12 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS comments_game ON comments (game_id, created_at);
 CREATE INDEX IF NOT EXISTS comments_user ON comments (user_id, created_at);
+
+-- Who reported a comment or a rating; `target` is its ID. Gone once a moderator has decided, or with either side's deletion.
+CREATE TABLE IF NOT EXISTS reports (
+  target TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (target, user_id)
+);
+CREATE INDEX IF NOT EXISTS reports_user ON reports (user_id, created_at);

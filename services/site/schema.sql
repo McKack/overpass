@@ -49,3 +49,21 @@ CREATE TABLE IF NOT EXISTS ratings (
 CREATE INDEX IF NOT EXISTS ratings_install ON ratings (install, game_id);
 CREATE INDEX IF NOT EXISTS ratings_game ON ratings (game_id, created_at);
 CREATE INDEX IF NOT EXISTS ratings_recent ON ratings (created_at);
+
+-- An account: the provider's ID for the person and the username they chose. No e-mail, no name from the provider.
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  name TEXT COLLATE NOCASE,
+  created_at INTEGER NOT NULL,
+  UNIQUE (provider, provider_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (name) WHERE name IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);

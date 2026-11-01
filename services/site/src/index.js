@@ -7,6 +7,13 @@
 //   GET  /api/games/<id>         one game with its ratings
 //   GET  /api/recent             the games rated last
 //   POST /api/sync               { games } from .github/scripts/games-index.js; needs the SYNC_TOKEN secret
+//   GET  /auth/google, /auth/google/callback   sign-in with Google (GOOGLE_CLIENT_ID, secret GOOGLE_CLIENT_SECRET)
+//   GET  /account                the signed-in person's page
+//   POST /account, /account/delete, /auth/signout   change the name, delete the account, sign out
+//   GET  /privacy                what's kept, and for how long
+//
+// An account holds the provider's ID for the person and the username they choose, nothing else: no e-mail, no name
+// from Google. A session is a random token in a cookie; the database keeps only its hash.
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
@@ -18,7 +25,19 @@ export default {
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
+      if (request.method === 'POST' && ['/account', '/account/delete', '/auth/signout'].includes(path)) {
+        // Only this site's own forms.
+        if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
+        if (path === '/auth/signout') return await signOut(request, env);
+        const user = await signedIn(request, env);
+        if (!user) return redirect('/account');
+        return path === '/account' ? await rename(request, env, user) : await deleteAccount(env, user);
+      }
       if (request.method === 'GET' || request.method === 'HEAD') {
+        if (path === '/auth/google') return await startGoogle(url, env);
+        if (path === '/auth/google/callback') return await finishGoogle(request, url, env);
+        if (path === '/account') return personal(accountPage(await signedIn(request, env), url.searchParams.get('error')));
+        if (path === '/privacy') return html(privacyPage());
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/games') return json(await list(env));
         const api = path.match(/^\/api\/games\/([a-z0-9-]+)$/);
@@ -144,6 +163,111 @@ async function sync(request, env) {
   return json({ games: games.length });
 }
 
+// Accounts
+
+const SESSION_SECONDS = 90 * 24 * 3600;
+const STATE_SECONDS = 600;
+const USERNAME = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,29}$/u;
+const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
+
+const base64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+const sha256 = (text) => crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+const hashed = async (token) => base64url(await sha256(token));
+
+function cookie(request, name) {
+  const pair = (request.headers.get('Cookie') || '').split(/; */).find((part) => part.startsWith(`${name}=`));
+  return pair?.slice(name.length + 1) ?? null;
+}
+
+const setCookie = (name, value, seconds) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${seconds}`;
+
+function redirect(location, ...cookies) {
+  const headers = new Headers({ Location: location, 'Cache-Control': 'no-store' });
+  for (const line of cookies) headers.append('Set-Cookie', line);
+  return new Response(null, { status: 303, headers });
+}
+
+/// Only a path on this site, so a sign-in link can't send someone elsewhere afterwards.
+const localPath = (path) => (/^\/(?![/\\])/.test(path || '') ? path : '/account');
+
+async function signedIn(request, env) {
+  const token = cookie(request, 'overpass_session');
+  if (!token) return null;
+  return env.DB.prepare(
+    `SELECT users.id, users.name FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+  ).bind(await hashed(token), Date.now()).first();
+}
+
+async function startGoogle(url, env) {
+  const state = randomToken(), verifier = randomToken();
+  const signIn = new URL(env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth');
+  signIn.search = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID, redirect_uri: `${url.origin}/auth/google/callback`, response_type: 'code', scope: 'openid',
+    state, code_challenge: base64url(await sha256(verifier)), code_challenge_method: 'S256',
+  });
+  const next = encodeURIComponent(localPath(url.searchParams.get('next')));
+  return redirect(signIn.href, setCookie('overpass_signin', `${state}.${verifier}.${next}`, STATE_SECONDS));
+}
+
+/// The token comes straight from Google over TLS, so its claims are read without checking its signature.
+async function finishGoogle(request, url, env) {
+  const [state, verifier, ...next] = (cookie(request, 'overpass_signin') || '').split('.');
+  const clear = setCookie('overpass_signin', '', 0);
+  const failed = redirect('/account?error=signin', clear);
+  const code = url.searchParams.get('code');
+  if (!code || !state || url.searchParams.get('state') !== state) return failed;
+  const answer = await fetch(env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, code, code_verifier: verifier,
+      grant_type: 'authorization_code', redirect_uri: `${url.origin}/auth/google/callback`,
+    }),
+  });
+  if (!answer.ok) return failed;
+  const { id_token: idToken } = await answer.json();
+  const payload = (idToken || '').split('.')[1];
+  if (!payload) return failed;
+  const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+  if (claims.aud !== env.GOOGLE_CLIENT_ID || !GOOGLE_ISSUERS.includes(claims.iss) || !claims.sub || claims.exp * 1000 < Date.now()) return failed;
+
+  const now = Date.now();
+  await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at) VALUES (?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), 'google', claims.sub, now).run();
+  const user = await env.DB.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').bind('google', claims.sub).first('id');
+  const token = randomToken();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now),
+    env.DB.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
+      .bind(await hashed(token), user, now + SESSION_SECONDS * 1000),
+  ]);
+  return redirect(localPath(decodeURIComponent(next.join('.'))), clear, setCookie('overpass_session', token, SESSION_SECONDS));
+}
+
+async function signOut(request, env) {
+  const token = cookie(request, 'overpass_session');
+  if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await hashed(token)).run();
+  return redirect('/account', setCookie('overpass_session', '', 0));
+}
+
+async function rename(request, env, user) {
+  const name = String((await request.formData()).get('name') || '').trim();
+  if (!USERNAME.test(name)) return redirect('/account?error=name');
+  const taken = await env.DB.prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE AND id <> ?').bind(name, user.id).first('id');
+  if (taken) return redirect('/account?error=taken');
+  await env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(name, user.id).run();
+  return redirect('/account');
+}
+
+async function deleteAccount(env, user) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
+  return redirect('/account', setCookie('overpass_session', '', 0));
+}
+
 // Pages
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -179,13 +303,14 @@ function shell(title, description, body) {
 <body>
 <nav class="top">
   <a class="brand" href="/"><img src="/icon.svg" alt="">OverPass</a>
-  <a href="/games">Games</a>
+  <span class="links"><a href="/games">Games</a><a href="/account">Account</a></span>
 </nav>
 <main>${body}</main>
 <footer>
   <a class="maker" href="https://arctim.no"><img src="/arctic-imaginarium.svg" alt="">Made by Arctic Imaginarium</a>
   <span aria-hidden="true">·</span> <a href="${REPOSITORY}">GitHub</a>
   <span aria-hidden="true">·</span> <a href="https://ko-fi.com/arctim">Ko-fi</a>
+  <span aria-hidden="true">·</span> <a href="/privacy">Privacy</a>
 </footer>
 </body>
 </html>`;
@@ -291,6 +416,58 @@ ${settings}
 </section>`);
 }
 
+const ACCOUNT_ERRORS = {
+  signin: 'Signing in didn\'t work. Try again.',
+  name: 'A username has 2 to 30 letters, digits, spaces, dots, dashes or underscores, and starts with a letter or digit.',
+  taken: 'That username is taken.',
+};
+
+function accountPage(user, error) {
+  const problem = ACCOUNT_ERRORS[error] ? `<p class="problem" role="alert">${ACCOUNT_ERRORS[error]}</p>` : '';
+  if (!user) {
+    return shell('Sign in · OverPass', 'Sign in to OverPass.', `
+<header class="page"><h1>Sign in</h1><p>An account will let you comment on game pages. You don't need one to play or to rate games from the app.</p></header>
+${problem}
+<p><a class="button" href="/auth/google">Sign in with Google</a></p>
+<p class="muted">OverPass keeps Google's ID for your account and the username you choose, not your e-mail or name. <a href="/privacy">Privacy</a></p>`);
+  }
+  return shell('Your account · OverPass', 'Your OverPass account.', `
+<header class="page"><h1>${user.name ? escape(user.name) : 'Choose a username'}</h1>${user.name ? '' : '<p>This is the name others will see.</p>'}</header>
+${problem}
+<form class="account" method="post" action="/account">
+  <label for="name">Username</label>
+  <input id="name" name="name" required minlength="2" maxlength="30" value="${escape(user.name)}" autocomplete="username">
+  <button class="button" type="submit">Save</button>
+</form>
+<form class="account" method="post" action="/auth/signout"><button class="button quiet" type="submit">Sign Out</button></form>
+<section>
+  <h2>Delete account</h2>
+  <p class="muted">Removes your account and username at once. Ratings sent from the app aren't tied to an account, so they stay.</p>
+  <form method="post" action="/account/delete"><button class="button danger" type="submit">Delete Account</button></form>
+</section>`);
+}
+
+const privacyPage = () => shell('Privacy · OverPass', 'What OverPass keeps about you, and for how long.', `
+<header class="page"><h1>Privacy</h1><p>What OverPass and this site keep, and for how long.</p></header>
+<section>
+  <h2>Accounts</h2>
+  <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and no picture is stored.</p>
+  <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
+  <p>You can delete your account on <a href="/account">its page</a>. It's removed at once.</p>
+</section>
+<section>
+  <h2>Ratings from the app</h2>
+  <p>A rating is public on the game's page: the medal, your comment, the frame rate of the last run, your OverPass, Wine and Runtime versions, your Mac's chip and your macOS version. A random ID for your install, never shown, lets a new rating replace your last one. Ratings aren't tied to an account.</p>
+</section>
+<section>
+  <h2>Logs and reports</h2>
+  <p>Logs are only sent when you choose to. They file a public issue on <a href="${REPOSITORY}/issues">GitHub</a>, and the log and any screenshot are kept for 180 days. Your name, home folder, computer name and e-mail addresses are taken out first. The report service counts reports per network address to limit abuse, and those counts are gone within two hours.</p>
+</section>
+<section>
+  <h2>Who runs this</h2>
+  <p>OverPass is made by <a href="https://arctim.no">Arctic Imaginarium</a>. The site runs on Cloudflare. For a question or to have something removed, open an <a href="${REPOSITORY}/issues">issue</a>.</p>
+</section>`);
+
 const missingPage = () => shell('Game not found · OverPass', 'This game has no page yet.', `
 <header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`);
 const failedPage = () => shell('Something went wrong · OverPass', 'The games list could not be loaded.', `
@@ -298,6 +475,11 @@ const failedPage = () => shell('Something went wrong · OverPass', 'The games li
 
 const html = (body, status = 200) => new Response(body, {
   status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+});
+
+/// A page that depends on who's asking: never cached.
+const personal = (body) => new Response(body, {
+  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' },
 });
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {

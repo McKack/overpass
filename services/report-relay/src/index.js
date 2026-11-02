@@ -237,10 +237,6 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
   const submitted = /^kind: profile$/m.test(block);
   const rated = /^kind: rating$/m.test(block);
   if (rated) return json({ url: await addRating(env, app, block, what, null, install) });
-  if (submitted && !zip) {
-    await addSuggestion(env, block, profile, what, install);
-    return json({ url: await addRating(env, app, block, what, null, install) });
-  }
 
   const id = crypto.randomUUID();
   const name = safeName(zip?.name || "OverPass Logs.zip");
@@ -249,13 +245,19 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
 
   // encodeURIComponent keeps parentheses, which would end the Markdown link and a check's match early.
   const logURL = `${url.origin}/${app}/logs/${id}/${encodeURIComponent(name).replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`;
+  const shotURL = `${url.origin}/${app}/shots/${id}.jpg`;
+  // A suggested profile is for a moderator until it's approved; only a run that went badly and came with logs is an issue.
+  if (submitted && !(zip && /^rating: (bronze|borked)$/m.test(block))) {
+    const suggestion = await addSuggestion(env, block, profile, what, install, null, zip ? logURL : null, shot ? shotURL : null);
+    return json({ url: await addRating(env, app, block, what, null, install, suggestion) });
+  }
   const body = [
     // The app asks both in one field; a separate answer gets its own section.
     feature ? "### What would you like?" : "### What happened", "", what, "",
     ...(steps ? ["### How to make it happen again", "", steps, ""] : []),
     ...(submitted ? ["### Profile", "", ...fenced(profile), ""] : []),
     ...(feature ? [] : ["### Log", "", zip ? `[${name}](${logURL})` : "_No log: sent without one._", ""]),
-    ...(shot ? ["### Screenshot", "", `![Screenshot](${url.origin}/${app}/shots/${id}.jpg)`, ""] : []),
+    ...(shot ? ["### Screenshot", "", `![Screenshot](${shotURL})`, ""] : []),
     "### Details", "", "```text", block, "```", "",
     "<sub>Sent from the app through Arctic Imaginarium's report relay.</sub>",
   ].join("\n");
@@ -270,11 +272,11 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
   }
   const issue = await response.json();
   // The issue is filed: a problem with the rating or the profile mustn't fail the report.
-  if (submitted) await addSuggestion(env, block, profile, what, install, issue.number).catch(() => {});
+  const suggestion = submitted ? await addSuggestion(env, block, profile, what, install, issue.number).catch(() => null) : null;
   await linkIssue(env, block, issue).catch(() => {});
   if (!/^rating: /m.test(block)) return json({ url: issue.html_url, issue: issue.number });
   // The game's page lists the issue, so that's where the person goes.
-  return json({ url: await addRating(env, app, block, what, issue.html_url, install).catch(() => issue.html_url), issue: issue.number });
+  return json({ url: await addRating(env, app, block, what, issue.html_url, install, suggestion).catch(() => issue.html_url), issue: issue.number });
 }
 
 /// The key lines of a details block.
@@ -322,7 +324,7 @@ async function gameFor(db, fact) {
 
 /// Stores a rating and returns the address of its game's page. The chip is all it keeps of the Mac's facts. A new rating
 /// from the same install on the same OverPass, Wine and Runtime replaces the last one, and stays hidden if that was.
-async function addRating(env, app, block, comment, issueURL, install) {
+async function addRating(env, app, block, comment, issueURL, install, suggestion = null) {
   const fact = facts(block);
   const tier = ["platinum", "gold", "silver", "bronze", "borked"].find((name) => name === fact.rating);
   if (!tier) throw new Error("the rating isn't one of the tiers");
@@ -335,25 +337,27 @@ async function addRating(env, app, block, comment, issueURL, install) {
     await env.GAMES.prepare(`DELETE FROM ratings WHERE ${same}`).bind(...setup).run();
   }
   await env.GAMES.prepare(
-    `INSERT INTO ratings (id, game_id, tier, comment, chip, macos, overpass, wine, runtime, graphics, backend, fps, profile, issue_url, hidden, install, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ratings (id, game_id, tier, comment, chip, macos, overpass, wine, runtime, graphics, backend, fps, profile, issue_url, hidden, install, created_at, suggestion)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(crypto.randomUUID(), game, tier, comment || null, (fact.mac || "").split(", ")[1] || null,
     (fact.macos || "").split(" ")[0].replace(/\.0$/, "") || null, fact.overpass || null, fact.wine || null, fact.runtime || null,
     fact.graphics || null, fact.backend && fact.backend !== "unknown" ? fact.backend : null, parseFloat(fact.frames) || null,
-    fact.profile || null, issueURL, hidden, install, Date.now()).run();
+    fact.profile || null, issueURL, hidden, install, Date.now(), suggestion).run();
   return `${JSON.parse(env.SITES)[app]}/games/${game}`;
 }
 
-/// Keeps a suggested profile for a moderator. A newer one from the same install replaces one still waiting.
-async function addSuggestion(env, block, text, comment, install, issue = null) {
+/// Keeps a suggested profile for a moderator and returns its ID. A newer one from the same install replaces one still waiting.
+async function addSuggestion(env, block, text, comment, install, issue = null, log = null, shot = null) {
   const fact = facts(block);
   const game = await gameFor(env.GAMES, fact);
   const file = await env.GAMES.prepare("SELECT profile_file FROM games WHERE id = ?").bind(game).first("profile_file");
   const profile = file?.match(/^profiles\/([a-z0-9-]+)\.ini$/)?.[1] ?? game;
   if (install) await env.GAMES.prepare("DELETE FROM suggestions WHERE install = ? AND game_id = ? AND status = 'pending'").bind(install, game).run();
+  const id = crypto.randomUUID();
   await env.GAMES.prepare(
-    "INSERT INTO suggestions (id, game_id, profile_id, body, comment, overpass, wine, runtime, install, created_at, issue) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).bind(crypto.randomUUID(), game, profile, text, comment || null, fact.overpass || null, fact.wine || null, fact.runtime || null, install, Date.now(), issue).run();
+    "INSERT INTO suggestions (id, game_id, profile_id, body, comment, overpass, wine, runtime, install, created_at, issue, log, shot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(id, game, profile, text, comment || null, fact.overpass || null, fact.wine || null, fact.runtime || null, install, Date.now(), issue, log, shot).run();
+  return id;
 }
 
 function github(env, path, token, init = {}) {

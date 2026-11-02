@@ -154,7 +154,7 @@ pre {
 }
 .rating { background: var(--surface); border-radius: 16px; padding: 16px 18px; margin-bottom: 12px; box-shadow: inset 0 0 0 1px var(--separator); }
 .rating .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.rating time { color: var(--secondary); font-size: 13px; }
+.rating time { color: var(--secondary); font-size: 13px; margin-left: auto; }
 .comment { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; color: var(--secondary); font-size: 13px; }
 .empty { color: var(--secondary); }

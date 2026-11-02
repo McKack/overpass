@@ -16,6 +16,10 @@
 --   CREATE UNIQUE INDEX users_handle ON users (name, tag) WHERE name IS NOT NULL;
 --   ALTER TABLE reports ADD COLUMN reason TEXT;
 --   ALTER TABLE suggestions ADD COLUMN issue INTEGER;
+--   ALTER TABLE ratings ADD COLUMN unconfirmed INTEGER NOT NULL DEFAULT 0;
+--   ALTER TABLE ratings ADD COLUMN suggestion TEXT;
+--   ALTER TABLE suggestions ADD COLUMN log TEXT;
+--   ALTER TABLE suggestions ADD COLUMN shot TEXT;
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
 -- The games database (D1 "overpass-games"), shared by the site's worker, which reads it and stores the list of games
@@ -89,7 +93,9 @@ CREATE TABLE IF NOT EXISTS ratings (
   install TEXT,                      -- the app's random ID, never shown: a new rating replaces its last one;
                                      -- account:<users.id> for a moderator's rating from the game's page
   created_at INTEGER NOT NULL,
-  user_id TEXT                       -- the account it was sent from; anonymous without one
+  user_id TEXT,                      -- the account it was sent from; anonymous without one
+  unconfirmed INTEGER NOT NULL DEFAULT 0,   -- 1 when the profile sent with it was rejected: shown, but barely counted
+  suggestion TEXT                    -- suggestions.id of the profile sent with it
 );
 CREATE INDEX IF NOT EXISTS ratings_install ON ratings (install, game_id);
 CREATE INDEX IF NOT EXISTS ratings_game ON ratings (game_id, created_at);
@@ -177,7 +183,9 @@ CREATE TABLE IF NOT EXISTS suggestions (
   install TEXT,                      -- the app's random ID: a newer suggestion from it replaces a waiting one
   status TEXT NOT NULL DEFAULT 'pending',   -- pending, approved or published; a refused one is deleted
   created_at INTEGER NOT NULL,
-  issue INTEGER                      -- the GitHub issue filed with it, when logs came along
+  issue INTEGER,                     -- the GitHub issue filed with it: a Bronze or Borked run with logs
+  log TEXT,                          -- the address of logs sent with it and no issue; the relay keeps them for a while
+  shot TEXT                          -- the same for a screenshot
 );
 CREATE INDEX IF NOT EXISTS suggestions_status ON suggestions (status, created_at);
 CREATE INDEX IF NOT EXISTS suggestions_install ON suggestions (install, game_id);

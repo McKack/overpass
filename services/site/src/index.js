@@ -55,6 +55,8 @@ import { profileProblems, storeName } from './profile-check.js';
 import { addressHash, checkPassword, cleanAddress, cleanCode, codeHash, hashPassword, newCode, same, validAddress, validPassword } from './email-auth.js';
 
 const TIERS = ['platinum', 'gold', 'silver', 'bronze', 'borked'];
+/// What a rating counts for against a game's overall tier once the profile sent with it was rejected.
+const UNCONFIRMED_WEIGHT = 0.01;
 const TITLES = { platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze', borked: 'Borked' };
 const REPOSITORY = 'https://github.com/McKack/overpass';
 
@@ -212,12 +214,14 @@ export function overall(counts) {
 
 async function tally(env, where = '', ...values) {
   const { results } = await env.DB.prepare(
-    `SELECT game_id, tier, COUNT(*) AS n, MAX(created_at) AS last FROM ratings WHERE hidden = 0 ${where} GROUP BY game_id, tier`,
+    `SELECT game_id, tier, COUNT(*) AS n, SUM(unconfirmed) AS unconfirmed, MAX(created_at) AS last FROM ratings WHERE hidden = 0 ${where} GROUP BY game_id, tier`,
   ).bind(...values).all();
   const games = new Map();
   for (const row of results) {
-    const game = games.get(row.game_id) ?? { counts: {}, last: 0 };
+    const game = games.get(row.game_id) ?? { counts: {}, weights: {}, unconfirmed: 0, last: 0 };
     game.counts[row.tier] = row.n;
+    game.weights[row.tier] = row.n - row.unconfirmed + row.unconfirmed * UNCONFIRMED_WEIGHT;
+    game.unconfirmed += row.unconfirmed;
     game.last = Math.max(game.last, row.last);
     games.set(row.game_id, game);
   }
@@ -239,7 +243,7 @@ function summary(game, rated) {
   const counts = rated?.counts ?? {};
   return {
     id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat),
-    tier: overall(counts), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), last_rated: rated?.last ?? null,
+    tier: overall(rated?.weights ?? {}), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), unconfirmed: rated?.unconfirmed ?? 0, last_rated: rated?.last ?? null,
     art: picture(game), brand: game.brand ?? null, color: game.color ?? game.brand ?? null, icon: game.icon ?? null, stores: storeLinks(game),
   };
 }
@@ -275,7 +279,7 @@ async function detail(env, id) {
   const [rated, { results }, { results: issues }, guard] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
-      `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, ${badgeOf('u')},
+      `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.unconfirmed, r.created_at, ${badgeOf('u')},
          CASE WHEN u.public = 1 THEN u.name END AS author, CASE WHEN u.public = 1 THEN u.tag END AS author_tag, CASE WHEN u.public = 1 THEN u.picture END AS author_picture
        FROM ratings r LEFT JOIN users u ON u.id = r.user_id
        WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
@@ -1227,11 +1231,14 @@ async function suggestions(env, page) {
   return results.map((entry) => ({ ...entry, problems: profileProblems(entry.body, entry.current) }));
 }
 
-/// Rejecting also closes the GitHub issue filed with the suggestion: the page shows it closed at once, and the relay
-/// does it now or, if that fails, at its next cron.
+/// Rejecting leaves the rating sent with the suggestion on the page as unconfirmed, and closes the GitHub issue filed
+/// with it: the page shows it closed at once, and the relay does it now or, if that fails, at its next cron.
 async function decide(env, context, back, entry, action) {
   if (action === 'reject') {
-    const number = await env.DB.prepare("DELETE FROM suggestions WHERE id = ? AND status = 'pending' RETURNING issue").bind(entry).first('issue');
+    const refused = await env.DB.prepare("DELETE FROM suggestions WHERE id = ? AND status = 'pending' RETURNING id, issue").bind(entry).first();
+    if (!refused) return redirect(back);
+    await env.DB.prepare('UPDATE ratings SET unconfirmed = 1 WHERE suggestion = ?').bind(entry).run();
+    const number = refused.issue;
     if (number) {
       await env.DB.batch([
         env.DB.prepare('INSERT OR IGNORE INTO issue_closes (number, created_at) VALUES (?, ?)').bind(number, Date.now()),
@@ -1585,7 +1592,7 @@ function ratingCard(game, rating, user, reports, own, twins) {
     rating.fps && `${Math.round(rating.fps)} fps`,
   ].filter(Boolean);
   return `<article class="rating" id="rating-${rating.id}">
-  <div class="line">${medal(rating.tier)}${rating.author || rating.badge ? `<span class="who author">${rating.author ? `${avatar(rating.author, rating.author_picture)}${personLink(rating.author, rating.author_tag, twins)}` : ''}${roleBadge(rating.badge)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
+  <div class="line">${medal(rating.tier)}${rating.unconfirmed ? '<span class="chip" title="The profile sent with this rating was rejected, so it barely counts toward the game\'s overall rating.">Unconfirmed</span>' : ''}${rating.author || rating.badge ? `<span class="who author">${rating.author ? `${avatar(rating.author, rating.author_picture)}${personLink(rating.author, rating.author_tag, twins)}` : ''}${roleBadge(rating.badge)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
   ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports, rating.author, rating.comment)}
@@ -1758,7 +1765,7 @@ function median(values) {
 
 /// What frame rate to expect, from the ratings on the page, and by chip when more than one is among them.
 function expectedRate(game) {
-  const runs = game.rating_list.filter((rating) => rating.fps > 1);
+  const runs = game.rating_list.filter((rating) => rating.fps > 1 && !rating.unconfirmed);
   const fps = median(runs.map((rating) => rating.fps));
   if (!fps) return { stat: '', chips: '' };
   const chips = [...new Set(runs.map((rating) => rating.chip).filter(Boolean))];
@@ -1869,7 +1876,7 @@ ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolic
   ${moderator ? `<button class="cover-button" type="button" popovertarget="cover" aria-label="Change Cover">${cover(game)}<span class="upload">Change Cover</span></button>` : cover(game)}
   <div class="game-intro">
     <h1>${escape(game.name)}</h1>
-    <p class="summary">${medal(game.tier, true)}<span>${game.ratings === 1 ? '1 rating' : `${game.ratings} ratings`}</span>${rate.stat}</p>
+    <p class="summary">${medal(game.tier, true)}<span>${game.ratings === 1 ? '1 rating' : `${game.ratings} ratings`}${game.unconfirmed ? `, ${game.unconfirmed} unconfirmed` : ''}</span>${rate.stat}</p>
     ${rate.chips}
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
     ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
@@ -1978,11 +1985,13 @@ function difference(entry) {
 function suggestionCard(entry, query) {
   const facts = [entry.overpass && `OverPass ${entry.overpass}`, entry.wine && `Wine ${entry.wine}`, entry.runtime && `Runtime ${entry.runtime}`].filter(Boolean).map(escape).join(' · ');
   const issue = entry.issue ? ` · <a href="${REPOSITORY}/issues/${entry.issue}" rel="noopener">Issue #${entry.issue}</a>` : '';
+  const log = entry.log ? ` · <a href="${escape(entry.log)}" rel="noopener">Logs</a>` : '';
+  const shot = entry.shot ? ` · <a href="${escape(entry.shot)}" rel="noopener">Screenshot</a>` : '';
   const buttons = entry.status === 'approved' ? '<p class="muted">Approved. Goes out with the next publish, within the hour.</p>'
-    : `<div class="decide">${entry.problems.length ? '' : `<form method="post" action="/moderation/suggestions/${entry.id}/approve${query}"><button class="button" type="submit">Approve</button></form>`}<form method="post" action="/moderation/suggestions/${entry.id}/reject${query}"><button class="button quiet" type="submit">Reject</button></form></div>`;
+    : `<div class="decide">${entry.problems.length ? '' : `<form method="post" action="/moderation/suggestions/${entry.id}/approve${query}"><button class="button" type="submit">Approve</button></form>`}<form method="post" action="/moderation/suggestions/${entry.id}/reject${query}"><button class="button quiet" type="submit" title="Leaves its rating unconfirmed, counting 1%, and closes any issue">Reject</button></form></div>`;
   return `<article class="rating">
   <div class="line"><span class="who"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a></span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
-  <p class="muted">profiles/${escape(entry.profile_id)}.ini · ${entry.current ? 'changes the file' : 'a new file'}${facts ? ` · ${facts}` : ''}${issue}</p>
+  <p class="muted">profiles/${escape(entry.profile_id)}.ini · ${entry.current ? 'changes the file' : 'a new file'}${facts ? ` · ${facts}` : ''}${issue}${log}${shot}</p>
   ${entry.comment ? `<p class="comment">${escape(entry.comment)}</p>` : ''}
   <pre class="diff">${difference(entry)}</pre>
   ${entry.problems.length ? `<p class="muted">Can't be approved here: ${entry.problems.map(escape).join('; ')}.</p>` : ''}

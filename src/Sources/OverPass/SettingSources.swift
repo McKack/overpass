@@ -91,6 +91,13 @@ struct InheritedSettings {
         return choice == .background ? nil : (choice, config.source)
     }
 
+    /// The frame rate limit the rules give, when all of Direct3D 9 to 12 share it.
+    var frameLimit: (value: String, source: SettingSource)? {
+        let lines = environment.map(\.value)
+        guard let value = FrameLimit.value(in: lines), let config = variable("DXMT_CONFIG") else { return nil }
+        return (value, config.source)
+    }
+
     /// Variables and DLLs with no control of their own in the editor.
     var others: [Entry] {
         environment.filter { !["OVERPASS_X87=", MaxResolution.variable + "="].contains(where: $0.value.hasPrefix) }

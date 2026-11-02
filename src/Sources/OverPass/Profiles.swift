@@ -521,6 +521,7 @@ class ProfileStore {
     func load() {
         let bundled = Self.iniFiles(in: Self.bundledDirectory)
         let user = Self.iniFiles(in: UserProfiles.directory)
+        Self.followOriginals(of: Set(user.keys).intersection(bundled.keys), bundled: bundled, user: user)
         let effective = bundled.merging(user) { $1 }
         edited = Set(user.keys).intersection(bundled.keys)
         custom = Set(user.keys).subtracting(bundled.keys)
@@ -548,6 +549,31 @@ class ProfileStore {
         CompatRules.reload()
     }
 
+    /// Keeps edited copies on top of the bundled files: a copy whose original changed moves onto the new one, so
+    /// only what the person changed stays theirs. Copies older than Originals/ keep the original they still match.
+    private static func followOriginals(of ids: Set<String>, bundled: [String: URL], user: [String: URL]) {
+        let fm = FileManager.default
+        for id in ids {
+            guard let mine = try? String(contentsOf: user[id]!, encoding: .utf8),
+                  let original = try? String(contentsOf: bundled[id]!, encoding: .utf8),
+                  let basedOn = UserProfiles.basedOn(mine) else { continue }
+            let version = UserProfiles.version(of: original)
+            let kept = UserProfiles.originalsDirectory.appendingPathComponent("\(id).ini")
+            if basedOn == version {
+                if !fm.fileExists(atPath: kept.path) { keep(original, as: kept) }
+            } else if let base = try? String(contentsOf: kept, encoding: .utf8),
+                      let merged = ProfileText.merged(mine: mine, base: base, new: original) {
+                let text = UserProfiles.basedOnPrefix + version + "\n" + merged
+                if (try? text.write(to: user[id]!, atomically: true, encoding: .utf8)) != nil { keep(original, as: kept) }
+            }
+        }
+    }
+
+    private static func keep(_ original: String, as url: URL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? original.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// The text of a profile as in effect: the user's copy, else the bundled file.
     func text(of id: String) -> String? {
         let user = UserProfiles.directory.appendingPathComponent("\(id).ini")
@@ -568,6 +594,11 @@ class ProfileStore {
                   let basedOn = UserProfiles.basedOn(mine) {
             body = UserProfiles.basedOnPrefix + basedOn + "\n" + body
         }
+        // Everything changed back: the bundled profile again, so it keeps getting updates as it is.
+        if let original = bundledText(of: id), ProfileText.same(body, original) {
+            revert(id: id)
+            return
+        }
         try FileManager.default.createDirectory(at: UserProfiles.directory, withIntermediateDirectories: true)
         try body.write(to: UserProfiles.directory.appendingPathComponent("\(id).ini"), atomically: true, encoding: .utf8)
         load()
@@ -581,6 +612,7 @@ class ProfileStore {
     /// Goes back to the bundled profile, or removes a profile made in OverPass.
     func revert(id: String) {
         try? FileManager.default.removeItem(at: UserProfiles.directory.appendingPathComponent("\(id).ini"))
+        try? FileManager.default.removeItem(at: UserProfiles.originalsDirectory.appendingPathComponent("\(id).ini"))
         load()
     }
 
@@ -603,12 +635,13 @@ class ProfileStore {
             case "GOG": if let p = profiles.first(where: { $0.gogGameID == id }) { return p }
             default: break
             }
-            return nil
         }
         guard let program = item.app.programName?.lowercased() else { return nil }
         func launches(_ p: GameProfile) -> Bool {
             p.launch.map { ($0.executable.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent.lowercased() } == program
         }
+        // A store game has no profile of the bottle's or its group's, only one made in OverPass.
+        if item.app.storeID != nil { return profiles.first { custom.contains($0.id) && launches($0) } }
         if let id = item.bottle.profileID, let p = profile(id: id), launches(p) { return p }
         if let group = item.bottle.group,
            let p = profiles.first(where: { $0.bottle.group == group && launches($0) }) { return p }

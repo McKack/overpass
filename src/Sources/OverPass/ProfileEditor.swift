@@ -58,6 +58,26 @@ enum ShaderCompileChoice: String, CaseIterable, Identifiable {
     }
 }
 
+/// One frame rate limit for a title, over the options Direct3D 9, 11 and 12 each read.
+enum FrameLimit {
+    static let options = [(name: "d3d11.preferredMaxFrameRate", variable: "DXMT_CONFIG"),
+                          (name: "d3d12.preferredMaxFrameRate", variable: "DXMT_CONFIG"),
+                          (name: "present.maxFps", variable: "MTLD3D_CONFIG")]
+    static let choices = ["30", "40", "60", "90", "120", "144"]
+
+    /// The limit the lines set, when every option agrees.
+    static func value(in lines: [String]) -> String? {
+        let values = options.map { option in
+            SettingsSchema.options(of: option.variable, in: lines).last { $0.name == option.name }?.value
+        }
+        return values.allSatisfy { $0 == values[0] } ? values[0] : nil
+    }
+
+    static func setting(_ value: String?, in lines: [String]) -> [String] {
+        options.reduce(lines) { SettingsSchema.setting($1.name, to: value, of: $1.variable, in: $0) }
+    }
+}
+
 struct ProfileEditor: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
@@ -76,6 +96,8 @@ struct ProfileEditor: View {
     /// x87sidecar for this game's 32-bit programs: on everywhere it works, off with env OVERPASS_X87=0.
     @State private var fasterX87 = true
     @State private var maxResolution = ""
+    /// One frame rate limit for Direct3D 9 to 12; empty leaves it to the rules, "0" is no limit.
+    @State private var frameLimit = ""
     @State private var environment = ""
     @State private var dlls = ""
     /// What the rules set for this title; the fields above hold only what the person set.
@@ -98,9 +120,13 @@ struct ProfileEditor: View {
 
     private static let tabs: [IconTabBar<String>.Item] = [
         .init(tab: "general", title: "General", symbol: "gearshape"),
-        .init(tab: "graphics", title: "Graphics & Sound", symbol: "display"),
-        .init(tab: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver"),
+        .init(tab: "direct3d", title: "Direct3D", symbol: "cube.transparent"),
+        .init(tab: "display", title: "Display", symbol: "display"),
+        .init(tab: "sound", title: "Sound", symbol: "speaker.wave.2"),
+        .init(tab: "input", title: "Input", symbol: "gamecontroller"),
+        .init(tab: "compatibility", title: "Compatibility", symbol: "puzzlepiece.extension"),
         .init(tab: "bottle", title: "Container", symbol: BottleIcon.symbol),
+        .init(tab: "advanced", title: "Advanced", symbol: "wrench.and.screwdriver"),
     ]
 
     /// "Notepad++ — General": the title, then the tab, as document windows name their part.
@@ -132,9 +158,13 @@ struct ProfileEditor: View {
             Divider()
             Group {
                 switch tab {
-                case "graphics": graphicsAndSound
+                case "direct3d": direct3D
+                case "display": display
+                case "sound": sound
+                case "input": input
+                case "compatibility": compatibility
                 case "advanced": advanced
-                case "bottle": BottleSettings(bottle: item.bottle)
+                case "bottle": BottleSettings(bottle: item.bottle, parts: BottleSettings.containerTab)
                 default: general
                 }
             }
@@ -414,7 +444,12 @@ struct ProfileEditor: View {
         generatedBackground = images?.1
     }
 
-    private var graphicsAndSound: some View {
+    private func moreSettings(_ group: String, hidden: Set<String> = [], pinned: [String] = []) -> some View {
+        SimpleSettingsEditor(environment: $environment, dlls: $dlls, groups: [group], hidden: hidden, pinned: pinned,
+                             inherited: inherited)
+    }
+
+    private var direct3D: some View {
         Form {
             Section {
                 Picker(selection: $graphics) {
@@ -437,22 +472,6 @@ struct ProfileEditor: View {
                 Text("OverPass Runtime suits most Direct3D 10 to 12 games, mtld3d most Direct3D 9 games. Direct3D 8 and older always use WineD3D.")
             }
             Section {
-                Toggle(isOn: $fasterX87) {
-                    SettingLabel("Faster x87 math", fasterX87 == !inheritedX87Off ? (inheritedX87Off ? inherited.variable("OVERPASS_X87")?.source : nil) : .you)
-                }
-            } footer: {
-                Text(X87Sidecar.isReady
-                     ? "On by default for 32-bit games: x87sidecar replaces Rosetta's slow translation of their floating-point math. Turn it off if this game misbehaves."
-                     : "Not available on this Mac yet: x87sidecar is missing or doesn't support this version of macOS.")
-            }
-            Section {
-                let rule = inherited.variable(MaxResolution.variable)
-                MaxResolutionPicker(value: $maxResolution, inherited: rule?.value ?? MaxResolution.global,
-                                    inheritedFrom: rule?.source, source: maxResolution.isEmpty ? rule?.source : .you)
-            } footer: {
-                Text("The largest resolution this game can pick. Sizes above the desktop are scaled down to fit.")
-            }
-            Section {
                 // The default writes nothing, so it leaves a rule's choice in place.
                 Picker(selection: Binding(get: { shaders == .background ? inherited.shaders?.value ?? .background : shaders },
                                           set: { shaders = $0 })) {
@@ -467,6 +486,43 @@ struct ProfileEditor: View {
                      + "moment instead of the game pausing. Compiled shaders are kept, so this mostly matters the "
                      + "first time. Applies to OverPass Runtime.")
             }
+            moreSettings("Direct3D", hidden: Set(ShaderCompileChoice.keys))
+        }
+        .formStyle(.grouped)
+    }
+
+    private var display: some View {
+        Form {
+            Section {
+                let rule = inherited.variable(MaxResolution.variable)
+                MaxResolutionPicker(value: $maxResolution, inherited: rule?.value ?? MaxResolution.global,
+                                    inheritedFrom: rule?.source, source: maxResolution.isEmpty ? rule?.source : .you)
+            } footer: {
+                Text("The largest resolution this game can pick. Sizes above the desktop are scaled down to fit.")
+            }
+            Section {
+                Picker(selection: $frameLimit) {
+                    Text(inherited.frameLimit.map { "\($0.source.title): \($0.value) fps" } ?? "No limit").tag("")
+                    if inherited.frameLimit != nil { Text("No limit").tag("0") }
+                    Divider()
+                    ForEach(FrameLimit.choices + (FrameLimit.choices.contains(frameLimit) || ["", "0"].contains(frameLimit) ? [] : [frameLimit]), id: \.self) {
+                        Text("\($0) fps").tag($0)
+                    }
+                } label: {
+                    SettingLabel("Frame rate limit", frameLimit.isEmpty ? inherited.frameLimit?.source : .you)
+                }
+            } footer: {
+                Text("Paced by Metal, for even frame times. A limit that doesn't divide the display's refresh rate can "
+                     + "come out lower. Applies to OverPass Runtime.")
+            }
+            BottleSettings(bottle: item.bottle, parts: [.display], embedded: true)
+            moreSettings("Display", hidden: Set([MaxResolution.variable] + FrameLimit.options.map(\.name)))
+        }
+        .formStyle(.grouped)
+    }
+
+    private var sound: some View {
+        Form {
             Section {
                 Picker(selection: $xaudio) {
                     ForEach(XAudioChoice.allCases) { Text($0.title).tag($0) }
@@ -482,13 +538,37 @@ struct ProfileEditor: View {
                     }
                 }
                 LabeledContent("Mac sound output", value: LogCollector.outputDevice() ?? "Unknown")
-            } header: {
-                Text("Sound")
             } footer: {
                 Text("If a game's sound crackles, cuts out or is missing, try Microsoft's XAudio2. It only helps "
                      + "games that use XAudio2. Sample rates and sound buffers are matched to your Mac's sound output "
                      + "automatically.")
             }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var input: some View {
+        Form {
+            BottleSettings(bottle: item.bottle, parts: [.input], embedded: true)
+        }
+        .formStyle(.grouped)
+    }
+
+    private var compatibility: some View {
+        Form {
+            BottleSettings(bottle: item.bottle, parts: [.windows], embedded: true)
+            Section {
+                Toggle(isOn: $fasterX87) {
+                    SettingLabel("Faster x87 math", fasterX87 == !inheritedX87Off ? (inheritedX87Off ? inherited.variable("OVERPASS_X87")?.source : nil) : .you)
+                }
+            } footer: {
+                Text(X87Sidecar.isReady
+                     ? "On by default for 32-bit games: x87sidecar replaces Rosetta's slow translation of their floating-point math. Turn it off if this game misbehaves."
+                     : "Not available on this Mac yet: x87sidecar is missing or doesn't support this version of macOS.")
+            }
+            presetsSection
+            moreSettings("Compatibility", hidden: ["OVERPASS_X87"],
+                         pinned: ["WINE_LARGE_ADDRESS_AWARE", "ROSETTA_ADVERTISE_AVX", "WINE_FORCE_NX"])
         }
         .formStyle(.grouped)
     }
@@ -506,16 +586,14 @@ struct ProfileEditor: View {
 
     private var advanced: some View {
         Form {
-            presetsSection
             inheritedSection
             if detail == .simple {
-                // Shader compiling, the maximum resolution and x87 have their own controls on other tabs.
-                SimpleSettingsEditor(environment: $environment, dlls: $dlls,
-                                     hidden: ["OVERPASS_X87", "OVERPASS_MAX_RESOLUTION", "ROSETTA_X87_PATH",
-                                              "d3d12.asyncPipelineCompile", "d3d12.skipDrawsWhileCompiling"])
+                SimpleSettingsEditor(environment: $environment, dlls: $dlls, groups: ["Debugging"],
+                                     hidden: ["ROSETTA_X87_PATH"], showsOthers: true)
             } else {
                 technicalSettings
             }
+            BottleSettings(bottle: item.bottle, parts: [.logs], embedded: true)
             Section {
                 HStack {
                     Text("Everything in the profile, including its rules for other programs.")
@@ -640,6 +718,9 @@ struct ProfileEditor: View {
         envLines.removeAll { $0.hasPrefix(maxPrefix) }
         fasterX87 = envLines.contains("OVERPASS_X87=0") ? false : envLines.contains("OVERPASS_X87=1") || !inheritedX87Off
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
+        // And one frame rate limit, when all of Direct3D 9 to 12 share it; different ones stay separate settings.
+        frameLimit = FrameLimit.value(in: envLines) ?? ""
+        if !frameLimit.isEmpty { envLines = FrameLimit.setting(nil, in: envLines) }
         environment = envLines.joined(separator: "\n")
         let overrides = mine.filter { $0.key == "dll" }.map(\.value)
         let microsoft = Set(XAudioChoice.overrides).isSubset(of: overrides)
@@ -687,6 +768,7 @@ struct ProfileEditor: View {
         if let value = MaxResolution.normalized(maxResolution) { envLines.append("\(MaxResolution.variable)=\(value)") }
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
         if fasterX87 == inheritedX87Off { envLines.append("OVERPASS_X87=\(fasterX87 ? 1 : 0)") }
+        if !frameLimit.isEmpty { envLines = FrameLimit.setting(frameLimit, in: envLines) }
         settings += envLines.map { "env = \($0)" }
         var overrides = dlls.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if xaudio == .microsoft, inherited.xaudio == nil { overrides += XAudioChoice.overrides.filter { !overrides.contains($0) } }
@@ -809,13 +891,23 @@ struct BottleSettings: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ComponentManager.self) private var components
     @Environment(\.openItemSheet) private var openItemSheet
+    /// The groups of settings; the profile editor's tabs each take theirs, the Containers page has them all.
+    enum Part: CaseIterable { case windows, graphics, input, display, mac, runtimes, environment, location, export, logs, tools }
+    /// What stays on the profile editor's Container tab: the rest moved to the tab it's about, and the container's
+    /// Direct3D default is the Containers page's to set, a title's own choice being on its Direct3D tab.
+    static let containerTab: Set<Part> = [.mac, .runtimes, .environment, .location, .export, .tools]
+
     let bottle: Bottle
     var page = false
+    var parts = Set(Part.allCases)
+    /// Sections for a form on one of the profile editor's tabs, not a form of their own.
+    var embedded = false
     @State private var size: Int64?
     @State private var running: [String] = []
     @State private var busy: String?
     @State private var log = ""
-    @State private var verb = ""
+    @State private var choosingVerb = false
+    @State private var winetricksVerb: String?
     @State private var environment = ""
     @State private var playStation = false
     @State private var macKeys = BottleSetup.MacKeys.standard
@@ -826,19 +918,76 @@ struct BottleSettings: View {
     @State private var moveTarget: URL?
     @State private var exportURL: URL?
 
-    var body: some View {
-        Form {
+    /// Said under a part of the container shown among a title's own settings.
+    private var sharedNote: String {
+        "Shared by everything in “\(bottle.name)”."
+    }
+
+    @ViewBuilder var body: some View {
+        if embedded {
+            sections.onAppear(perform: read)
+        } else {
+            Form { sections }
+                .formStyle(.grouped)
+                .modifier(PageExtras(bottle: bottle, enabled: page, size: $size, running: $running))
+                .onAppear(perform: read)
+        }
+    }
+
+    private func read() {
+        environment = environmentText
+        playStation = BottleSetup.playStationControllers(in: bottle) ?? false
+        macKeys = BottleSetup.macKeys(in: bottle)
+        retina = BottleSetup.retinaMode(in: bottle)
+        appearance = BottleSetup.appearance(of: bottle)
+        detailedLog = LogCollector.detailedLog(in: bottle)
+        showMacDisk = ContainerDrives.showsMacDisk(in: bottle) ?? true
+    }
+
+    private var logView: some View {
+        ScrollView {
+            Text(log).font(.system(size: 10, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .frame(height: 90)
+    }
+
+    @ViewBuilder private var sections: some View {
+        Group {
             if page { overview }
-            Section {
-                if !page {
+            if parts == Self.containerTab {
+                Section {
                     Text("Shared by everything in “\(bottle.name)”: \(bottle.apps.map(\.name).joined(separator: ", ").nilIfEmpty ?? "nothing installed yet").")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Picker("Windows version", selection: windowsBinding) {
-                    ForEach(WineTemplate.allCases) { Text($0.displayName).tag($0) }
+            }
+            if parts.contains(.windows) { windowsAndGraphics }
+            if parts.contains(.input) { input }
+            if parts.contains(.display) || parts.contains(.mac) { mac }
+            if parts.contains(.runtimes) { runtimes }
+            if parts.contains(.environment) { environmentSection }
+            if parts.contains(.location) { location }
+            if parts.contains(.export) { exportSection }
+            if parts.contains(.logs) { logs }
+            if parts.contains(.tools) { tools }
+            if embedded && !log.isEmpty { Section { logView } }
+            if page {
+                Section {
+                    Button("Uninstall Container…", role: .destructive) { openItemSheet(.uninstallBottle(bottle)) }
                 }
-                .disabled(busy != nil)
+            }
+        }
+    }
+
+    private var windowsAndGraphics: some View {
+        Section {
+            Picker("Windows version", selection: windowsBinding) {
+                ForEach(WineTemplate.allCases) { Text($0.displayName).tag($0) }
+            }
+            .disabled(busy != nil)
+            if parts.contains(.graphics) {
                 Picker("Direct3D 10–12", selection: graphicsBinding) {
                     ForEach(GraphicsBackend.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -862,27 +1011,39 @@ struct BottleSettings: View {
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 }
-            } header: {
-                if page { Text("Windows and Graphics") }
             }
-            Section {
-                Picker("PlayStation controllers", selection: playStationBinding) {
-                    Text("As Xbox controllers").tag(false)
-                    Text("As PlayStation controllers").tag(true)
-                }
-                .disabled(busy != nil)
-            } footer: {
-                Text("DualShock 4 and DualSense. Most PC games only read Xbox controllers; Sony's own PC ports "
-                     + "read PlayStation controllers for haptics and adaptive triggers. Takes effect the next time "
-                     + "the container starts.")
+        } header: {
+            if page { Text("Windows and Graphics") }
+        } footer: {
+            if !page { Text("\(sharedNote) Some programs need this set before they start.") }
+        }
+    }
+
+    private var input: some View {
+        Section {
+            Picker("PlayStation controllers", selection: playStationBinding) {
+                Text("As Xbox controllers").tag(false)
+                Text("As PlayStation controllers").tag(true)
             }
-            Section {
-                Picker("Keyboard", selection: macKeysBinding) {
-                    ForEach(BottleSetup.MacKeys.allCases) { Text($0.displayName).tag($0) }
-                }
-                .disabled(busy != nil)
+            .disabled(busy != nil)
+            Picker("Keyboard", selection: macKeysBinding) {
+                ForEach(BottleSetup.MacKeys.allCases) { Text($0.displayName).tag($0) }
+            }
+            .disabled(busy != nil)
+        } footer: {
+            Text("DualShock 4 and DualSense. Most PC games only read Xbox controllers; Sony's own PC ports "
+                 + "read PlayStation controllers for haptics and adaptive triggers. Takes effect the next time "
+                 + "the container starts." + (page ? "" : " \(sharedNote)"))
+        }
+    }
+
+    private var mac: some View {
+        Section {
+            if parts.contains(.display) {
                 Toggle("High resolution (Retina)", isOn: retinaBinding)
                     .disabled(busy != nil)
+            }
+            if parts.contains(.mac) {
                 Picker("Appearance", selection: appearanceBinding) {
                     ForEach(BottleSetup.Appearance.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -894,151 +1055,157 @@ struct BottleSettings: View {
                     }
                 }))
                 .disabled(busy != nil)
-            } header: {
-                Text("Mac")
-            } footer: {
-                Text("High resolution draws programs at the display's full pixel count, sharper but slower in games; "
-                     + "text keeps its size. Appearance is the light or dark look launchers and newer Windows apps "
-                     + "use. Your home folder is always Y:; Z: is the whole Mac, hidden from Explorer and file "
-                     + "dialogs unless shown here. These take effect the next time a program starts.")
             }
-            Section("Runtimes") {
-                let installed = Runtime.installed(in: bottle)
-                ForEach(Runtime.allCases) { runtime in
-                    HStack {
-                        Text(runtime.name)
-                        Spacer()
-                        if busy == runtime.rawValue {
-                            ProgressView().controlSize(.small)
-                        } else if installed.contains(runtime) {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Installed")
-                        } else {
-                            Button("Install") { run(runtime.rawValue) { try await runtime.install(in: bottle, using: manager) { log += $0 } } }
-                                .disabled(busy != nil)
-                        }
-                    }
-                }
+        } header: {
+            if parts.contains(.mac) { Text("Mac") }
+        } footer: {
+            let retina = "High resolution draws programs at the display's full pixel count, sharper but slower in games; text keeps its size."
+            let others = "Appearance is the light or dark look launchers and newer Windows apps use. Your home folder is "
+                + "always Y:; Z: is the whole Mac, hidden from Explorer and file dialogs unless shown here."
+            let when = "These take effect the next time a program starts."
+            Text(parts.contains(.mac) ? [parts.contains(.display) ? retina : nil, others, when].compactMap { $0 }.joined(separator: " ")
+                                      : "\(retina) \(sharedNote) Takes effect the next time a program starts.")
+        }
+    }
+
+    private var runtimes: some View {
+        Section("Runtimes") {
+            let installed = Runtime.installed(in: bottle)
+            ForEach(Runtime.allCases) { runtime in
                 HStack {
-                    TextField("Other (winetricks)", text: $verb, prompt: Text("winetricks verb, e.g. xact"))
-                    Button("Install") { winetricks(verb) }
-                        .disabled(busy != nil || verb.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                if !log.isEmpty {
-                    ScrollView {
-                        Text(log).font(.system(size: 10, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(height: 90)
-                }
-            }
-            Section {
-                TextEditor(text: $environment)
-                    .font(.body.monospaced())
-                    .frame(height: 60)
-                HStack {
+                    Text(runtime.name)
                     Spacer()
-                    Button("Apply") { applyEnvironment() }
-                        .disabled(environment == environmentText)
-                }
-            } header: {
-                Text("Environment Variables")
-            } footer: {
-                Text("One NAME=value per line, for every app in the container.")
-            }
-            if ContainerLocations.all.count > 1 {
-                Section {
-                    HStack {
-                        LabeledContent("Location", value: ContainerLocations.displayName(of: ContainerLocations.location(of: bottle)))
-                        Menu("Move To") {
-                            ForEach(ContainerLocations.all.filter { $0.standardizedFileURL != ContainerLocations.location(of: bottle).standardizedFileURL }, id: \.self) { url in
-                                Button("\(ContainerLocations.displayName(of: url)) (\(ContainerLocations.freeSpaceText(at: url)))") { moveTarget = url }
-                            }
-                        }
-                        .fixedSize()
-                        .disabled(busy != nil)
-                        if busy == "move" { ProgressView().controlSize(.small) }
-                    }
-                } header: {
-                    Text("Location")
-                } footer: {
-                    Text("Moving takes the whole container, games and saves included. Programs running in it are "
-                         + "closed first; to another disk it's a copy, which can take a while for big games.")
-                }
-                .confirmationDialog("Move “\(bottle.name)” to \(moveTarget.map(ContainerLocations.displayName(of:)) ?? "")?",
-                                    isPresented: Binding(get: { moveTarget != nil }, set: { if !$0 { moveTarget = nil } })) {
-                    Button("Move") {
-                        guard let target = moveTarget else { return }
-                        run("move") { try await manager.moveBottle(bottle, to: target) }
-                    }
-                } message: {
-                    Text("Programs running in it will be closed.")
-                }
-            }
-            Section {
-                HStack {
-                    Button("Export…") { export() }
-                        .disabled(busy != nil)
-                    if busy == "export", let exportURL {
+                    if busy == runtime.rawValue {
                         ProgressView().controlSize(.small)
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
-                            let written = (try? FileManager.default.attributesOfItem(atPath: exportURL.path)[.size] as? Int64) ?? 0
-                            Text("\(FolderSize.text(written)) written").foregroundStyle(.secondary).monospacedDigit()
+                    } else if installed.contains(runtime) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Installed")
+                    } else {
+                        Button("Install") { run(runtime.rawValue) { try await runtime.install(in: bottle, using: manager) { log += $0 } } }
+                            .disabled(busy != nil)
+                    }
+                }
+            }
+            HStack {
+                Text("Other components, from Winetricks")
+                Spacer()
+                if let busy, !Runtime.allCases.contains(where: { $0.rawValue == busy }), winetricksVerb == busy {
+                    Text(busy).foregroundStyle(.secondary)
+                    ProgressView().controlSize(.small)
+                }
+                Button("Choose…") { choosingVerb = true }
+                    .disabled(busy != nil)
+            }
+            .sheet(isPresented: $choosingVerb) {
+                WinetricksPicker { winetricks($0) }
+            }
+            if !log.isEmpty && !embedded { logView }
+        }
+    }
+
+    private var environmentSection: some View {
+        Section {
+            TextEditor(text: $environment)
+                .font(.body.monospaced())
+                .frame(height: 60)
+            HStack {
+                Spacer()
+                Button("Apply") { applyEnvironment() }
+                    .disabled(environment == environmentText)
+            }
+        } header: {
+            Text("Environment Variables")
+        } footer: {
+            Text("One NAME=value per line, for every app in the container.")
+        }
+    }
+
+    @ViewBuilder private var location: some View {
+        if ContainerLocations.all.count > 1 {
+            Section {
+                HStack {
+                    LabeledContent("Location", value: ContainerLocations.displayName(of: ContainerLocations.location(of: bottle)))
+                    Menu("Move To") {
+                        ForEach(ContainerLocations.all.filter { $0.standardizedFileURL != ContainerLocations.location(of: bottle).standardizedFileURL }, id: \.self) { url in
+                            Button("\(ContainerLocations.displayName(of: url)) (\(ContainerLocations.freeSpaceText(at: url)))") { moveTarget = url }
                         }
                     }
+                    .fixedSize()
+                    .disabled(busy != nil)
+                    if busy == "move" { ProgressView().controlSize(.small) }
                 }
             } header: {
-                Text("Export")
+                Text("Location")
             } footer: {
-                Text("Saves the whole container, games and saves included, as one compressed file: a backup, or a way "
-                     + "to bring it to another Mac, where Import Container… in the File menu adds it. Programs "
-                     + "running in it are closed first.")
+                Text("Moving takes the whole container, games and saves included. Programs running in it are "
+                     + "closed first; to another disk it's a copy, which can take a while for big games.")
             }
-            Section {
-                Toggle("Detailed log", isOn: Binding(get: { detailedLog }, set: { new in
-                    do { try LogCollector.setDetailedLog(new, in: bottle); detailedLog = new }
-                    catch { log += "Error: \(error.localizedDescription)\n" }
-                }))
-                Button("Show Logs in Finder") {
-                    let folder = LogCollector.logFolder(for: bottle)
-                    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    NSWorkspace.shared.open(folder)
+            .confirmationDialog("Move “\(bottle.name)” to \(moveTarget.map(ContainerLocations.displayName(of:)) ?? "")?",
+                                isPresented: Binding(get: { moveTarget != nil }, set: { if !$0 { moveTarget = nil } })) {
+                Button("Move") {
+                    guard let target = moveTarget else { return }
+                    run("move") { try await manager.moveBottle(bottle, to: target) }
                 }
-            } header: {
-                Text("Logs")
-            } footer: {
-                Text("Every program's last run is kept in a log. Normally it holds errors and which DLLs load; the detailed log also "
-                     + "records times and any crashes, which slows programs a little. For the next start.")
-            }
-            Section {
-                HStack {
-                    ForEach([("Wine Settings", "winecfg"), ("Registry Editor", "regedit"), ("Task Manager", "taskmgr")], id: \.1) { title, program in
-                        Button(title) { Task { _ = try? await manager.run([program], in: bottle) } }
-                    }
-                }
-                HStack {
-                    Button("Show in Finder") { NSWorkspace.shared.open(bottle.driveC) }
-                    Spacer()
-                    Button("Quit Everything in Container") { Task { await manager.quitEverything(in: bottle) } }
-                        .help("End every Windows program running in this container")
-                }
-            }
-            if page {
-                Section {
-                    Button("Uninstall Container…", role: .destructive) { openItemSheet(.uninstallBottle(bottle)) }
-                }
+            } message: {
+                Text("Programs running in it will be closed.")
             }
         }
-        .formStyle(.grouped)
-        .modifier(PageExtras(bottle: bottle, enabled: page, size: $size, running: $running))
-        .onAppear {
-            environment = environmentText
-            playStation = BottleSetup.playStationControllers(in: bottle) ?? false
-            macKeys = BottleSetup.macKeys(in: bottle)
-            retina = BottleSetup.retinaMode(in: bottle)
-            appearance = BottleSetup.appearance(of: bottle)
-            detailedLog = LogCollector.detailedLog(in: bottle)
-            showMacDisk = ContainerDrives.showsMacDisk(in: bottle) ?? true
+    }
+
+    private var exportSection: some View {
+        Section {
+            HStack {
+                Button("Export…") { export() }
+                    .disabled(busy != nil)
+                if busy == "export", let exportURL {
+                    ProgressView().controlSize(.small)
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        let written = (try? FileManager.default.attributesOfItem(atPath: exportURL.path)[.size] as? Int64) ?? 0
+                        Text("\(FolderSize.text(written)) written").foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+            }
+        } header: {
+            Text("Export")
+        } footer: {
+            Text("Saves the whole container, games and saves included, as one compressed file: a backup, or a way "
+                 + "to bring it to another Mac, where Import Container… in the File menu adds it. Programs "
+                 + "running in it are closed first.")
+        }
+    }
+
+    private var logs: some View {
+        Section {
+            Toggle("Detailed log", isOn: Binding(get: { detailedLog }, set: { new in
+                do { try LogCollector.setDetailedLog(new, in: bottle); detailedLog = new }
+                catch { log += "Error: \(error.localizedDescription)\n" }
+            }))
+            Button("Show Logs in Finder") {
+                let folder = LogCollector.logFolder(for: bottle)
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                NSWorkspace.shared.open(folder)
+            }
+        } header: {
+            Text("Logs")
+        } footer: {
+            Text("Every program's last run is kept in a log. Normally it holds errors and which DLLs load; the detailed log also "
+                 + "records times and any crashes, which slows programs a little. For the next start."
+                 + (page ? "" : " \(sharedNote)"))
+        }
+    }
+
+    private var tools: some View {
+        Section {
+            HStack {
+                ForEach([("Wine Settings", "winecfg"), ("Registry Editor", "regedit"), ("Task Manager", "taskmgr")], id: \.1) { title, program in
+                    Button(title) { Task { _ = try? await manager.run([program], in: bottle) } }
+                }
+            }
+            HStack {
+                Button("Show in Finder") { NSWorkspace.shared.open(bottle.driveC) }
+                Spacer()
+                Button("Quit Everything in Container") { Task { await manager.quitEverything(in: bottle) } }
+                    .help("End every Windows program running in this container")
+            }
         }
     }
 
@@ -1174,7 +1341,7 @@ struct BottleSettings: View {
     }
 
     private func winetricks(_ verb: String) {
-        let verb = verb.trimmingCharacters(in: .whitespaces)
+        winetricksVerb = verb
         run(verb) {
             if !components.isInstalled(.winetricks) { await components.install(.winetricks) }
             log += "$ winetricks -q \(verb)\n"
@@ -1189,6 +1356,68 @@ struct BottleSettings: View {
             do { try await work() } catch { log += "Error: \(error.localizedDescription)\n" }
             busy = nil
             manager.loadBottles()
+        }
+    }
+}
+
+/// Winetricks' own list of what it can install, to search and pick from.
+private struct WinetricksPicker: View {
+    @Environment(ComponentManager.self) private var components
+    @Environment(\.dismiss) private var dismiss
+    let install: (String) -> Void
+    @State private var verbs: [ComponentManager.WinetricksVerb]?
+    @State private var search = ""
+    @State private var chosen: String?
+
+    private var shown: [ComponentManager.WinetricksVerb] {
+        guard !search.isEmpty else { return verbs ?? [] }
+        return (verbs ?? []).filter { $0.name.localizedCaseInsensitiveContains(search) || $0.title.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Install from Winetricks").font(.headline)
+            TextField("Search", text: $search, prompt: Text("Search, e.g. xact or Arial"))
+                .textFieldStyle(.roundedBorder)
+            Group {
+                if verbs == nil {
+                    ProgressView("Getting Winetricks…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $chosen) {
+                        ForEach(ComponentManager.WinetricksVerb.Category.allCases, id: \.self) { category in
+                            let rows = shown.filter { $0.category == category }
+                            if !rows.isEmpty {
+                                Section(category.title) {
+                                    ForEach(rows) { verb in
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(verb.title)
+                                            Text(verb.name).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                        }
+                                        .tag(verb.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .contextMenu(forSelectionType: String.self) { _ in } primaryAction: { names in
+                        if let name = names.first { install(name); dismiss() }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Install") { if let chosen { install(chosen); dismiss() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(chosen == nil)
+            }
+        }
+        .padding()
+        .frame(width: 480, height: 520)
+        .task {
+            if !components.isInstalled(.winetricks) { await components.install(.winetricks) }
+            verbs = await Task.detached(priority: .userInitiated) { ComponentManager.winetricksVerbs() }.value
         }
     }
 }

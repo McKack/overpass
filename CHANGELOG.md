@@ -10,9 +10,22 @@ What changed in each release of OverPass, newest first. The short list at the to
 - After a Wine update, the status bar says when a container is being prepared before a game starts
 - Covers are a little wider, so less of the art is cut off at the sides
 - Documents, pictures, videos and steam:// links that a game opens now open on your Mac
+- The game settings window has clearer tabs: Direct3D, Display, Sound, Input and Compatibility each have their own place
+- One frame rate limit for a game, whichever Direct3D it uses
+- Your changes to a game's profile now stay when OverPass updates that profile
+- Pick extra Windows components from a searchable list
 - Smaller bug fixes and improvements
 
 ### Details
+
+**Game settings**
+- Tabs for Direct3D, Display, Sound, Input and Compatibility, next to General, Container and Advanced. Settings shared by a whole container now sit with the tab they belong to and say so. The Add Setting menu on each tab shows only that tab's settings.
+- Frame rate limit on the Display tab. Use 4 GB memory, AVX under Rosetta and Always keep DEP on are switches on the Compatibility tab.
+- A profile that came with OverPass now gets later updates even after you change it: your own settings, name, artwork and presets stay, the rest follows the update. If you edited the profile file by hand, or your copy was already behind before this version, the notice to revert stays.
+- Change everything back and the profile counts as unchanged again.
+- Epic titles find the settings you saved. Before, the window opened empty and saving made a second profile.
+- What OverPass detects about a game stays in effect after you save settings for it.
+- The Containers page keeps the same settings, with Keyboard next to the controllers.
 
 **Ratings and reports**
 - How Did It Run?… on a game, in its menus and the profile editor: a medal, a comment, and if you like its logs and your settings. A rating goes on the game's page. Logs file a public issue. Bronze and Borked ask what went wrong and turn logs on.

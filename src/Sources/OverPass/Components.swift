@@ -424,6 +424,42 @@ class ComponentManager {
         return String(line.dropFirst("WINETRICKS_VERSION=".count).prefix { $0 != "-" })
     }
 
+    /// Something Winetricks can install or set.
+    struct WinetricksVerb: Identifiable {
+        enum Category: String, CaseIterable {
+            case dlls, fonts, apps, settings
+            var title: String {
+                switch self {
+                case .dlls: "Windows Components"
+                case .fonts: "Fonts"
+                case .apps: "Programs"
+                case .settings: "Settings"
+                }
+            }
+        }
+        let name: String
+        let category: Category
+        let title: String
+        var id: String { name }
+    }
+
+    /// Winetricks' list, from the w_metadata blocks in its script, which needs no Wine to read.
+    nonisolated static func winetricksVerbs() -> [WinetricksVerb] {
+        guard let text = try? String(contentsOf: winetricksPath, encoding: .utf8) else { return [] }
+        let lines = text.components(separatedBy: "\n")
+        var verbs: [WinetricksVerb] = []
+        for (i, line) in lines.enumerated() where line.hasPrefix("w_metadata ") {
+            let words = line.split(separator: " ")
+            guard words.count >= 3, let category = WinetricksVerb.Category(rawValue: String(words[2])) else { continue }
+            let title = lines[(i + 1)...].prefix { !$0.isEmpty }.prefix(10).lazy
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .first { $0.hasPrefix("title=\"") }
+                .map { $0.dropFirst("title=\"".count).prefix { $0 != "\"" } }
+            verbs.append(WinetricksVerb(name: String(words[1]), category: category, title: title.map(String.init) ?? String(words[1])))
+        }
+        return verbs.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
     // OverPass Runtime (our DXMT build) ships as prebuilt "builtin" DLLs, laid out like CrossOver's lib/dxmt;
     // the Wine loader only uses them when a bottle selects the dxmt backend.
     private func installDXMT() async throws {

@@ -43,36 +43,57 @@ enum SettingsSchema {
         all.first { $0.kind == kind && ($0.kind == .env ? $0.id == id : $0.id.caseInsensitiveCompare(id) == .orderedSame) }
     }
 
-    /// The order groups are listed in.
-    static let groups = ["Graphics", "Display", "Performance", "Compatibility", "Sound", "Network", "Launch", "Debugging"]
-
     /// Variables holding options of their own, shown as their own sections.
     static let optionVariables: [(name: String, kind: SettingSpec.Kind, title: String)] = [
         ("DXMT_CONFIG", .dxmtConfig, "OverPass Runtime: Direct3D 10–12"),
         ("MTLD3D_CONFIG", .mtld3dConfig, "OverPass Runtime: Direct3D 9"),
     ]
+
+    /// NAME=value lines with the options of `variable` split out.
+    static func options(of variable: String, in lines: [String]) -> [(name: String, value: String)] {
+        lines.filter { $0.hasPrefix(variable + "=") }.flatMap { line in
+            line.dropFirst(variable.count + 1).split(separator: ";").map { option in
+                let pair = option.split(separator: "=", maxSplits: 1).map(String.init)
+                return (pair[0], pair.count > 1 ? pair[1] : "")
+            }
+        }
+    }
+
+    /// Lines with one option of `variable` set, or removed by a nil value; a line left with no options goes.
+    static func setting(_ option: String, to value: String?, of variable: String, in lines: [String]) -> [String] {
+        let kept = options(of: variable, in: lines).filter { $0.name != option }.map { "\($0.name)=\($0.value)" }
+            + (value.map { ["\(option)=\($0)"] } ?? [])
+        return lines.filter { !$0.hasPrefix(variable + "=") }
+            + (kept.isEmpty ? [] : ["\(variable)=\(kept.joined(separator: ";"))"])
+    }
 }
 
-/// The Simple view of a title's environment variables and DLL overrides: a control per known setting.
-/// Reads and writes the same NAME=value lines the Technical view edits as text.
+/// The Simple view of a title's environment variables and DLL overrides: a control per known setting, for the
+/// schema groups of one tab. Reads and writes the same NAME=value lines the Technical view edits as text, and
+/// leaves the lines of other tabs as they are.
 struct SimpleSettingsEditor: View {
     @Binding var environment: String
     @Binding var dlls: String
+    /// The schema groups this tab shows.
+    var groups: Set<String>
     /// Variables and options that have their own controls elsewhere in the editor.
     var hidden: Set<String> = []
+    /// Switches always on screen, for this tab's common settings.
+    var pinned: [String] = []
+    /// Settings OverPass has no description for, and DLL overrides, go on this tab.
+    var showsOthers = false
+    var inherited = InheritedSettings()
 
-    /// One setting; `value` nil keeps a switched-off setting on screen without writing it.
+    /// One setting; `value` nil keeps a pinned setting on screen without writing it.
     struct Row: Identifiable, Equatable {
         let id = UUID()
         var name: String
         var value: String?
+        var kind = SettingSpec.Kind.env
     }
-    @State private var variables: [Row] = []
-    @State private var options: [String: [Row]] = [:]
+    @State private var rows: [Row] = []
     @State private var overrides: [Row] = []
     @State private var loaded = false
-    /// Option variables shown as sections, also while they hold no options yet.
-    @State private var openSections: Set<String> = []
 
     /// Variables OverPass must not take per title: msync has to match the bottle's wineserver.
     private static let unsafe: Set<String> = ["WINEMSYNC"]
@@ -80,89 +101,77 @@ struct SimpleSettingsEditor: View {
     var body: some View {
         Group {
             Section {
-                ForEach(variables) { row in
-                    SettingRow(row: Self.binding(row, in: $variables), spec: SettingsSchema.spec(row.name, .env)) { remove(row.id, from: &variables) }
-                }
-                addMenu(.env, present: Set(variables.map(\.name))) { name in
-                    if SettingsSchema.optionVariables.contains(where: { $0.name == name }) {
-                        openSections.insert(name)
-                    } else {
-                        variables.append(Row(name: name, value: initial(for: name, .env)))
+                ForEach(rows) { row in
+                    SettingRow(row: Self.binding(row, in: $rows), spec: SettingsSchema.spec(row.name, row.kind),
+                               pinned: pinned.contains(row.name), inherited: inherited.variable(row.name)) {
+                        rows.removeAll { $0.id == row.id }
                     }
                 }
+                addMenu
+                ForEach(SettingsSchema.optionVariables.filter { line($0.name).count >= 260 }, id: \.name) { variable in
+                    Label("\(variable.title): too many options. The runtime ignores all of them past 259 characters.",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange).font(.caption)
+                }
             } header: {
-                Text("Settings")
+                Text("More Settings")
             } footer: {
                 Text("For this title only. Hover over a setting for what it does in detail.")
             }
-            ForEach(SettingsSchema.optionVariables, id: \.name) { variable in
-                let rows = options[variable.name] ?? []
-                if !rows.isEmpty || openSections.contains(variable.name) {
-                    Section {
-                        ForEach(rows) { row in
-                            SettingRow(row: Self.binding(row, in: Binding(get: { options[variable.name] ?? [] },
-                                                                          set: { options[variable.name] = $0 })), spec: SettingsSchema.spec(row.name, variable.kind)) {
-                                options[variable.name]?.removeAll { $0.id == row.id }
-                            }
-                        }
-                        addMenu(variable.kind, present: Set(rows.map(\.name))) {
-                            options[variable.name, default: []].append(Row(name: $0, value: initial(for: $0, variable.kind)))
-                        }
-                        if optionsLine(variable.name).count >= 260 {
-                            Label("Too many options: the runtime ignores all of them past 259 characters.", systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange).font(.caption)
-                        }
-                    } header: {
-                        Text(variable.title)
+            if showsOthers {
+                Section {
+                    ForEach(overrides) { row in
+                        DLLOverrideRow(row: Self.binding(row, in: $overrides)) { overrides.removeAll { $0.id == row.id } }
                     }
+                    Button { overrides.append(Row(name: "", value: "n,b")) } label: { Label("Add DLL Override", systemImage: "plus") }
+                        .buttonStyle(.borderless)
+                } header: {
+                    Text("DLL Overrides")
+                } footer: {
+                    Text("Which copy of a DLL the title loads: its own (native) or Wine's (builtin).")
                 }
-            }
-            Section {
-                ForEach(overrides) { row in
-                    DLLOverrideRow(row: Self.binding(row, in: $overrides)) { remove(row.id, from: &overrides) }
-                }
-                Button { overrides.append(Row(name: "", value: "n,b")) } label: { Label("Add DLL Override", systemImage: "plus") }
-                    .buttonStyle(.borderless)
-            } header: {
-                Text("DLL Overrides")
-            } footer: {
-                Text("Which copy of a DLL the title loads: its own (native) or Wine's (builtin).")
             }
         }
         .onAppear(perform: load)
-        .onChange(of: variables) { write() }
-        .onChange(of: options) { write() }
+        .onChange(of: rows) { write() }
         .onChange(of: overrides) { write() }
     }
 
-    /// The Add menu: known settings of a kind not set yet, by group, then a variable of one's own.
-    @ViewBuilder
-    private func addMenu(_ kind: SettingSpec.Kind, present: Set<String>, add: @escaping (String) -> Void) -> some View {
-        let open = SettingsSchema.all.filter {
-            $0.kind == kind && !present.contains($0.id) && !hidden.contains($0.id) && !Self.unsafe.contains($0.id)
-                && !openSections.contains($0.id)
+    /// The Add menu: known settings of this tab not set yet, by what reads them, then a variable of one's own.
+    private var addMenu: some View {
+        let open = SettingsSchema.all.filter { spec in
+            groups.contains(spec.group) && !rows.contains { $0.name == spec.id && $0.kind == spec.kind }
+                && !hidden.contains(spec.id) && !Self.unsafe.contains(spec.id)
+                && !SettingsSchema.optionVariables.contains { $0.name == spec.id }
         }
-        Menu {
-            ForEach(SettingsSchema.groups, id: \.self) { group in
-                let specs = open.filter { $0.group == group }
+        return Menu {
+            ForEach(open.filter { $0.kind == .env }) { spec in
+                Button(spec.title) { add(spec.id, .env) }
+            }
+            ForEach(SettingsSchema.optionVariables, id: \.name) { variable in
+                let specs = open.filter { $0.kind == variable.kind }
                 if !specs.isEmpty {
-                    Section(group) {
+                    Section(variable.title) {
                         ForEach(specs) { spec in
-                            Button(spec.title) { add(spec.id) }
+                            Button(spec.title) { add(spec.id, spec.kind) }
                         }
                     }
                 }
             }
-            if kind == .env {
+            if showsOthers {
                 Divider()
-                Button("Other Variable…") { add("") }
+                Button("Other Variable…") { add("", .env) }
             }
         } label: {
-            Label(kind == .env ? "Add Setting" : "Add Option", systemImage: "plus")
+            Label("Add Setting", systemImage: "plus")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+
+    private func add(_ id: String, _ kind: SettingSpec.Kind) {
+        rows.append(Row(name: id, value: initial(for: id, kind), kind: kind))
     }
 
     /// The value a newly added setting starts with: on for switches, else its default when that's a value.
@@ -175,8 +184,6 @@ struct SimpleSettingsEditor: View {
         return ""
     }
 
-    private func remove(_ id: UUID, from rows: inout [Row]) { rows.removeAll { $0.id == id } }
-
     /// A row's binding found by its ID, not its position: a text field can still read its row once more after
     /// the row is removed, and a position-based binding then reads past the end of the list and crashes.
     private static func binding(_ row: Row, in rows: Binding<[Row]>) -> Binding<Row> {
@@ -186,27 +193,37 @@ struct SimpleSettingsEditor: View {
                 })
     }
 
-    private func optionsLine(_ variable: String) -> String {
-        (options[variable] ?? []).compactMap { row in row.value.map { "\(row.name)=\($0)" } }.joined(separator: ";")
+    private var lines: [String] { environment.split(separator: "\n").map(String.init) }
+
+    private func line(_ variable: String) -> String {
+        lines.first { $0.hasPrefix(variable + "=") } ?? ""
+    }
+
+    /// Whether a setting is this tab's to show.
+    private func isOurs(_ name: String, _ kind: SettingSpec.Kind) -> Bool {
+        SettingsSchema.spec(name, kind).map { groups.contains($0.group) } ?? showsOthers
+    }
+
+    private func isOptionVariable(_ line: String) -> Bool {
+        SettingsSchema.optionVariables.contains { line.hasPrefix($0.name + "=") }
     }
 
     private func load() {
         guard !loaded else { return }
         loaded = true
-        for line in environment.split(separator: "\n").map(String.init) {
+        for line in lines where !isOptionVariable(line) {
             let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-            guard let name = parts.first?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }
-            let value = parts.count > 1 ? parts[1] : ""
-            if SettingsSchema.optionVariables.contains(where: { $0.name == name }) {
-                openSections.insert(name)
-                options[name, default: []] += value.split(separator: ";").map { option in
-                    let pair = option.split(separator: "=", maxSplits: 1).map(String.init)
-                    return Row(name: pair[0], value: pair.count > 1 ? pair[1] : "")
-                }
-            } else {
-                variables.append(Row(name: name, value: value))
-            }
+            guard let name = parts.first?.trimmingCharacters(in: .whitespaces), !name.isEmpty, isOurs(name, .env) else { continue }
+            rows.append(Row(name: name, value: parts.count > 1 ? parts[1] : ""))
         }
+        for variable in SettingsSchema.optionVariables {
+            rows += SettingsSchema.options(of: variable.name, in: lines).filter { isOurs($0.name, variable.kind) }
+                .map { Row(name: $0.name, value: $0.value, kind: variable.kind) }
+        }
+        let set = rows
+        rows = pinned.map { name in set.first { $0.name == name } ?? Row(name: name, value: nil) }
+            + set.filter { !pinned.contains($0.name) }
+        guard showsOthers else { return }
         overrides = dlls.split(separator: "\n").map { line in
             let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
             return Row(name: parts[0], value: parts.count > 1 ? parts[1] : "")
@@ -214,13 +231,31 @@ struct SimpleSettingsEditor: View {
     }
 
     private func write() {
-        var lines = variables.compactMap { row in row.value.map { "\(row.name)=\($0)" } }.filter { !$0.hasPrefix("=") }
+        var new = lines.filter { line in
+            isOptionVariable(line) || !isOurs(String(line.prefix { $0 != "=" }), .env)
+        } + rows.filter { $0.kind == .env && !$0.name.isEmpty }.compactMap { row in row.value.map { "\(row.name)=\($0)" } }
         for variable in SettingsSchema.optionVariables {
-            let line = optionsLine(variable.name)
-            if !line.isEmpty { lines.append("\(variable.name)=\(line)") }
+            for option in SettingsSchema.options(of: variable.name, in: new) where isOurs(option.name, variable.kind) {
+                new = SettingsSchema.setting(option.name, to: nil, of: variable.name, in: new)
+            }
+            for row in rows where row.kind == variable.kind {
+                new = SettingsSchema.setting(row.name, to: row.value, of: variable.name, in: new)
+            }
         }
-        environment = lines.joined(separator: "\n")
+        // Showing a tab changes nothing, not even the order, so an unchanged title stays unchanged on Save.
+        if Self.pairs(new) != Self.pairs(lines) { environment = new.joined(separator: "\n") }
+        guard showsOthers else { return }
         dlls = overrides.filter { !$0.name.isEmpty }.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "\n")
+    }
+
+    /// Every variable and option in a list of lines, in no particular order.
+    private static func pairs(_ lines: [String]) -> Set<String> {
+        Set(lines.flatMap { line in
+            let variable = SettingsSchema.optionVariables.first { line.hasPrefix($0.name + "=") }
+            return variable.map { variable in
+                SettingsSchema.options(of: variable.name, in: [line]).map { "\(variable.name):\($0.name)=\($0.value)" }
+            } ?? [line]
+        })
     }
 
     fileprivate static func number(_ value: Double, _ spec: SettingSpec) -> String {
@@ -233,13 +268,21 @@ struct SimpleSettingsEditor: View {
 private struct SettingRow: View {
     @Binding var row: SimpleSettingsEditor.Row
     let spec: SettingSpec?
+    /// Always on screen: a switch that writes a line only when it differs from what the title gets anyway.
+    var pinned = false
+    var inherited: (value: String, source: SettingSource)?
     let remove: () -> Void
+
+    /// The switch's position with no line of the title's own: a rule's value, else the setting's default.
+    private var usualValue: String? {
+        inherited?.value ?? spec?.default.flatMap { $0.hasPrefix("\(spec?.on ?? "") ") ? spec?.on : nil }
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 if let spec {
-                    Text(spec.title)
+                    SettingLabel(spec.title, pinned ? (row.value != nil ? .you : inherited?.source) : nil)
                     Text(spec.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 } else {
                     TextField("Name", text: $row.name, prompt: Text("VARIABLE_NAME"))
@@ -249,10 +292,18 @@ private struct SettingRow: View {
             }
             .help(spec.map { "\($0.id): \($0.technical)" } ?? "A variable OverPass has no description for.")
             Spacer(minLength: 8)
-            control
-            Button(action: remove) { Image(systemName: "minus.circle") }
-                .buttonStyle(.borderless)
-                .help("Remove this setting")
+            if pinned {
+                Toggle("", isOn: Binding(get: { (row.value ?? usualValue) == spec?.on },
+                                         set: { new in
+                                             row.value = new == (usualValue == spec?.on) ? nil : new ? spec?.on : spec?.off ?? "0"
+                                         }))
+                    .toggleStyle(.switch).labelsHidden()
+            } else {
+                control
+                Button(action: remove) { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless)
+                    .help("Remove this setting")
+            }
         }
     }
 

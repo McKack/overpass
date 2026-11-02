@@ -12,7 +12,7 @@
    "title": "Faster x87 math",
    "summary": "Runs 32-bit programs under x87sidecar, which can make old games that use x87 floating-point math much faster. On by default; a game can turn it off.",
    "technical": "Compared to exactly \"1\" (strcmp). When ROSETTA_X87_PATH is unset or empty, OVERPASS_X87=1 makes the loader re-exec an i386 program as `x87sidecar --cooperative`, using the path in OVERPASS_X87SIDECAR (set by OverPass after `x87sidecar --probe` passes). Only for i386 executables, and skipped when the separate 32-bit loader doesn't exist (WoW64). Results can differ in the last bits of floating-point values.",
-   "group": "Performance",
+   "group": "Compatibility",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:801-804; overpass/PATCHES.md #13"
   },
@@ -74,7 +74,7 @@
    "title": "Turn off Game Mode bundle",
    "summary": "Stops wrapping each program in a small Mac app bundle. Without the bundle macOS does not recognise the program as a game, so Game Mode does not turn on.",
    "technical": "On when set, non-empty and the first character is not '0'. The loader's re-exec link (CW HACK 22144) is then a plain link in $TMPDIR/winetemp-* instead of <name>.app/Contents/MacOS/<name> with LSSupportsGameMode. Programs started directly from the command line never use the link.",
-   "group": "Performance",
+   "group": "Compatibility",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/ntdll/unix/loader.c:729-730; overpass/PATCHES.md #11"
   },
@@ -102,7 +102,7 @@
    "title": "HTTP/2 for online services",
    "summary": "Lets the program's web requests use HTTP/2 even when it doesn't ask for it. Some launchers and online games need this.",
    "technical": "The value must be exactly \"1\" (GetEnvironmentVariableW length 1 and value '1'); read from the Windows environment when a WinHTTP session is opened, which then offers h2 through ALPN by default.",
-   "group": "Network",
+   "group": "Compatibility",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/winhttp/session.c:362-363; overpass/PATCHES.md #15"
   },
@@ -116,7 +116,7 @@
    "title": "Always keep DEP on",
    "summary": "Keeps data execution prevention on even when the game's executable asks for it to be off. Can make some games faster under Rosetta, but breaks old programs that run code from data memory.",
    "technical": "On when set, non-empty and not exactly \"0\" (strcmp). Adds MEM_EXECUTE_OPTION_PERMANENT, like Windows' AlwaysOn policy. By default a main executable without IMAGE_DLLCHARACTERISTICS_NX_COMPAT turns no-execute off, which makes every readable mapping executable.",
-   "group": "Performance",
+   "group": "Compatibility",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/ntdll/unix/process.c:95-107; overpass/PATCHES.md #12"
   },
@@ -197,7 +197,7 @@
    "title": "WineD3D options",
    "summary": "Advanced options for Wine's own Direct3D (WineD3D), for example the renderer or reported video memory.",
    "technical": "Comma-separated key=value list that overrides the registry, e.g. csmt=0x1,renderer=gl. Keys read: csmt, MaxVersionGL, shader_backend (glsl, glsl-vkd3d), VideoPciDeviceID, VideoPciVendorID (<= 0xffff), VideoMemorySize (MiB, > 0), WineLogo, MultisampleTextures, SampleCount, CheckFloatConstants, strict_shader_math, multiply_special, MaxShaderModelVS/HS/DS/GS/PS/CS, renderer (vulkan, gl, gdi/no3d), cb_access_map_w, ffp_hlsl. Only applies when WineD3D is the backend.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "any-wine",
    "source": "OverPass-wine/main/dlls/wined3d/wined3d_main.c:343-480"
   },
@@ -251,7 +251,7 @@
    "title": "Forward-compatible OpenGL",
    "summary": "Gives OpenGL games that ask for OpenGL 3.2 to 4.1 a modern core context. Can fix OpenGL games that fail to start or render nothing.",
    "technical": "On when the first character is '1'. In winemac.drv's wglCreateContextAttribsARB, adds WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB for requested versions 3.2, 3.3, 4.0 and 4.1 (CW Hack 24834).",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/winemac.drv/opengl.c:2164-2172"
   },
@@ -354,7 +354,7 @@
    "title": "OverPass Runtime options",
    "summary": "Holds the OverPass Runtime (DXMT) options listed as dxmt-config settings.",
    "technical": "key=value entries separated by ';', parsed like dxmt.conf lines and applied after it. Read on the Windows side with a MAX_PATH buffer, so a value longer than 259 characters is lost. Built-in per-game profiles (Genshin, Sonic X Shadow Generations, OMORI, Outcast, SotTR, Helldivers 2) apply only to keys the user did not set.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/util/config/config.cpp:351-391; src/util/util_env.cpp:27-36"
   },
@@ -366,7 +366,7 @@
    "title": "OverPass Runtime config file",
    "summary": "Reads OverPass Runtime options from a file of your choice.",
    "technical": "Path to a dxmt.conf-format file (key = value lines, [exe name] sections). Read through the Windows environment, so a Windows path. DXMT_CONFIG entries are applied on top.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/util/config/config.cpp:353-375; dxmt/docs/CUSTOMIZATION.md"
   },
@@ -380,7 +380,7 @@
    "title": "MetalFX upscaling (D3D11)",
    "summary": "Upscales a Direct3D 11 game's picture with MetalFX, so it can render at a lower resolution and still look sharp.",
    "technical": "Compared to exactly \"1\". Creates the D3D11 swap chain with MetalFX spatial scaling when the GPU supports it; the factor comes from d3d11.metalSpatialUpscaleFactor (default 2). D3D11 only.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:1124"
   },
@@ -394,7 +394,7 @@
    "title": "NVIDIA extensions (DLSS)",
    "summary": "Lets games use NVIDIA features such as DLSS, which OverPass Runtime provides with MetalFX.",
    "technical": "Compared to exactly \"1\". Writes the NVIDIA/NGX registry values games look for and enables the vendor extension (nvapi, NGX DLSS Super Resolution through MetalFX's temporal scaler, patches 0001/0003); any other value deletes those values.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi.cpp:35-46; repo/overpass/PATCHES.md"
   },
@@ -420,7 +420,7 @@
    "title": "Shader cache folder",
    "summary": "Keeps OverPass Runtime's shader cache in a folder you choose.",
    "technical": "Used only when it starts with '/' (an absolute Unix path); a trailing '/' is added. Otherwise the relative default is used.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/dxmt/dxmt_shader_cache.cpp:25-31"
   },
@@ -499,7 +499,7 @@
    "title": "Frame rate limit (D3D11)",
    "summary": "Caps a Direct3D 11 game's frame rate with Metal's own frame pacing, for even frame times. 0 means no limit.",
    "technical": "Integer; 0 disables. Metal may give a lower rate than asked when it is not a factor of the display refresh rate (e.g. 40 on 60 Hz gives 30). Parser has no upper bound; negative values parse but are meaningless.",
-   "group": "Performance",
+   "group": "Display",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:169-170,765-773; dxmt/dxmt.conf"
   },
@@ -514,7 +514,7 @@
    "title": "Frame rate limit (D3D12)",
    "summary": "Caps a Direct3D 12 game's frame rate with Metal's own frame pacing. 0 means no limit.",
    "technical": "Same behaviour as d3d11.preferredMaxFrameRate, read by the D3D12 swap chain. Not mentioned in dxmt.conf or the docs.",
-   "group": "Performance",
+   "group": "Display",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_swapchain.cpp:202,713-714"
   },
@@ -528,7 +528,7 @@
    "title": "MetalFX upscale factor",
    "summary": "How much MetalFX enlarges the picture when MetalFX upscaling is on (2.0 doubles width and height).",
    "technical": "Float, clamped to at least 1.0 in code; no upper clamp. CUSTOMIZATION.md says 1.0-2.0. Only used when DXMT_METALFX_SPATIAL_SWAPCHAIN=1 (D3D11).",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_swapchain.cpp:143; dxmt/docs/CUSTOMIZATION.md"
   },
@@ -543,7 +543,7 @@
    "title": "Tessellation limit",
    "summary": "Lowers how finely surfaces are tessellated. Can speed up games that overuse tessellation.",
    "technical": "Used only when between 4 and 64; other values are ignored. Further limited by the GPU (8 on GPUs below Apple9).",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_pipeline_ts.cpp:60-64"
   },
@@ -593,7 +593,7 @@
    "title": "Highest Direct3D 11 feature level",
    "summary": "Sets the highest Direct3D feature level the game is told it can use. Some games pick a broken or better path depending on it.",
    "technical": "Exact string match; unknown values are ignored. Helldivers 2 has 12_1 built in.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11.cpp:59-77"
   },
@@ -607,7 +607,7 @@
    "title": "Ignore no-wait buffer maps",
    "summary": "Fixes games that ask the GPU not to wait for a buffer but don't handle the 'still drawing' answer.",
    "technical": "Bool (true/false, any case). Ignores D3D11_MAP_FLAG_DO_NOT_WAIT in Map(). Built in for Sonic X Shadow Generations.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_context_imm.cpp:81"
   },
@@ -621,7 +621,7 @@
    "title": "Fix invalid texture coordinates",
    "summary": "Treats invalid (NaN) texture coordinates as zero. Can fix black or flickering spots in some games.",
    "technical": "Bool (true/false, any case). Applied when shaders are converted. Built in for Outcast: A New Beginning.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_shader.cpp:17"
   },
@@ -635,7 +635,7 @@
    "title": "Split fused multiply-add",
    "summary": "Calculates some shader math in two steps, as some Windows GPUs do. Can fix small rendering glitches.",
    "technical": "Bool (true/false, any case). Splits fma() into a multiply and an add during shader conversion. Built in for Shadow of the Tomb Raider.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d11/d3d11_shader.cpp:19"
   },
@@ -675,7 +675,7 @@
    "title": "Reported GPU vendor ID",
    "summary": "Makes the game see a different graphics card maker. Some games choose settings or refuse to start based on it.",
    "technical": "Exactly four hex digits (e.g. 10de NVIDIA, 1002 AMD, 8086 Intel); anything else is ignored.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:7-31"
   },
@@ -687,7 +687,7 @@
    "title": "Reported GPU device ID",
    "summary": "Makes the game see a different graphics card model.",
    "technical": "Exactly four hex digits; anything else is ignored. Usually set together with dxgi.customVendorId.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:7-33"
   },
@@ -699,7 +699,7 @@
    "title": "Reported GPU name",
    "summary": "The graphics card name the game sees.",
    "technical": "Any string; quote it with \" when it contains spaces (the parser stops at whitespace outside quotes).",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/dxgi/dxgi_options.cpp:34; dxmt/src/util/config/config.cpp:136-147"
   },
@@ -735,7 +735,7 @@
    "title": "Compile pipelines when created",
    "summary": "Compiles a Direct3D 12 game's pipelines right when the game creates them instead of in the background. Slower loading, but can fix games that misbehave with background compiling.",
    "technical": "Bool (true/false, any case), default true. With false, pipeline state objects compile synchronously in CreateGraphicsPipelineState. Read once per process (static). OverPass patch 0020. The profile editor's 'When the game creates them' choice.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_pipeline_graphics.cpp:1360; repo/overpass/patches/0020; OverPass/src/Sources/OverPass/ProfileEditor.swift:24-43"
   },
@@ -749,7 +749,7 @@
    "title": "Skip drawing until shaders are ready",
    "summary": "While a Direct3D 12 pipeline is still compiling, leaves that object out for a frame or so instead of making the game wait. Less stutter, brief pop-in.",
    "technical": "Bool (true/false, any case). Only matters when d3d12.asyncPipelineCompile is on. Read once per process (static). OverPass patch 0020.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "OverPass-runtime/repo/dxmt/src/d3d12/d3d12_command_list.cpp:635; repo/overpass/patches/0020"
   },
@@ -762,7 +762,7 @@
    "title": "Direct3D 9 (mtld3d) options",
    "summary": "Holds the mtld3d options listed as mtld3d-config settings, for Direct3D 9 games.",
    "technical": "key=value entries separated by ';', same syntax as mtld3d.conf (next to the game's .exe), merged on top of it and of mtld3d's built-in profiles. Whitespace-only counts as unset. Read when Direct3DCreate9 is called; unknown keys and bad values log a warning and keep the previous value.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/d3d9/src/config.rs:52-66; mtld3d.conf header"
   },
@@ -879,7 +879,7 @@
    "title": "Shader cache (D3D9)",
    "summary": "Saves compiled shaders next to the game (mtld3d_shaders.bin) so later runs stutter less, at the cost of a longer start.",
    "technical": "Bool, true/false case-insensitive. Prewarms recorded shader libraries and pipelines before the first frame.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:688; mtld3d.conf 'shaderCache.enable'"
   },
@@ -893,7 +893,7 @@
    "title": "Skip draws while compiling (D3D9)",
    "summary": "Leaves an object out for a frame or two while its shader compiles, instead of pausing the game. Less stutter, brief pop-in.",
    "technical": "Bool, true/false case-insensitive. Shaders always compile on four worker threads; this only decides whether a draw into a target that is rebuilt every frame is skipped or waited for.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:689; mtld3d.conf 'shader.asyncCompile'"
   },
@@ -908,7 +908,7 @@
    "title": "Reported video memory (D3D9)",
    "summary": "The most video memory a Direct3D 9 game is told it has. Lower it if a 32-bit game runs out of memory and loses textures; 0 means no limit.",
    "technical": "Non-negative integer in MiB (u32); caps what GetAvailableTextureMem reports.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:704-706,789-800; mtld3d.conf 'memory.vramBudgetMB'"
   },
@@ -923,7 +923,7 @@
    "title": "Frame rate limit (D3D9)",
    "summary": "Caps a Direct3D 9 game's frame rate, to save battery and heat. 0 means no limit.",
    "technical": "Non-negative integer (u32), Hz. Independent of vsync; with both, the lower rate wins. Also holds in hidden or covered windows.",
-   "group": "Performance",
+   "group": "Display",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:710,815-826; mtld3d.conf 'present.maxFps'"
   },
@@ -939,7 +939,7 @@
    "title": "Frames queued ahead (D3D9)",
    "summary": "How many frames the GPU may lag behind the game. Fewer means less input delay; more can smooth uneven frame times.",
    "technical": "\"auto\" (the game's SetMaximumFrameLatency for D3D9Ex, else 3) or an integer 1-30; other values are rejected. The UI needs an Automatic choice besides the number.",
-   "group": "Performance",
+   "group": "Display",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:711-713,828-844; windows/core/src/extended.rs:23"
   },
@@ -954,7 +954,7 @@
    "title": "Render scale (D3D9)",
    "summary": "Renders a Direct3D 9 game at a lower resolution and upscales it with MetalFX, trading detail for frame rate. 0.75 is a good first try.",
    "technical": "Plain decimal parsed to hundredths (digits beyond are truncated), accepted from 0.01 to 1.0; values above 1.0 are refused. Ignored (held at 1.0) on GPUs without MetalFX.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:714,846-878; mtld3d.conf 'render.scale'"
   },
@@ -968,7 +968,7 @@
    "title": "Sharp textures when scaled (D3D9)",
    "summary": "Keeps texture detail at full resolution when render scale is below 1.0. Turn off if textures shimmer.",
    "technical": "Bool, true/false case-insensitive. Adds a sampler LOD bias of log2(render.scale). No effect at 1.0.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:715; mtld3d.conf 'render.lodBias'"
   },
@@ -994,7 +994,7 @@
    "title": "Reported GPU maker (D3D9)",
    "summary": "Makes a Direct3D 9 game see an NVIDIA or AMD card. Some older games only turn on effects such as lens flares for vendors they recognise.",
    "technical": "Case-insensitive; \"ati\" is accepted as an alias for amd (not in mtld3d.conf). Changes vendor id, device id, description, driver name and version in GetAdapterIdentifier.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "overpass-runtime",
    "source": "mtld3d v0.15.1 windows/core/src/config.rs:716,756-766; mtld3d.conf 'adapter.spoof'"
   },
@@ -1068,7 +1068,7 @@
    "title": "Metal argument buffers",
    "summary": "Lets MoltenVK bind many more textures and buffers at once, usually faster. Turn off only to test a rendering problem.",
    "technical": "Boolean read as a number (0 = off, non-zero = on).",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L580"
   },
@@ -1094,7 +1094,7 @@
    "title": "Fast shader math",
    "summary": "Compiles shaders with faster but less exact floating-point math. Turning it off can fix rare rendering errors and costs speed.",
    "technical": "Enumeration read as a number. 2 lets a shader limit fast math through VK_KHR_shader_float_controls2 or execution modes.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L201"
   },
@@ -1108,7 +1108,7 @@
    "title": "Submit on the game's thread",
    "summary": "Sends GPU work from the game's own thread. Turning it off moves submission to a background queue, which can help or hurt frame pacing.",
    "technical": "Boolean read as a number. When off, vkQueueSubmit/vkQueuePresentKHR are dispatched to a GCD queue whose priority follows the queue priority.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L498"
   },
@@ -1122,7 +1122,7 @@
    "title": "Recover from GPU errors",
    "summary": "Keeps the game running after a temporary GPU error instead of failing completely. Can stop some crashes.",
    "technical": "Boolean read as a number. On VK_ERROR_DEVICE_LOST that doesn't affect the physical device, the error is logged and the VkDevice is not marked lost.",
-   "group": "Compatibility",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L349"
   },
@@ -1152,7 +1152,7 @@
    "title": "Command buffer encoding",
    "summary": "When MoltenVK turns Vulkan commands into Metal commands. Trades speed for memory use.",
    "technical": "Enumeration read as a number. 3 assumes the app gives each recording thread an autorelease pool, which Windows games under Wine don't, so it is risky.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L301"
   },
@@ -1178,7 +1178,7 @@
    "title": "Use Metal heaps",
    "summary": "Whether MoltenVK allocates textures and buffers from Metal heaps. Some Vulkan features need it.",
    "technical": "Enumeration read as a number. 1 equals 2 on Apple GPUs and 0 on AMD. Needed by VK_EXT_image_2d_view_of_3d and block-texel view compatibility.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L606"
   },
@@ -1192,7 +1192,7 @@
    "title": "Metal command buffers per queue",
    "summary": "How many Metal command buffers can be in flight per queue. Raise it if a game stalls waiting for command buffers.",
    "technical": "UInt32 read as a number; the doc gives no maximum.",
-   "group": "Performance",
+   "group": "Direct3D",
    "applies": "moltenvk",
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L251"
   },
@@ -1307,7 +1307,7 @@
    "title": "Graphics backend",
    "summary": "Which Direct3D 10-12 implementation the program uses.",
    "technical": "Any name works when OverPass has set OVERPASS_BACKEND_<NAME> (it does for every installed backend, dxvk included); otherwise the rule line is skipped with a warning, except wined3d and auto which need no folder. Sets OVERPASS_DLL_PATH_PREPEND and CX_ACTIVE_GRAPHICS_BACKEND (empty for auto). The README's rule table lists only dxmt, d3dmetal, wined3d and auto.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:429-446; OverPass/src/Sources/OverPass/CompatRules.swift:100-111; Profiles.swift:321-365"
   },
@@ -1330,7 +1330,7 @@
    "title": "Direct3D 9 backend",
    "summary": "Whether the program's Direct3D 9 runs on mtld3d (Metal) or Wine's own WineD3D.",
    "technical": "Case-insensitive. Moves the folder in OVERPASS_D3D9_MTLD3D to the front of OVERPASS_DLL_PATH_PREPEND, or removes it for wined3d. Must come after any graphics line in the rule. Skipped with a warning when mtld3d isn't installed. Not listed in Profiles/README.md.",
-   "group": "Graphics",
+   "group": "Direct3D",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:36-37,447-475"
   },

@@ -24,7 +24,7 @@ The list view shows each title's container, the game engine OverPass found and i
 
 Each game has its own settings: graphics per Direct3D version, faster x87 math, a resolution cap and more:
 
-![A game's settings: Graphics & Sound](screenshots/editor-graphics.webp)
+![A game's settings: graphics](screenshots/editor-graphics.webp)
 
 OverPass keeps Wine, the graphics runtime and the store clients up to date:
 

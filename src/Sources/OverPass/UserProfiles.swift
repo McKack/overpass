@@ -2,8 +2,9 @@ import Foundation
 
 // Profiles people change or make themselves. They live in Application Support/OverPass/Profiles in the same
 // format as the bundled ones (Profiles/README.md). A file there named like a bundled profile replaces it; its
-// first line records which version of the bundled file it was copied from, so OverPass can tell when that
-// one has changed since. Deleting the file goes back to the bundled profile.
+// first line records which version of the bundled file it was copied from, and Originals/ keeps that version.
+// When the bundled file changes, what the person changed is moved onto the new one. Deleting the file goes back
+// to the bundled profile.
 enum UserProfiles {
     static var support: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/OverPass")
@@ -16,6 +17,9 @@ enum UserProfiles {
     /// The profile files in effect, the folder OverPass Wine reads its rules from: every bundled file no
     /// profile here replaces, plus every profile here.
     static var rulesDirectory: URL { support.appendingPathComponent("Rules") }
+
+    /// The bundled file each edited copy was made from, to tell what the person changed.
+    static var originalsDirectory: URL { directory.appendingPathComponent("Originals") }
 
     static let basedOnPrefix = "# Based on OverPass's profile version "
     /// The section the profile editor writes an app's own settings to.
@@ -132,6 +136,40 @@ struct ProfileText {
         set(key, nil, in: section)
         guard !values.isEmpty else { return }
         set(key, values.joined(separator: "\n\(key) = "), in: section)
+    }
+
+    private var sectionNames: [String] { lines.compactMap { Self.sectionName($0)?.lowercased() } }
+
+    /// The keys of [app] the profile editor writes; everything else there is the profile's own.
+    private static let editorKeys = ["name", "icon", "cover", "cover-style", "icon-style", "preset"]
+
+    /// Whether two profiles hold the same lines, in any order, leaving out blank lines and the based-on line.
+    static func same(_ a: String, _ b: String) -> Bool {
+        func lines(_ text: String) -> [String] {
+            text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.hasPrefix(UserProfiles.basedOnPrefix) }.sorted()
+        }
+        return lines(a) == lines(b)
+    }
+
+    /// The person's copy moved onto a new bundled file: the new file, plus the [app] keys they changed from
+    /// `base` and their own settings. Nil when they changed anything else by hand, which only they can sort out.
+    static func merged(mine: String, base: String, new: String) -> String? {
+        let mine = ProfileText(text: mine), base = ProfileText(text: base)
+        func pairs(_ profile: ProfileText, _ section: String) -> [String] {
+            profile.values(in: section).filter { section != "app" || !editorKeys.contains($0.key) }.map { "\($0.key)=\($0.value)" }
+        }
+        let own = UserProfiles.settingsSection.lowercased()
+        let sections = Set(mine.sectionNames + base.sectionNames).subtracting([own])
+        guard sections.allSatisfy({ pairs(mine, $0) == pairs(base, $0) }) else { return nil }
+        var out = ProfileText(text: new)
+        for key in editorKeys {
+            let ours = mine.values(in: "app").filter { $0.key == key }.map(\.value)
+            if ours != base.values(in: "app").filter({ $0.key == key }).map(\.value) { out.set(key, all: ours, in: "app") }
+        }
+        out.replace(section: UserProfiles.settingsSection, comment: "Set in OverPass's profile editor.",
+                    with: mine.values(in: UserProfiles.settingsSection).map { "\($0.key) = \($0.value)" })
+        return out.text
     }
 
     /// Replaces a section (or adds it at the end) with these lines; an empty list removes it.

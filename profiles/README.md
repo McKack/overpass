@@ -129,8 +129,10 @@ comment and `source`.
 Profiles you edit or make in OverPass live in `~/Library/Application Support/OverPass/Profiles`. They use
 the same format as the bundled ones. A file there named like a bundled profile replaces it.
 
-The first line of a copy of a bundled profile records which version it was copied from, so OverPass can
-say when the original has changed:
+The first line of a copy of a bundled profile records which version it was copied from, and
+`Originals/<id>.ini` beside it keeps that version. When the bundled profile changes, OverPass moves the copy
+onto the new one, keeping `[My settings]` and the name, artwork and presets you changed. A copy with other
+changes by hand stays as it is, and the editor says the original has changed:
 
 ```ini
 # Based on OverPass's profile version <hash>

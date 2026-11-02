@@ -8,7 +8,7 @@ library and choose **Edit Profile…**.
 
 1. Start it again. Launchers in particular sometimes crash once while they update themselves.
 2. Make sure your Mac has free disk space. Programs that can't write their files crash in odd ways.
-3. Try another graphics engine: **Edit Profile… → Graphics & Sound → Graphics**.
+3. Try another graphics engine: **Edit Profile… → Direct3D**.
    - **overpass-runtime (Metal)** for DirectX 10, 11 and 12 games (install it in OverPass if you haven't yet).
    - **D3DMetal (Metal)** as an alternative for DirectX 11 and 12.
    - **DXVK (Vulkan via MoltenVK)** or **WineD3D (OpenGL)** for older or unusual games.
@@ -24,7 +24,7 @@ library and choose **Edit Profile…**.
 
 ## No sound, or crackling sound
 
-- **Edit Profile… → Graphics & Sound → XAudio2**: try Microsoft's XAudio2 instead of Wine's.
+- **Edit Profile… → Sound → XAudio2**: try Microsoft's XAudio2 instead of Wine's.
 - Check the output device and sample rate in **Audio MIDI Setup** (the button is in the same section).
 
 ## Reporting a problem

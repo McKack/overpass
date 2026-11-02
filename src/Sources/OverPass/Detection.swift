@@ -267,9 +267,13 @@ extension BottleManager {
         }
     }
 
-    /// A profile of its own, or a rule that names it: then detection stays out of it.
+    /// OverPass's own profile for it, or a rule that names it: then detection stays out of it. A profile made in
+    /// the editor doesn't count: its settings come later and win, and saving one shouldn't lose what was detected.
     private func hasOwnRules(_ item: LibraryItem, profiles: ProfileStore?) -> Bool {
-        if profiles?.profile(for: item) != nil { return true }
-        return CompatRules.all.contains { !$0.name.hasPrefix("Detected: ") && $0.covers(item) }
+        let own = profiles?.custom ?? []
+        if let profile = profiles?.profile(for: item), !own.contains(profile.id) { return true }
+        return CompatRules.all.contains {
+            !$0.name.hasPrefix("Detected: ") && !own.contains(($0.file as NSString).deletingPathExtension) && $0.covers(item)
+        }
     }
 }

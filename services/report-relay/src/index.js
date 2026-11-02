@@ -66,7 +66,10 @@ async function startSync(env) {
     method: "POST",
     body: JSON.stringify({ ref: "main" }),
   });
-  if (!response.ok) throw new Error(`GitHub wouldn't start the sync (${response.status}): ${await response.text()}`);
+  if (!response.ok) {
+    const needs = response.headers.get("X-Accepted-GitHub-Permissions");
+    throw new Error(`GitHub wouldn't start the sync (${response.status}, needs ${needs}): ${await response.text()}`);
+  }
 }
 
 /// Counts one more report from the sender's address, or answers that there have been too many.
@@ -351,7 +354,8 @@ async function issueToken(env, repo) {
   const { id } = await installation.json();
   const created = await github(env, `/app/installations/${id}/access_tokens`, jwt, { method: "POST" });
   if (!created.ok) throw new Error(`GitHub gave no installation token (${created.status})`);
-  const { token } = await created.json();
+  const { token, permissions } = await created.json();
+  console.log(`GitHub token for ${repo} has ${JSON.stringify(permissions)}`);
   await env.REPORTS.put(cacheKey, token, { expirationTtl: 3000 });
   return token;
 }

@@ -14,6 +14,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 - One frame rate limit for a game, whichever Direct3D it uses
 - Your changes to a game's profile now stay when OverPass updates that profile
 - Pick extra Windows components from a searchable list
+- Game pages show which anti-cheat a game uses, with what's known about it
+- The games list stays smooth however long it gets
 - Smaller bug fixes and improvements
 
 ### Details

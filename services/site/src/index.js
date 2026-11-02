@@ -30,6 +30,7 @@
 //   GET  /api/art/<store>/<id>?name=   the art the app shows; a title not seen before joins the queue for find-covers.mjs
 //   POST /games/<id>/cover, /games/<id>/cover/url, /games/<id>/cover/reset   a moderator changes a game's cover
 //   GET  /pictures/covers/<file>  a moderator's upload
+//   GET  /api/anticheat          when AreWeAntiCheatYet's list last came, for sync-anticheat.mjs; POST { run, games } or { run, done }; needs the SYNC_TOKEN secret
 //   GET  /api/profiles           the signed set of profiles the app downloads
 //   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
@@ -67,6 +68,7 @@ export default {
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
       if (path === '/api/issues' && request.method === 'POST') return await storeIssues(request, env, context);
+      if (path === '/api/anticheat' && request.method === 'POST') return await storeAntiCheat(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/(delete|vote))?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
@@ -159,6 +161,7 @@ export default {
           return (moderator ? personal : html)(privacyPage(moderator));
         }
         if (ticket) return await showReport(env, ticket[1], await signedIn(request, env));
+        if (path === '/api/anticheat') return await antiCheatStamp(request, env);
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
@@ -235,7 +238,7 @@ function storeLinks(game) {
 function summary(game, rated) {
   const counts = rated?.counts ?? {};
   return {
-    id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified,
+    id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat),
     tier: overall(counts), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), last_rated: rated?.last ?? null,
     art: picture(game), brand: game.brand ?? null, color: game.color ?? game.brand ?? null, icon: game.icon ?? null, stores: storeLinks(game),
   };
@@ -249,8 +252,9 @@ function picture(game) {
 async function list(env) {
   const [{ results }, rated] = await Promise.all([
     env.DB.prepare(
-      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, g.color, a.file AS art, a.thumb, a.origin, a.icon, a.links AS found
-       FROM games g LEFT JOIN game_art a ON a.game_id = g.id`,
+      `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, g.color, a.file AS art, a.thumb, a.origin, a.icon, a.links AS found,
+         c.game_id IS NOT NULL AS anticheat
+       FROM games g LEFT JOIN game_art a ON a.game_id = g.id LEFT JOIN anticheat c ON c.game_id = g.id`,
     ).all(),
     tally(env),
   ]);
@@ -268,7 +272,7 @@ async function detail(env, id) {
      FROM games g LEFT JOIN game_art a ON a.game_id = g.id WHERE g.id = ?`,
   ).bind(id).first();
   if (!game) return null;
-  const [rated, { results }, { results: issues }] = await Promise.all([
+  const [rated, { results }, { results: issues }, guard] = await Promise.all([
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
       `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, ${badgeOf('u')},
@@ -277,11 +281,13 @@ async function detail(env, id) {
        WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
     ).bind(id).all(),
     env.DB.prepare("SELECT number, title, url, state FROM game_issues WHERE game_id = ? ORDER BY state = 'open' DESC, number DESC").bind(id).all(),
+    env.DB.prepare('SELECT slug, status, anticheats, notes FROM anticheat WHERE game_id = ?').bind(id).first(),
   ]);
   return {
     ...summary(game, rated.get(id)), notes: game.notes, profile_file: game.profile_file, profile_text: game.profile_text,
     presets: JSON.parse(game.presets), art_source: game.art_source ?? null, hero: game.hero ?? null, art_wanted: game.art_wanted ?? null, rating_list: results, issues,
     about: game.about ?? null, about_source: game.about_source ?? null,
+    anticheat: guard ? { slug: guard.slug, status: guard.status, names: JSON.parse(guard.anticheats), notes: JSON.parse(guard.notes) } : null,
   };
 }
 
@@ -316,11 +322,12 @@ async function sync(request, env) {
   }
   const ids = JSON.stringify(games.map((game) => game.id));
   steps.push(env.DB.prepare(
-    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`,
+    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)
+       AND id NOT IN (SELECT game_id FROM anticheat)`,
   ).bind(ids));
   steps.push(env.DB.prepare(
     `UPDATE games SET source = 'rated', verified = NULL, notes = NULL, profile_file = NULL, profile_text = NULL, presets = '[]'
-     WHERE id NOT IN (SELECT value FROM json_each(?1))`,
+     WHERE id NOT IN (SELECT value FROM json_each(?1)) AND source <> 'anticheat'`,
   ).bind(ids));
   steps.push(env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'));
   await env.DB.batch(steps);
@@ -827,6 +834,51 @@ async function storeIssues(request, env, context) {
   return json({ linked: steps.length - 1 });
 }
 
+async function antiCheatStamp(request, env) {
+  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
+  const synced = await env.DB.prepare('SELECT MAX(run) AS run FROM anticheat').first('run');
+  return new Response(JSON.stringify({ synced_at: synced }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+}
+
+/// Part of AreWeAntiCheatYet's list, from sync-anticheat.mjs. A game is found by its store IDs, then its name; one the site
+/// doesn't have gets a page. `done` ends a run: what it didn't send has left the list.
+async function storeAntiCheat(request, env) {
+  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
+  const { run, games, done } = await request.json();
+  if (!Number.isInteger(run)) return json({ error: 'No run.' }, 400);
+  if (done) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM anticheat WHERE run <> ?').bind(run),
+      env.DB.prepare(`DELETE FROM games WHERE source = 'anticheat' AND id NOT IN (SELECT game_id FROM anticheat) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`),
+      env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'),
+    ]);
+    return json({ done: true });
+  }
+  const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
+  const { results: known } = await env.DB.prepare('SELECT id FROM games').all();
+  const byKey = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
+  const ids = new Set(known.map((game) => game.id));
+  const steps = [];
+  for (const game of games) {
+    let id = byKey.get(`steam:${game.steam}`) ?? byKey.get(`epic:${game.epic}`);
+    if (!id && ids.has(slug(game.name))) id = slug(game.name);
+    if (!id) {
+      id = slug(game.name);
+      if (!id) continue;
+      ids.add(id);
+      steps.push(env.DB.prepare("INSERT OR IGNORE INTO games (id, name, source, steam, created_at) VALUES (?, ?, 'anticheat', ?, ?)").bind(id, game.name, game.steam, Date.now()));
+    }
+    for (const [store, value] of [['steam', game.steam], ['epic', game.epic]]) {
+      if (value) steps.push(env.DB.prepare('INSERT OR IGNORE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, value, id));
+    }
+    steps.push(env.DB.prepare(
+      `INSERT OR REPLACE INTO anticheat (game_id, slug, status, anticheats, notes, changed, run) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(id, game.slug, game.status, JSON.stringify(game.anticheats), JSON.stringify(game.notes), game.changed, run));
+  }
+  if (steps.length) await env.DB.batch(steps);
+  return json({ stored: games.length });
+}
+
 /// A page's address from a game's name, the same as games-index.js.
 function slug(name) {
   return name.replace(/[™®©'’]/g, '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -1331,13 +1383,14 @@ function shell(title, description, body, moderator = false, tab = null) {
 </html>`;
 }
 
-const KINDS = { profile: 'Profile', preset: 'Known fix' };
+const KINDS = { profile: 'Profile', preset: 'Known fix', anticheat: 'Anti-cheat info' };
 const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['category', 'Category'], ['kind', 'Type']];
 
 function card(game) {
   const kind = KINDS[game.source] ?? '';
-  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}" data-kind="${kind}">
-  ${cover(game)}
+  // The list's script gives each picture its address as it nears the screen.
+  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}" data-kind="${kind}"${game.anticheat ? ' data-anticheat="1"' : ''}>
+  ${cover(game).replace(/(<img\b[^>]*?) src=/g, '$1 data-src=')}
   <h3>${escape(game.name)}</h3>
   <p>${medal(game.tier)}${kind ? `<span class="tag">${kind}</span>` : ''}</p>
   <span class="column">${game.ratings || ''}</span>
@@ -1350,7 +1403,7 @@ function card(game) {
 
 function gamesPage(games, moderator) {
   const rated = games.filter((game) => game.tier).length;
-  const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated']]
+  const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated'], ['anticheat', 'Anti-cheat']]
     .map(([value, title]) => `<button type="button" data-filter="${value}" aria-pressed="${value === 'all'}">${title}</button>`).join('');
   const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${{ category: 'wide', kind: 'medium' }[key] ?? ''}">${title}</button>`).join('');
   const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['category', 'Category'], ['kind', 'Type']]
@@ -1398,7 +1451,8 @@ function gamesPage(games, moderator) {
     const text = search.value.trim().toLowerCase();
     let shown = 0;
     for (const card of cards) {
-      card.hidden = !(card.dataset.name.includes(text) && (filter === 'all' || card.dataset.tier === filter));
+      const passes = filter === 'all' || card.dataset.tier === filter || (filter === 'anticheat' && card.dataset.anticheat);
+      card.hidden = !(card.dataset.name.includes(text) && passes);
       if (!card.hidden) shown++;
     }
     nothing.hidden = shown > 0;
@@ -1455,6 +1509,20 @@ function gamesPage(games, moderator) {
   heads.addEventListener('click', (event) => { const head = event.target.closest('button'); if (head) sortBy(head.dataset.sort); });
   for (const view of views) view.addEventListener('click', () => { state.view = view.dataset.view; arrange(); });
   arrange();
+  // Pictures load a screen and a half ahead and let go four screens behind, so a long list stays light either way.
+  // The gap between the two keeps a picture from being dropped and fetched again by scrolling back and forth.
+  const pictures = (card) => card.querySelectorAll('img[data-src]');
+  const near = new IntersectionObserver((seen) => {
+    for (const { target, isIntersecting } of seen) {
+      if (isIntersecting) for (const image of pictures(target)) if (!image.hasAttribute('src')) image.src = image.dataset.src;
+    }
+  }, { rootMargin: '150% 0px' });
+  const far = new IntersectionObserver((seen) => {
+    for (const { target, isIntersecting } of seen) {
+      if (!isIntersecting) for (const image of pictures(target)) image.removeAttribute('src');
+    }
+  }, { rootMargin: '400% 0px' });
+  for (const card of cards) { near.observe(card); far.observe(card); }
 </script>`, moderator, 'games');
 }
 
@@ -1702,6 +1770,69 @@ function expectedRate(game) {
 
 const ISSUE_STATES = { open: 'Open', fixed: 'Fixed', closed: 'Closed' };
 
+const WATCHDOG = 'https://areweanticheatyet.com';
+/// What we can say about the usual ones, in our own words, with the picture's name on AreWeAntiCheatYet. By lower-case name,
+/// since the list spells some several ways.
+const ANTI_CHEATS = {
+  'easy anti-cheat': ['eac', 'From Epic Games. A game\'s developer decides whether it runs under Wine and Proton.'],
+  battleye: ['battleye', 'A widely used third-party anti-cheat. A game\'s developer decides whether it runs under Wine and Proton.'],
+  vac: ['vac', 'Valve\'s anti-cheat for games on Steam.'],
+  'valve anti-cheat': ['vac', 'Valve\'s anti-cheat for games on Steam.'],
+  'ea anticheat': ['ea', 'Electronic Arts\' own anti-cheat, which uses a Windows kernel driver.'],
+  vanguard: ['vanguard', 'Riot Games\' anti-cheat. Its Windows kernel driver starts with the computer.'],
+  ricochet: ['ricochet', 'Activision\'s anti-cheat for Call of Duty, with a Windows kernel driver.'],
+  'denuvo anti-cheat': ['denuvo', 'From Denuvo, with a Windows kernel driver.'],
+  xigncode3: ['xigncode3', 'From Wellbia, common in Korean online games.'],
+  'nprotect gameguard': ['nprotect', 'From INCA Internet, common in Korean online games.'],
+  punkbuster: ['punkbuster', 'From Even Balance, an older anti-cheat found in many shooters.'],
+  fairfight: ['fairfight', 'Runs on the game\'s servers and watches how people play, so nothing runs on your Mac.'],
+  hyperion: ['hyperion', 'Made by Byfron, now part of Roblox.'],
+  arbiter: ['arbiter', ''],
+  faceit: ['faceit', 'From FACEIT, for its own competitive servers.'],
+  equ8: ['equ8', ''],
+  'nexon game security': ['nexon', 'Nexon\'s own anti-cheat.'],
+  arkos: ['arkos', ''],
+  sard: ['sard', ''],
+};
+/// Need a Windows kernel driver, which can't run on a Mac. The same list as the app's AntiCheat.swift.
+const KERNEL_ONLY = ['ea anticheat', 'ea javelin', 'vanguard', 'ricochet', 'denuvo anti-cheat'];
+const LINUX_STATES = {
+  Supported: 'Works on Linux, and the developer allows it.',
+  Running: 'Runs on Linux, without the developer\'s word on it.',
+  Planned: 'The developer plans Linux support.',
+  Broken: 'Doesn\'t work on Linux.',
+  Denied: 'The developer has shut out Linux.',
+};
+
+const shield = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Z"/></svg>';
+
+/// An anti-cheat's picture, from where it's published, over a plain shield when there's none.
+function antiCheatIcon(name) {
+  const file = ANTI_CHEATS[name.toLowerCase()]?.[0];
+  return `<span class="ac-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
+}
+
+/// A button for each anti-cheat; each opens a small card, and clicking or tapping elsewhere closes it.
+function antiCheatRow(game) {
+  const guard = game.anticheat;
+  if (!guard) return '';
+  const notes = guard.notes.length ? `<ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul>` : '';
+  const cards = guard.names.map((name, i) => {
+    const known = ANTI_CHEATS[name.toLowerCase()];
+    const kernel = KERNEL_ONLY.includes(name.toLowerCase());
+    return `<div class="ac-card" id="anticheat-${i}" popover>
+  <h3>${antiCheatIcon(name)}${escape(name)}</h3>
+  ${known ? `<p>${escape(known[1])}</p>` : ''}
+  ${kernel ? '<p class="problem">Needs a Windows kernel driver, which can\'t run on a Mac.</p>' : ''}
+  <p><span class="state">${escape(guard.status || 'Unknown')}</span> ${escape(LINUX_STATES[guard.status] ?? '')}</p>
+  <p class="muted small">That's on Linux, through Wine or Proton, which OverPass is built on too. It's a good guide for a Mac, not a test on one.</p>
+  ${notes}
+  <p class="ac-more"><a href="${WATCHDOG}/game/${encodeURIComponent(guard.slug)}" target="_blank" rel="noopener">See this game on AreWeAntiCheatYet</a></p>
+</div>`;
+  }).join('');
+  return `<p class="anticheats">${guard.names.map((name, i) => `<button type="button" class="ac" popovertarget="anticheat-${i}">${antiCheatIcon(name)}${escape(name)}</button>`).join('')}</p>${cards}`;
+}
+
 /// GitHub issues about the game, open ones first.
 function issueList(game) {
   if (!game.issues.length) return '';
@@ -1743,6 +1874,7 @@ ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolic
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
     ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
     ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a href="${escape(store.url)}" rel="noopener">${escape(store.name)}</a>`).join('')}</p>` : ''}
+    ${antiCheatRow(game)}
   </div>
 </header>
 ${moderator ? coverForm(game, error) : ''}
@@ -2262,7 +2394,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 </section>
 <section>
   <h2>Game art</h2>
-  <p>Covers and banners load directly from where they're published, such as Steam, GOG or TheGamesDB, so your browser or the app connects to those services to show them.</p>
+  <p>Covers and banners load directly from where they're published, such as Steam, GOG or TheGamesDB, and anti-cheat pictures from AreWeAntiCheatYet, so your browser or the app connects to those services to show them.</p>
   <p>To find a cover, the app sends this site the title's store ID and name, and nothing about you or your install. A title the site hasn't seen is added to the list it looks up art for.</p>
 </section>
 <section>

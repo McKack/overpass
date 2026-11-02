@@ -242,6 +242,17 @@ CREATE TABLE IF NOT EXISTS issue_closes (
   created_at INTEGER NOT NULL
 );
 
+-- AreWeAntiCheatYet's word on a game, from sync-anticheat.mjs each month. A game known only from this has source 'anticheat'.
+CREATE TABLE IF NOT EXISTS anticheat (
+  game_id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL,                -- its page: areweanticheatyet.com/game/<slug>
+  status TEXT NOT NULL,              -- on Linux: Supported, Running, Planned, Broken or Denied
+  anticheats TEXT NOT NULL,          -- JSON: their names
+  notes TEXT NOT NULL DEFAULT '[]',  -- JSON: [text, address] pairs
+  changed TEXT,
+  run INTEGER NOT NULL               -- the sync that last had it; the rest are gone from the list
+);
+
 -- E-mail updates, for those who turned them on: the one place an address is readable, since the site has to send to it.
 -- Gone when they stop, by the mail's link or on /account, or delete the account.
 CREATE TABLE IF NOT EXISTS email_updates (

@@ -394,3 +394,29 @@ a.tile:hover { text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent);
   .person-row { grid-template-columns: minmax(0, 1fr); }
   .row-actions { justify-content: flex-start; }
 }
+
+/* Anti-cheats on a game's page */
+.anticheats { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.ac {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 6px; border: 0; border-radius: 980px; cursor: pointer;
+  font: 500 14px -apple-system, sans-serif; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+}
+.ac:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.ac-icon { position: relative; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; overflow: hidden; color: var(--secondary); }
+.ac-icon svg { width: 18px; height: 18px; fill: currentColor; }
+.ac-icon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
+.ac-card {
+  width: min(360px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 18px 20px; border: 0; border-radius: 16px;
+  color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(0, 0, 0, .35), inset 0 0 0 1px var(--separator);
+}
+.ac-card::backdrop { background: rgba(0, 0, 0, .25); }
+.ac-card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 19px; }
+.ac-card p { margin: 8px 0; font-size: 15px; }
+.ac-card .small { font-size: 13px; }
+.ac-notes { margin: 10px 0; padding-left: 18px; font-size: 14px; }
+.ac-notes li + li { margin-top: 4px; }
+.ac-more { margin: 12px 0 0 !important; padding-top: 10px; border-top: 1px solid var(--separator); }
+
+/* A card off screen isn't laid out or painted, however long the list. The margin keeps a cover's hover and shadow from being cut off. */
+.grid .card { content-visibility: auto; contain-intrinsic-size: auto 320px; overflow-clip-margin: 12px; }
+.grid.rows .card { contain-intrinsic-size: auto 52px; }

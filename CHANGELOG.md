@@ -15,6 +15,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Your changes to a game's profile now stay when OverPass updates that profile
 - Pick extra Windows components from a searchable list
 - Game pages show which anti-cheat a game uses, with what's known about it
+- Covers made from a game's name show at least two characters, and the whole number when a name starts with one
 - The games list stays smooth however long it gets
 - Smaller bug fixes and improvements
 

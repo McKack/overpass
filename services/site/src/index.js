@@ -1313,11 +1313,23 @@ function twinsIn(authors) {
 }
 const hue = (name) => [...name].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 360, 7);
 /// Words first, split at anything that isn't a letter or digit, then a capital after a small letter inside one word:
-/// Super!Blast and MusicBee give two letters, Musicbee and DOOM one. The same rule as `initials` in the app's HomeView.
-function initials(name) {
-  const words = name.replace(/['’]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const parts = words.length === 1 ? words[0].split(/(?<=\p{Ll})(?=\p{Lu})/u) : words;
-  return parts.slice(0, 2).map((word) => [...word][0]).join('').toUpperCase() || '?';
+/// Super!Blast and MusicBee give two letters, Musicbee and DOOM one.
+const words = (name) => name.replace(/['’]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+function nameLetters(name) {
+  const all = words(name);
+  const parts = all.length === 1 ? all[0].split(/(?<=\p{Ll})(?=\p{Lu})/u) : all;
+  return parts.slice(0, 2).map((word) => [...word][0]).join('').toUpperCase();
+}
+
+/// A made cover's mark: at least two characters when the name has them. A number that starts the name comes first, up to
+/// four digits, then the name's letters, then whatever comes next: 100% Orange Juice 100, 7 Days to Die 7D, 2XKO 2X,
+/// Musicbee MU. The same rule as `initials` in the app's HomeView.
+export function initials(name) {
+  const number = [...(words(name)[0]?.match(/^\p{N}+/u)?.[0] ?? '')].slice(0, 4).join('');
+  if ([...number].length > 1) return number;
+  const letters = nameLetters(name);
+  if ([...letters].length > 1) return letters;
+  return [...words(name).join('')].slice(0, 2).join('').toUpperCase() || '?';
 }
 
 function medal(tier, large = false) {
@@ -1328,7 +1340,7 @@ function medal(tier, large = false) {
 /// The person's picture when there is one, over their initials.
 function avatar(name, picture) {
   const art = picture ? `<img src="/pictures/${picture}.jpg" alt="" loading="lazy" onerror="this.remove()">` : '';
-  return `<span class="avatar" style="--hue:${hue(name)}">${escape(initials(name))}${art}</span>`;
+  return `<span class="avatar" style="--hue:${hue(name)}">${escape(nameLetters(name) || '?')}${art}</span>`;
 }
 
 /// Black or white, whichever stands out on a brand's colour.

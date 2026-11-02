@@ -408,6 +408,9 @@ struct StoreIcon: View {
             } else {
                 Text(initials)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 3)
                     .foregroundStyle(.white)
             }
         }
@@ -416,11 +419,14 @@ struct StoreIcon: View {
         .accessibilityLabel(profile.name)
     }
 
-    /// "Music Bee", "Super!Blast" and "MusicBee" give two letters (words first, split at anything that isn't a letter or
-    /// digit, then a capital after a small letter inside one word); "Musicbee" and "DOOM" give one. The site's `initials`
-    /// is the same rule.
+    /// At least two characters when the name has them. A number that starts the name comes first, up to four digits
+    /// ("100% Orange Juice" gives 100). Then the name's letters: "Music Bee", "Super!Blast" and "MusicBee" give two (words
+    /// first, split at anything that isn't a letter or digit, then a capital after a small letter inside one word). Then
+    /// whatever comes next: "Musicbee" gives MU, "2XKO" 2X. The site's `initials` is the same rule.
     private var initials: String {
         let words = profile.name.filter { $0 != "'" && $0 != "’" }.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        let number = words.first?.prefix { $0.isNumber }.prefix(4) ?? ""
+        if number.count > 1 { return String(number) }
         var parts = words
         if words.count == 1 {
             parts = words[0].reduce(into: [String]()) { humps, letter in
@@ -433,7 +439,8 @@ struct StoreIcon: View {
                 }
             }
         }
-        return parts.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
+        let letters = parts.prefix(2).compactMap(\.first).map(String.init).joined()
+        return (letters.count > 1 ? letters : String(words.joined().prefix(2))).uppercased()
     }
 
     /// The profile's brand colour, or one picked from its name.

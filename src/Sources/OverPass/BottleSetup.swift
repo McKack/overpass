@@ -5,11 +5,11 @@ import Foundation
 // Chinese, Japanese and Korean fonts, and a few appearance settings. Plus our own: games' display mode changes are
 // emulated (the Mac's display stays as it is and the frame is scaled to it), Sony controllers reach games as Xbox
 // pads, which is what most PC games read, the light or dark look follows the Mac, z: is hidden (ContainerDrives),
-// and documents, pictures and steam:// links open on the Mac. Applied when a bottle is made, and
-// once to older bottles (container.conf [OverPass] Defaults records the version applied).
+// and documents, pictures and steam:// links open on the Mac, while files of other types show in the Finder. Applied
+// when a bottle is made, and once to older bottles (container.conf [OverPass] Defaults records the version applied).
 enum BottleSetup {
     /// Raise when the settings below change, so existing bottles get them again.
-    static let version = 4
+    static let version = 5
 
     /// Parts Wine must provide itself: Microsoft's own versions break under Wine (OverPass Wine's RPC fix is
     /// in rpcrt4; Microsoft's wininet has no working SSL there).
@@ -43,14 +43,17 @@ enum BottleSetup {
 
     /// File types a Windows program can hand to the Mac's own apps: Wine knows no program for them, so a game's
     /// README or manual fails with "no application associated". A fixed list, because `open` would also run
-    /// things like .command and .app.
+    /// things like .command and .app. Every other type with no Windows program is shown in the Finder and not
+    /// opened, so nothing can run that way (Wine reads this class from 11.0-14; older Wine reports no association).
     private static let macFileTypes = [
-        "txt", "log", "md", "csv", "htm", "html", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
-        "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp",
-        "mp3", "wav", "flac", "m4a", "aac", "ogg",
-        "mp4", "m4v", "mov", "avi", "mkv", "webm", "mpg", "mpeg",
+        "txt", "log", "md", "csv", "xml", "json", "cfg", "toml", "yaml", "yml",
+        "htm", "html", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "pages", "numbers", "epub",
+        "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic", "tga", "dds", "ico", "psd",
+        "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "aif", "aiff", "wma", "mid", "midi",
+        "mp4", "m4v", "mov", "avi", "mkv", "webm", "mpg", "mpeg", "wmv", "flv", "3gp",
     ]
     private static let macOpener = "\"C:\\windows\\system32\\winebrowser.exe\" \"%1\""
+    private static let macReveal = "\"C:\\windows\\system32\\winebrowser.exe\" -reveal \"%1\""
 
     /// The types and links in the bottle that a Windows program has claimed; those keep their program.
     private static func claimedClasses(in bottle: Bottle) -> Set<String> {
@@ -93,6 +96,7 @@ enum BottleSetup {
             lines += ["", "[\(classes).\(type)]", "@=\"OverPass.MacFile\""]
         }
         lines += ["", "[\(classes)OverPass.MacFile\\shell\\open\\command]", "@=\(quoted(macOpener))"]
+        lines += ["", "[\(classes)OverPass.UnknownFile\\shell\\open\\command]", "@=\(quoted(macReveal))"]
         if !claimedClasses.contains("steam") {
             lines += ["", "[\(classes)steam]", "\"URL Protocol\"=\"\"",
                       "", "[\(classes)steam\\shell\\open\\command]", "@=\(quoted(macOpener))"]

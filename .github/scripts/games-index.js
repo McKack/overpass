@@ -62,7 +62,7 @@ function presetGames(file, text) {
   for (const section of sections(text)) {
     for (const line of section.lines) {
       if (!['steam-app', 'program'].includes(line.key) || !line.comment) continue;
-      const name = line.comment.replace(/\s*\(reported on Highball.*$/, '').trim();
+      const name = line.comment.replace(/\s*\(reported on .*$/, '').trim();
       if (name && name.length <= 80 && !name.endsWith('.') && slug(name)) found.push({ name, preset, steam: line.key === 'steam-app' ? line.value : null });
     }
   }

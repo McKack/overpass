@@ -4,7 +4,7 @@ import Foundation
 // whole Mac), and adds a letter for every disk image or volume mounted while the bottle runs; when one is ejected
 // while the bottle isn't running, its letter stays behind, pointing at nothing. OverPass adds y: for the home
 // folder, as CrossOver does, clears those leftovers before a program starts, and hides z: from Explorer and file
-// dialogs unless the person wants it (programs can still use z: paths).
+// dialogs unless the person wants it (programs can still use z: paths), along with the "/" Wine puts on the Desktop.
 enum ContainerDrives {
     /// Puts y: in place and removes letters left by volumes that are gone. Only while nothing runs in the bottle:
     /// a running Wine adds and removes volume letters itself.
@@ -33,9 +33,15 @@ enum ContainerDrives {
     /// NoDrives has a bit per letter, A first.
     static let hideZ = 1 << 25
 
-    /// The NoDrives lines the bottle defaults carry.
+    /// Wine's "/" folder on the Desktop, in the 64-bit and 32-bit views. Every Wine update puts it back.
+    private static let rootFolderKeys = ["Software", "Software\\Wow6432Node"].map {
+        $0 + "\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\Namespace\\{9D20AAE8-0625-44B0-9CA7-71889C2254D9}"
+    }
+
+    /// The lines the bottle defaults carry.
     static func registryLines(showingMacDisk shown: Bool) -> [String] {
         ["", "[HKEY_CURRENT_USER\\" + policyKey + "]", "\"NoDrives\"=dword:" + String(format: "%08x", shown ? 0 : hideZ)]
+            + rootFolderKeys.flatMap { shown ? ["", "[HKEY_LOCAL_MACHINE\\" + $0 + "]", "@=\"/\""] : ["", "[-HKEY_LOCAL_MACHINE\\" + $0 + "]"] }
     }
 
     /// Whether z: shows in Explorer and file dialogs; nil when the bottle doesn't say (Wine shows it then).
@@ -50,5 +56,9 @@ enum ContainerDrives {
         let status = try await manager.run(["reg", "add", "HKCU\\" + policyKey, "/v", "NoDrives", "/t", "REG_DWORD",
                                             "/d", shown ? "0" : String(hideZ), "/f"], in: bottle)
         guard status == 0 else { throw BottleSetup.DefaultsError.importFailed(status) }
+        for key in rootFolderKeys {
+            // Deleting a key that's already gone fails, and that's fine.
+            _ = try await manager.run(["reg"] + (shown ? ["add", "HKLM\\" + key, "/ve", "/d", "/", "/f"] : ["delete", "HKLM\\" + key, "/f"]), in: bottle)
+        }
     }
 }

@@ -628,6 +628,9 @@ class BottleManager {
         recipeTasks.append(task)
         let refresh = running ?? Task { [self] in
             _ = try? await run(["wineboot", "-u"], in: bottle)
+            if ContainerDrives.showsMacDisk(in: bottle) == false {
+                try? await ContainerDrives.setShowsMacDisk(false, in: bottle, using: self)
+            }
             refreshes[bottle.path] = nil
         }
         refreshes[bottle.path] = refresh

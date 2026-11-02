@@ -68,6 +68,8 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
   [open compatibility database](https://github.com/gauthierpiarrette/highball-db) found which anti-cheats never
   run on macOS; OverPass marks those red. A few presets also list games from its CC0 reports, marked in each
   preset file.
+- **[umu-protonfixes](https://github.com/Open-Wine-Components/umu-protonfixes)** collects per-game fixes for Proton
+  on Linux (BSD-2-Clause). A few presets list games from it, marked in each preset file.
 - **[Are We Anti-Cheat Yet?](https://areweanticheatyet.com)** collects which games use which anti-cheat (MIT).
   OverPass downloads its list to warn before a game with an anti-cheat starts.
 - **[SteamDB's FileDetectionRuleSets](https://github.com/SteamDatabase/FileDetectionRuleSets)** (MIT) tells a game's

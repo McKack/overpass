@@ -9,7 +9,7 @@ import Foundation
 // when a bottle is made, and once to older bottles (container.conf [OverPass] Defaults records the version applied).
 enum BottleSetup {
     /// Raise when the settings below change, so existing bottles get them again.
-    static let version = 5
+    static let version = 7
 
     /// Parts Wine must provide itself: Microsoft's own versions break under Wine (OverPass Wine's RPC fix is
     /// in rpcrt4; Microsoft's wininet has no working SSL there).
@@ -91,6 +91,8 @@ enum BottleSetup {
         lines += ["", "[HKEY_CURRENT_USER\\" + personalizeKey + "]"]
         lines += ["AppsUseLightTheme", "SystemUsesLightTheme"].map { "\"\($0)\"=dword:0000000\(lightTheme ? 1 : 0)" }
         lines += ContainerDrives.registryLines(showingMacDisk: showMacDisk)
+        // Some GOG games won't start unless this key exists, and games installed without Galaxy don't get it.
+        lines += ["", "[HKEY_LOCAL_MACHINE\\Software\\Wow6432Node\\GOG.com\\GalaxyClient]"]
         let classes = "HKEY_LOCAL_MACHINE\\Software\\Classes\\"
         for type in macFileTypes where !claimedClasses.contains("." + type) {
             lines += ["", "[\(classes).\(type)]", "@=\"OverPass.MacFile\""]

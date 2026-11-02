@@ -15,9 +15,12 @@
 //   POST /account/picture, /account/picture/delete   set or remove one's picture; GET /pictures/<key>.jpg
 //   POST /games/<id>/comments, /games/<id>/comments/<comment>/delete   add a comment or reply, delete one's own
 //   POST /games/<id>/comments/<comment>/vote   upvote a comment, or take that back
-//   POST /games/<id>/(comments|ratings)/<entry>/report   report one; three people reporting it hides it
+//   POST /games/<id>/(comments|ratings)/<entry>/report   report one, with a reason; three people reporting it hides it
+//   GET  /users/<name>-<tag>     a person's public page
 //   GET  /moderation, POST /moderation/(comments|ratings)/<entry>/(hide|show)   for Admins and Mods
-//   POST /moderation/mods, /moderation/mods/<user>/remove   Admins make an account a Mod, or stop it being one
+//   POST /moderation/mods/<user>/(add|remove)   Admins make an account a Mod, or stop it being one
+//   GET  /moderation/users?q=&filter=   the rows of the Users tab, for its search
+//   POST /moderation/users/<user>/(ban|unban)   Admins and Mods ban an account without a role, or lift that
 //   POST /games/<id>/ratings, /games/<id>/ratings/delete   the same accounts rate a game on its page, or take that back
 //   POST /moderation/pictures/<key>/remove       the same accounts take a person's picture down
 //   POST /moderation/suggestions/<entry>/(approve|reject)   Admins decide on a suggested profile
@@ -70,7 +73,8 @@ export default {
       const rated = path.match(/^\/games\/([a-z0-9-]+)\/ratings(\/delete)?$/);
       const unpictured = path.match(/^\/moderation\/pictures\/([0-9a-f-]+)\/remove$/);
       const decided = path.match(/^\/moderation\/suggestions\/([0-9a-f-]+)\/(approve|reject)$/);
-      const modded = path.match(/^\/moderation\/mods(?:\/([0-9a-f-]+)\/remove)?$/);
+      const modded = path.match(/^\/moderation\/mods\/([0-9a-f-]+)\/(add|remove)$/);
+      const judged = path.match(/^\/moderation\/users\/([0-9a-f-]+)\/(ban|unban)$/);
       const covered = path.match(/^\/games\/([a-z0-9-]+)\/cover(?:\/(url|reset))?$/);
       const ticket = path.match(/^\/report\/([0-9a-f]{64})$/);
       const stopping = path.match(/^\/updates\/stop\/([\w-]{43})$/);
@@ -85,18 +89,29 @@ export default {
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         return await emailPost(request, env, context, path.slice('/auth/email/'.length));
       }
-      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || modded || covered
+      if (request.method === 'POST' && (commented || reported || moderated || rated || unpictured || decided || modded || judged || covered
         || ['/account', '/account/delete', '/account/picture', '/account/picture/delete', '/account/public', '/account/updates', '/account/updates/code', '/account/updates/stop', '/auth/signout'].includes(path))) {
         // Only this site's own forms.
         if (request.headers.get('Origin') !== url.origin) return html(failedPage(), 403);
         if (path === '/auth/signout') return await signOut(request, env);
         const user = await signedIn(request, env);
         if (!user) return redirect('/account');
-        if (reported) return await report(env, user, ...reported.slice(1));
-        if (moderated) return isModerator(env, user) ? await review(env, ...moderated.slice(1)) : redirect('/account');
-        if (unpictured) return isModerator(env, user) ? await takeDownPicture(env, unpictured[1]) : redirect('/account');
-        if (decided) return isAdmin(user) ? await decide(env, ...decided.slice(1)) : redirect('/account');
-        if (modded) return isAdmin(user) ? await changeMods(request, env, modded[1]) : redirect('/account');
+        // A banned person can still read, and leave.
+        if (user.banned && path !== '/account/delete') return redirect('/account');
+        // Banning is this one press's, so it mustn't stay in the address the next page's forms are made from.
+        const andBan = url.searchParams.has('ban');
+        url.searchParams.delete('ban');
+        const back = `/moderation${url.search}`;
+        if (reported) return await report(request, env, user, ...reported.slice(1));
+        if (moderated) return isModerator(env, user) ? await review(env, user, back, ...moderated.slice(1), andBan) : redirect('/account');
+        if (unpictured) {
+          if (!isModerator(env, user)) return redirect('/account');
+          await takeDownPicture(env, unpictured[1]);
+          return redirect(back);
+        }
+        if (decided) return isAdmin(user) ? await decide(env, context, back, ...decided.slice(1)) : redirect('/account');
+        if (modded) return isAdmin(user) ? await changeMods(env, back, ...modded.slice(1)) : redirect('/account');
+        if (judged) return isModerator(env, user) ? await changeBan(request, env, user, back, ...judged.slice(1)) : redirect('/account');
         if (covered) return isModerator(env, user) ? await changeCover(request, env, covered[1], covered[2]) : redirect('/account');
         if (rated) {
           if (!isModerator(env, user)) return redirect('/account');
@@ -130,8 +145,15 @@ export default {
         if (path === '/moderation') {
           const user = await signedIn(request, env);
           if (!isModerator(env, user)) return redirect('/account');
-          return personal(moderationPage(await queue(env), isAdmin(user) ? await suggestions(env) : null, isAdmin(user) ? await mods(env) : null, url.searchParams.get('error')));
+          return personal(await dashboard(env, user, url));
         }
+        if (path === '/moderation/users') {
+          const user = await signedIn(request, env);
+          if (!isModerator(env, user)) return redirect('/account');
+          return personal(await peopleRows(env, user, url));
+        }
+        const person = path.match(/^\/users\/([^/]+)-(\d{4})$/);
+        if (person) return await profilePage(env, await signedIn(request, env), url, ...person.slice(1));
         if (path === '/privacy') {
           const moderator = isModerator(env, await signedIn(request, env));
           return (moderator ? personal : html)(privacyPage(moderator));
@@ -250,7 +272,7 @@ async function detail(env, id) {
     tally(env, 'AND game_id = ?', id),
     env.DB.prepare(
       `SELECT r.id, r.tier, r.comment, r.chip, r.macos, r.overpass, r.wine, r.runtime, r.backend, r.fps, r.created_at, ${badgeOf('u')},
-         CASE WHEN u.public = 1 THEN u.name END AS author, CASE WHEN u.public = 1 THEN u.picture END AS author_picture
+         CASE WHEN u.public = 1 THEN u.name END AS author, CASE WHEN u.public = 1 THEN u.tag END AS author_tag, CASE WHEN u.public = 1 THEN u.picture END AS author_picture
        FROM ratings r LEFT JOIN users u ON u.id = r.user_id
        WHERE r.game_id = ? AND r.hidden = 0 ORDER BY r.created_at DESC LIMIT 100`,
     ).bind(id).all(),
@@ -315,6 +337,10 @@ async function sync(request, env) {
 const SESSION_SECONDS = 90 * 24 * 3600;
 const STATE_SECONDS = 600;
 const USERNAME = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,29}$/u;
+/// Four random digits. A name can be shared; a name with its tag can't.
+const newTag = () => String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
+/// SQL for a query on `users`: the ban on this person's sign-in.
+const bannedHere = 'bans.provider = users.provider AND bans.provider_id = users.provider_id';
 const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
 
 const base64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -342,7 +368,9 @@ async function signedIn(request, env) {
   const token = cookie(request, 'overpass_session');
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.name, users.picture, users.public, users.role, users.provider, users.provider_id FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
+    `SELECT users.id, users.name, users.tag, users.picture, users.public, users.role, users.provider, users.provider_id,
+       (SELECT reason FROM bans WHERE ${bannedHere}) AS banned
+     FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   ).bind(await hashed(token), Date.now()).first();
 }
 
@@ -387,8 +415,8 @@ async function finishGoogle(request, url, env) {
   }
 
   const now = Date.now();
-  await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at) VALUES (?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), 'google', claims.sub, now).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at, tag) VALUES (?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), 'google', claims.sub, now, newTag()).run();
   const user = await env.DB.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').bind('google', claims.sub).first('id');
   return redirect(localPath(decodeURIComponent(next.join('.'))), clear, await newSession(env, user));
 }
@@ -505,8 +533,8 @@ async function enterCode(request, env, form) {
   let user;
   if (row.purpose === 'signup') {
     user = crypto.randomUUID();
-    const made = await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at, password) VALUES (?, ?, ?, ?, ?)')
-      .bind(user, 'email', row.address_hash, Date.now(), row.password).run();
+    const made = await env.DB.prepare('INSERT OR IGNORE INTO users (id, provider, provider_id, created_at, password, tag) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(user, 'email', row.address_hash, Date.now(), row.password, newTag()).run();
     if (!made.meta.changes) return redirect('/auth/email?error=expired', gone);
   } else {
     user = await env.DB.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').bind('email', row.address_hash).first('id');
@@ -619,10 +647,16 @@ async function signOut(request, env) {
 async function rename(request, env, user) {
   const name = String((await request.formData()).get('name') || '').trim();
   if (!USERNAME.test(name)) return redirect('/account?error=name');
-  const taken = await env.DB.prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE AND id <> ?').bind(name, user.id).first('id');
-  if (taken) return redirect('/account?error=taken');
-  await env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(name, user.id).run();
-  return redirect('/account');
+  // Someone else having the name only means another tag; the person keeps theirs if they can.
+  for (const tag of [user.tag, ...Array.from({ length: 30 }, newTag)]) {
+    try {
+      await env.DB.prepare('UPDATE users SET name = ?, tag = ? WHERE id = ?').bind(name, tag, user.id).run();
+      return redirect('/account');
+    } catch (error) {
+      if (!/UNIQUE/i.test(error.message)) throw error;
+    }
+  }
+  return redirect('/account?error=taken');
 }
 
 async function setPublic(request, env, user) {
@@ -674,7 +708,6 @@ async function deletePicture(env, user) {
 async function takeDownPicture(env, key) {
   await env.DB.prepare('UPDATE users SET picture = NULL WHERE picture = ?').bind(key).run();
   await env.PICTURES.delete(key);
-  return redirect('/moderation');
 }
 
 /// A key is never reused, so a picture can be cached for good; a new one has a new address.
@@ -853,10 +886,11 @@ const COMMENTS_A_DAY = 20;
 /// replies in the order they were written. A reply whose comment isn't shown stands on its own.
 async function comments(env, id, user) {
   const { results } = await env.DB.prepare(
-    `SELECT comments.id, comments.parent_id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.picture, ${badgeOf('users')},
+    `SELECT comments.id, comments.parent_id, comments.user_id, comments.body, comments.hidden, comments.created_at, users.name, users.tag, users.picture, ${badgeOf('users')},
        (SELECT COUNT(*) FROM votes WHERE comment_id = comments.id) AS votes,
        EXISTS (SELECT 1 FROM votes WHERE comment_id = comments.id AND user_id = ?2) AS voted
-     FROM comments JOIN users ON users.id = comments.user_id WHERE comments.game_id = ?1 AND (comments.hidden = 0 OR comments.user_id = ?2)
+     FROM comments JOIN users ON users.id = comments.user_id
+     WHERE comments.game_id = ?1 AND (comments.hidden = 0 OR comments.user_id = ?2) AND NOT EXISTS (SELECT 1 FROM bans WHERE ${bannedHere})
      ORDER BY comments.created_at DESC LIMIT 500`,
   ).bind(id, user?.id ?? null).all();
   const shown = new Map(results.map((comment) => [comment.id, { ...comment, replies: [] }]));
@@ -957,6 +991,18 @@ const forgetOwnRating = (env, user, id) => [
 
 const REPORTS_TO_HIDE = 3;
 const REPORTS_A_DAY = 20;
+/// Things that get someone banned, not things someone merely dislikes.
+const REPORT_REASONS = {
+  harassment: 'Harassment or threats',
+  hate: 'Hate speech',
+  sexual: 'Sexual content',
+  doxxing: 'Sharing private information',
+  malware: 'Malware or dangerous links',
+  scam: 'Spam or scams',
+  impersonation: 'Impersonation',
+  illegal: 'Illegal content',
+};
+const BAN_REASONS = { ...REPORT_REASONS, abuse: 'Abusing the report system', other: 'Breaking the rules' };
 
 const isAdmin = (user) => user?.role === 'admin';
 const isModerator = (env, user) => isAdmin(user) || user?.role === 'mod';
@@ -964,20 +1010,23 @@ const isModerator = (env, user) => isAdmin(user) || user?.role === 'mod';
 /// The badge a person shows. An Admin who chooses to be a Member shows as a Mod.
 const badgeOf = (users) => `CASE WHEN ${users}.role = 'admin' AND ${users}.public = 1 THEN 'Admin' WHEN ${users}.role IN ('admin', 'mod') THEN 'Mod' END AS badge`;
 
-async function mods(env) {
-  const { results } = await env.DB.prepare("SELECT id, name, picture FROM users WHERE role = 'mod' ORDER BY name COLLATE NOCASE").all();
-  return results;
+/// Only ever between no role and Mod: this can't touch an Admin, or make one. The person comes from the Users tab's list,
+/// so it's always someone who exists.
+async function changeMods(env, back, id, action) {
+  await env.DB.prepare(action === 'add' ? "UPDATE users SET role = 'mod' WHERE id = ? AND role IS NULL AND name IS NOT NULL" : "UPDATE users SET role = NULL WHERE id = ? AND role = 'mod'")
+    .bind(id).run();
+  return redirect(back);
 }
 
-/// Only ever between no role and Mod: this can't touch an Admin, or make one.
-async function changeMods(request, env, id) {
-  if (id) {
-    await env.DB.prepare("UPDATE users SET role = NULL WHERE id = ? AND role = 'mod'").bind(id).run();
-    return redirect('/moderation#mods');
-  }
-  const name = String((await request.formData()).get('name') || '').trim();
-  const made = await env.DB.prepare("UPDATE users SET role = 'mod' WHERE name = ? COLLATE NOCASE AND role IS NULL").bind(name).run();
-  return redirect(made.meta.changes ? '/moderation#mods' : '/moderation?error=mod#mods');
+/// Only an account without a role: a Mod has to stop being one first, and that's an Admin's call.
+const banning = (env, user, id, reason) => env.DB.prepare(
+  `INSERT OR REPLACE INTO bans (provider, provider_id, reason, by_user, created_at) SELECT provider, provider_id, ?, ?, ? FROM users WHERE id = ? AND role IS NULL`,
+).bind(BAN_REASONS[Object.hasOwn(BAN_REASONS, reason) ? reason : 'other'], user.id, Date.now(), id);
+
+async function changeBan(request, env, user, back, id, action) {
+  if (action === 'ban') await banning(env, user, id, String((await request.formData()).get('reason'))).run();
+  else await env.DB.prepare('DELETE FROM bans WHERE (provider, provider_id) IN (SELECT provider, provider_id FROM users WHERE id = ?)').bind(id).run();
+  return redirect(back);
 }
 
 async function reportedBy(env, user) {
@@ -987,45 +1036,130 @@ async function reportedBy(env, user) {
 }
 
 /// `kind` is a table's name, from the route. A moderator's report hides the entry at once.
-async function report(env, user, id, kind, entry) {
+async function report(request, env, user, id, kind, entry) {
   const anchor = `/games/${id}#${kind === 'comments' ? 'comment' : 'rating'}-${entry}`;
   const target = await env.DB.prepare(`SELECT id, ${kind === 'comments' ? 'user_id' : 'NULL AS user_id'} FROM ${kind} WHERE id = ? AND game_id = ?`)
     .bind(entry, id).first();
   if (!target || target.user_id === user.id) return redirect(anchor);
+  const form = await request.formData();
+  const reason = String(form.get('reason'));
+  if (!Object.hasOwn(REPORT_REASONS, reason) || form.get('confirm') !== '1') return redirect(`/games/${id}?error=report#comments`);
   const now = Date.now();
   const today = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE user_id = ? AND created_at > ?')
     .bind(user.id, now - 24 * 3600 * 1000).first('n');
   if (today >= REPORTS_A_DAY) return redirect(`/games/${id}?error=reports#comments`);
-  await env.DB.prepare('INSERT OR IGNORE INTO reports (target, user_id, created_at) VALUES (?, ?, ?)').bind(entry, user.id, now).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO reports (target, user_id, created_at, reason) VALUES (?, ?, ?, ?)').bind(entry, user.id, now, reason).run();
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports WHERE target = ?').bind(entry).first('n');
   if (count >= REPORTS_TO_HIDE || isModerator(env, user)) await env.DB.prepare(`UPDATE ${kind} SET hidden = 1 WHERE id = ?`).bind(entry).run();
   return redirect(anchor);
 }
 
-/// Everything reported or hidden. A rating replaced in the meantime has a new ID, so its reports are simply not found.
-async function queue(env) {
+const PER_PAGE = 30;
+const WEEK = 7 * 24 * 3600 * 1000;
+const offset = (page) => (page - 1) * PER_PAGE;
+
+/// The numbers on the tabs. A rating replaced in the meantime has a new ID, so its reports are simply not counted.
+function tabCounts(env) {
+  const waiting = (table) => `(SELECT COUNT(*) FROM ${table} WHERE id IN (SELECT target FROM reports))`;
+  const hidden = (table) => `(SELECT COUNT(*) FROM ${table} WHERE hidden = 1 AND id NOT IN (SELECT target FROM reports))`;
+  return env.DB.prepare(
+    `SELECT ${waiting('comments')} + ${waiting('ratings')} AS reports, ${hidden('comments')} + ${hidden('ratings')} AS hidden,
+       (SELECT COUNT(*) FROM suggestions WHERE status IN ('pending', 'approved')) AS profiles,
+       (SELECT COUNT(*) FROM game_issues WHERE state = 'open') AS issues, (SELECT COUNT(*) FROM users WHERE name IS NOT NULL) AS users`,
+  ).first();
+}
+
+/// What the Overview shows. Each is small and over everything there is: a dashboard people open now and then.
+async function overview(env) {
+  const now = Date.now(), since = now - 30 * 24 * 3600 * 1000;
+  const [totals, tiers, days, backends, trouble, versions, unprofiled] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM users WHERE name IS NOT NULL) AS users, (SELECT COUNT(*) FROM users WHERE created_at > ?1) AS new_users,
+         (SELECT COUNT(*) FROM comments) AS comments, (SELECT COUNT(*) FROM comments WHERE created_at > ?1) AS new_comments,
+         (SELECT COUNT(*) FROM ratings) AS ratings, (SELECT COUNT(*) FROM ratings WHERE created_at > ?1) AS new_ratings,
+         (SELECT COUNT(*) FROM games) AS games, (SELECT COUNT(DISTINCT game_id) FROM ratings WHERE hidden = 0) AS rated,
+         (SELECT COUNT(*) FROM bans) AS bans`,
+    ).bind(now - WEEK),
+    env.DB.prepare('SELECT tier, COUNT(*) AS n FROM ratings WHERE hidden = 0 GROUP BY tier'),
+    env.DB.prepare("SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n FROM ratings WHERE created_at > ? GROUP BY day").bind(since),
+    env.DB.prepare(
+      `SELECT COALESCE(backend, 'Not known') AS name, COUNT(*) AS n, SUM(tier IN ('bronze', 'borked')) AS low
+       FROM ratings WHERE hidden = 0 GROUP BY name ORDER BY n DESC LIMIT 6`,
+    ),
+    env.DB.prepare(
+      `SELECT ratings.game_id, COALESCE(games.name, ratings.game_id) AS name, COUNT(*) AS n, SUM(tier IN ('bronze', 'borked')) AS low
+       FROM ratings LEFT JOIN games ON games.id = ratings.game_id WHERE hidden = 0 GROUP BY ratings.game_id HAVING low > 0 ORDER BY low DESC, n DESC LIMIT 6`,
+    ),
+    env.DB.prepare("SELECT overpass AS name, COUNT(*) AS n FROM ratings WHERE overpass IS NOT NULL AND created_at > ? GROUP BY overpass ORDER BY n DESC LIMIT 6").bind(since),
+    env.DB.prepare(
+      `SELECT games.id, games.name, COUNT(*) AS n FROM ratings JOIN games ON games.id = ratings.game_id
+       WHERE games.profile_file IS NULL AND ratings.hidden = 0 GROUP BY games.id ORDER BY n DESC, MAX(ratings.created_at) DESC LIMIT 6`,
+    ),
+  ]);
+  const perDay = new Map(days.results.map((row) => [row.day, row.n]));
+  const month = Array.from({ length: 30 }, (_, i) => {
+    const day = new Date(now - (29 - i) * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    return { day, n: perDay.get(day) ?? 0 };
+  });
+  return {
+    totals: totals.results[0], tiers: Object.fromEntries(tiers.results.map((row) => [row.tier, row.n])), month,
+    backends: backends.results, trouble: trouble.results, versions: versions.results, unprofiled: unprofiled.results,
+  };
+}
+
+/// Reported entries, or those hidden with no report left. `show` narrows it to comments or ratings.
+async function queue(env, tab, show, page) {
+  const where = (table) => (tab === 'hidden' ? `${table}.hidden = 1 AND ${table}.id NOT IN (SELECT target FROM reports)` : `${table}.id IN (SELECT target FROM reports)`);
+  const parts = {
+    comments: `SELECT 'comments' AS kind, comments.id, comments.body AS text, NULL AS tier, comments.hidden, comments.created_at AS created_at, comments.game_id,
+       users.id AS author_id, users.name AS author, users.tag, users.role, users.picture, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = comments.id) AS reports
+     FROM comments JOIN users ON users.id = comments.user_id LEFT JOIN games ON games.id = comments.game_id WHERE ${where('comments')}`,
+    ratings: `SELECT 'ratings' AS kind, ratings.id, ratings.comment AS text, ratings.tier, ratings.hidden, ratings.created_at AS created_at, ratings.game_id,
+       NULL AS author_id, NULL AS author, NULL AS tag, NULL AS role, NULL AS picture, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = ratings.id) AS reports
+     FROM ratings LEFT JOIN games ON games.id = ratings.game_id WHERE ${where('ratings')}`,
+  };
   const { results } = await env.DB.prepare(
-    `SELECT 'comments' AS kind, comments.id, comments.body AS text, NULL AS tier, comments.hidden, comments.created_at AS created_at, comments.game_id,
-       users.name AS author, users.picture, games.name AS game, (SELECT COUNT(*) FROM reports WHERE target = comments.id) AS reports
-     FROM comments JOIN users ON users.id = comments.user_id LEFT JOIN games ON games.id = comments.game_id
-     WHERE comments.hidden = 1 OR comments.id IN (SELECT target FROM reports)
-     UNION ALL
-     SELECT 'ratings', ratings.id, ratings.comment, ratings.tier, ratings.hidden, ratings.created_at, ratings.game_id,
-       NULL, NULL, games.name, (SELECT COUNT(*) FROM reports WHERE target = ratings.id)
-     FROM ratings LEFT JOIN games ON games.id = ratings.game_id
-     WHERE ratings.hidden = 1 OR ratings.id IN (SELECT target FROM reports)
-     ORDER BY reports DESC, created_at DESC LIMIT 200`,
-  ).all();
+    `${(Object.hasOwn(parts, show) ? [parts[show]] : Object.values(parts)).join(' UNION ALL ')} ORDER BY reports DESC, created_at DESC LIMIT ? OFFSET ?`,
+  ).bind(PER_PAGE + 1, offset(page)).all();
+  const { results: filed } = await env.DB.prepare(
+    `SELECT reports.target, reports.reason, users.name, users.tag, users.reports_dismissed FROM reports JOIN users ON users.id = reports.user_id
+     WHERE reports.target IN (SELECT value FROM json_each(?)) ORDER BY reports.created_at`,
+  ).bind(JSON.stringify(results.map((entry) => entry.id))).all();
+  return results.map((entry) => ({ ...entry, filed: filed.filter((row) => row.target === entry.id) }));
+}
+
+/// Settles an entry: its reports go either way, so it only comes back if people report it again. Finding nothing in an
+/// entry counts against those who reported it, which is how abuse of reports shows. `ban` also bans the author.
+async function review(env, user, back, kind, entry, action, ban) {
+  const reason = ban ? await env.DB.prepare('SELECT reason FROM reports WHERE target = ? AND reason IS NOT NULL').bind(entry).first('reason') : null;
+  const author = ban && kind === 'comments' ? await env.DB.prepare('SELECT user_id FROM comments WHERE id = ?').bind(entry).first('user_id') : null;
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE ${kind} SET hidden = ? WHERE id = ?`).bind(action === 'hide' ? 1 : 0, entry),
+    ...(action === 'show' ? [env.DB.prepare('UPDATE users SET reports_dismissed = reports_dismissed + 1 WHERE id IN (SELECT user_id FROM reports WHERE target = ?)').bind(entry)] : []),
+    env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(entry),
+    ...(author ? [banning(env, user, author, reason)] : []),
+  ]);
+  return redirect(back);
+}
+
+/// One page of the Users tab, accounts with a username only: search by name, and by the tag after a #. Filters narrow it
+/// to the team or to banned accounts.
+async function people(env, q, filter, page) {
+  const [, text, tag] = q.trim().match(/^(.*?)\s*(?:#(\d{0,4}))?$/s);
+  const like = (value) => value.replace(/[\\%_]/g, '\\$&');
+  const { results } = await env.DB.prepare(
+    `SELECT users.id, users.name, users.tag, users.picture, users.role, users.public, users.created_at, users.reports_dismissed,
+       (SELECT COUNT(*) FROM comments WHERE user_id = users.id) AS comments, (SELECT reason FROM bans WHERE ${bannedHere}) AS banned
+     FROM users WHERE users.name LIKE ?1 ESCAPE '\\' AND COALESCE(users.tag, '') LIKE ?2
+       ${filter === 'mods' ? "AND users.role IN ('admin', 'mod')" : ''} ${filter === 'banned' ? `AND EXISTS (SELECT 1 FROM bans WHERE ${bannedHere})` : ''}
+     ORDER BY ${text ? 'users.name' : 'users.created_at DESC'} LIMIT ?3 OFFSET ?4`,
+  ).bind(`%${like(text)}%`, `${tag ?? ''}%`, PER_PAGE + 1, offset(page)).all();
   return results;
 }
 
-/// Settles an entry: its reports go either way, so it only comes back if people report it again.
-async function review(env, kind, entry, action) {
-  await env.DB.batch([
-    env.DB.prepare(`UPDATE ${kind} SET hidden = ? WHERE id = ?`).bind(action === 'hide' ? 1 : 0, entry),
-    env.DB.prepare('DELETE FROM reports WHERE target = ?').bind(entry),
-  ]);
-  return redirect('/moderation');
+async function peopleRows(env, user, url) {
+  const list = await people(env, url.searchParams.get('q') ?? '', url.searchParams.get('filter'), 1);
+  return personRows(list.slice(0, PER_PAGE), user, usersTabBack(url));
 }
 
 // Suggested profiles
@@ -1033,18 +1167,27 @@ async function review(env, kind, entry, action) {
 const fromGitHub = (request, env) => Boolean(env.SYNC_TOKEN) && request.headers.get('Authorization') === `Bearer ${env.SYNC_TOKEN}`;
 
 /// What's waiting for a decision, with the file each one would replace and why it can't go in as it stands.
-async function suggestions(env) {
+async function suggestions(env, page) {
   const { results } = await env.DB.prepare(
     `SELECT suggestions.*, games.name AS game, games.profile_text AS current FROM suggestions LEFT JOIN games ON games.id = suggestions.game_id
-     WHERE status IN ('pending', 'approved') ORDER BY created_at LIMIT 100`,
-  ).all();
+     WHERE status IN ('pending', 'approved') ORDER BY created_at LIMIT ? OFFSET ?`,
+  ).bind(PER_PAGE + 1, offset(page)).all();
   return results.map((entry) => ({ ...entry, problems: profileProblems(entry.body, entry.current) }));
 }
 
-async function decide(env, entry, action) {
+/// Rejecting also closes the GitHub issue filed with the suggestion: the page shows it closed at once, and the relay
+/// does it now or, if that fails, at its next cron.
+async function decide(env, context, back, entry, action) {
   if (action === 'reject') {
-    await env.DB.prepare("DELETE FROM suggestions WHERE id = ? AND status = 'pending'").bind(entry).run();
-    return redirect('/moderation');
+    const number = await env.DB.prepare("DELETE FROM suggestions WHERE id = ? AND status = 'pending' RETURNING issue").bind(entry).first('issue');
+    if (number) {
+      await env.DB.batch([
+        env.DB.prepare('INSERT OR IGNORE INTO issue_closes (number, created_at) VALUES (?, ?)').bind(number, Date.now()),
+        env.DB.prepare("UPDATE game_issues SET state = 'closed' WHERE number = ?").bind(number),
+      ]);
+      context.waitUntil(env.RELAY.fetch(`${env.REPORT_RELAY}/closures`, { method: 'POST' }).catch((error) => console.error(`Closing failed: ${error.message}`)));
+    }
+    return redirect(back);
   }
   const found = await env.DB.prepare(
     'SELECT body, profile_text AS current FROM suggestions LEFT JOIN games ON games.id = suggestions.game_id WHERE suggestions.id = ?',
@@ -1052,7 +1195,7 @@ async function decide(env, entry, action) {
   if (found && !profileProblems(found.body, found.current).length) {
     await env.DB.prepare("UPDATE suggestions SET status = 'approved' WHERE id = ? AND status = 'pending'").bind(entry).run();
   }
-  return redirect('/moderation');
+  return redirect(back);
 }
 
 async function approvedSuggestions(request, env) {
@@ -1094,6 +1237,21 @@ async function serveProfiles(env) {
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const date = (time) => new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const roleBadge = (title) => (title ? `<span class="role">${escape(title)}</span>` : '');
+const profilePath = (name, tag) => `/users/${encodeURIComponent(name)}-${tag}`;
+const number = (tag) => `<span class="number">#${escape(tag)}</span>`;
+/// A name always with its tag, for moderators and profiles.
+const fullName = (name, tag) => `${escape(name)}${number(tag)}`;
+/// A name that links to the person. The tag only shows when `twins` says someone else here has the same name.
+const personLink = (name, tag, twins) => `<a class="person" href="${profilePath(name, tag)}">${escape(name)}${twins?.has(name.toLowerCase()) ? number(tag) : ''}</a>`;
+
+/// The names on a page held by more than one person.
+function twinsIn(authors) {
+  const tags = new Map();
+  for (const { name, tag } of authors) {
+    if (name) tags.set(name.toLowerCase(), (tags.get(name.toLowerCase()) ?? new Set()).add(tag));
+  }
+  return new Set([...tags].filter(([, seen]) => seen.size > 1).map(([name]) => name));
+}
 const hue = (name) => [...name].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) % 360, 7);
 /// Words first, split at anything that isn't a letter or digit, then a capital after a small letter inside one word:
 /// Super!Blast and MusicBee give two letters, Musicbee and DOOM one. The same rule as `initials` in the app's HomeView.
@@ -1308,23 +1466,61 @@ function breakdown(game) {
   }).join('')}</div>`;
 }
 
-function reportButton(game, kind, entry, user, reports) {
+/// The flag; the dialog in `reportDialog` asks the rest. `name` is empty for an anonymous rating.
+function reportButton(game, kind, entry, user, reports, name, text) {
   if (!user) return '';
   if (reports.has(entry)) return '<p class="reported">Reported</p>';
-  return `<form method="post" action="/games/${game.id}/${kind}/${entry}/report"><button class="link" type="submit">Report</button></form>`;
+  return `<button class="link flag" type="button" data-report="/games/${game.id}/${kind}/${entry}/report" data-kind="${kind === 'comments' ? 'comment' : 'rating'}" data-name="${escape(name)}" data-text="${escape(String(text ?? '').slice(0, 400))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2a1 1 0 0 1 1 1v1h12a1 1 0 0 1 .8 1.600L16 9.500l2.800 3.900A1 1 0 0 1 18 15H6v6a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Z"/></svg>Report</button>`;
 }
 
-function ratingCard(game, rating, user, reports, own) {
+function reportDialog() {
+  return `<dialog id="report" class="sheet">
+  <form class="write" method="post">
+    <h2 id="report-title"></h2>
+    <blockquote id="report-quote"></blockquote>
+    <label for="report-reason">Reason:</label>
+    <select id="report-reason" name="reason" required>
+      <option value="">Choose a reason</option>
+      ${Object.entries(REPORT_REASONS).map(([key, title]) => `<option value="${key}">${title}</option>`).join('')}
+    </select>
+    <label class="check"><input type="checkbox" name="confirm" value="1" required> Confirm you're not abusing the report system. Doing so will result in a ban.</label>
+    <div class="decide">
+      <button class="button danger" type="submit" disabled>Send Report</button>
+      <button class="button quiet" type="button" value="cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+<script>
+  const dialog = document.getElementById('report'), form = dialog.querySelector('form'), send = form.querySelector('[type=submit]');
+  document.addEventListener('click', (event) => {
+    const flag = event.target.closest('[data-report]');
+    if (!flag) return;
+    const { report, kind, name, text } = flag.dataset;
+    form.reset();
+    form.action = report;
+    send.disabled = true;
+    document.getElementById('report-title').textContent = name ? 'Do you want to report ' + name + ' for this ' + kind + '?' : 'Do you want to report this ' + kind + '?';
+    const quote = document.getElementById('report-quote');
+    quote.textContent = text;
+    quote.hidden = !text;
+    dialog.showModal();
+  });
+  form.addEventListener('input', () => { send.disabled = !form.checkValidity(); });
+  form.querySelector('[value=cancel]').addEventListener('click', () => dialog.close());
+</script>`;
+}
+
+function ratingCard(game, rating, user, reports, own, twins) {
   const facts = [
     rating.chip, rating.macos && `macOS ${rating.macos}`, rating.wine && `Wine ${rating.wine}`,
     rating.runtime && rating.runtime !== 'not installed' && `Runtime ${rating.runtime}`, rating.backend,
     rating.fps && `${Math.round(rating.fps)} fps`,
   ].filter(Boolean);
   return `<article class="rating" id="rating-${rating.id}">
-  <div class="line">${medal(rating.tier)}${rating.author || rating.badge ? `<span class="who author">${rating.author ? `${avatar(rating.author, rating.author_picture)}${escape(rating.author)}` : ''}${roleBadge(rating.badge)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
+  <div class="line">${medal(rating.tier)}${rating.author || rating.badge ? `<span class="who author">${rating.author ? `${avatar(rating.author, rating.author_picture)}${personLink(rating.author, rating.author_tag, twins)}` : ''}${roleBadge(rating.badge)}</span>` : ''}<time datetime="${new Date(rating.created_at).toISOString()}">${date(rating.created_at)}</time></div>
   ${rating.comment ? `<p class="comment">${escape(rating.comment)}</p>` : ''}
   <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
-  ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports)}
+  ${rating.id === own?.id ? '' : reportButton(game, 'ratings', rating.id, user, reports, rating.author, rating.comment)}
 </article>`;
 }
 
@@ -1349,23 +1545,24 @@ function replyForm(game, comment, user) {
 </form></details>`;
 }
 
-function commentCard(game, comment, user, reports) {
+function commentCard(game, comment, user, reports, twins) {
   const mine = comment.user_id === user?.id;
   return `<article class="rating" id="comment-${comment.id}">
-  <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${escape(comment.name)}${roleBadge(comment.badge)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
+  <div class="line"><span class="who">${avatar(comment.name, comment.picture)}${personLink(comment.name, comment.tag, twins)}${roleBadge(comment.badge)}</span><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div>
   <p class="comment">${escape(comment.body)}</p>
   ${comment.hidden ? '<p class="muted">Hidden after reports. Only you can see this.</p>' : ''}
   <div class="answers">
     ${voteButton(game, comment, user)}
     ${replyForm(game, comment, user)}
-    ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports)}
+    ${mine ? `<form method="post" action="/games/${game.id}/comments/${comment.id}/delete"><button class="link" type="submit">Delete</button></form>` : reportButton(game, 'comments', comment.id, user, reports, comment.name, comment.body)}
   </div>
-  ${comment.replies?.length ? `<div class="replies">${comment.replies.map((reply) => commentCard(game, reply, user, reports)).join('\n')}</div>` : ''}
+  ${comment.replies?.length ? `<div class="replies">${comment.replies.map((reply) => commentCard(game, reply, user, reports, twins)).join('\n')}</div>` : ''}
 </article>`;
 }
 
-function commentForm(game, user) {
+function commentForm(game, user, banned) {
   const back = encodeURIComponent(`/games/${game.id}#comments`);
+  if (banned) return '<p class="muted">This account is banned, so it can\'t post.</p>';
   if (!user) return `<p><a class="button quiet" href="/account?next=${back}">Sign in to comment</a></p>`;
   if (!user.name) return `<p><a class="button quiet" href="/account">Choose a username to comment</a></p>`;
   return `<form class="write" method="post" action="/games/${game.id}/comments">
@@ -1440,6 +1637,7 @@ const COMMENT_ERRORS = {
   gone: 'That comment is gone, so your reply wasn\'t posted.',
   limit: `That's ${COMMENTS_A_DAY} comments in a day, the most you can post. Try again tomorrow.`,
   reports: `That's ${REPORTS_A_DAY} reports in a day, the most you can send. Try again tomorrow.`,
+  report: 'A report needs a reason, and your confirmation.',
 };
 
 const ABOUT_SOURCES = { steam: 'Steam', gog: 'GOG', thegamesdb: 'TheGamesDB' };
@@ -1514,7 +1712,10 @@ function issueList(game) {
 </section>`;
 }
 
-function gamePage(game, said, user, reports, error, moderator, own) {
+function gamePage(game, said, signedInAs, reports, error, moderator, own) {
+  // A banned person reads the page as someone who isn't signed in.
+  const user = signedInAs?.banned ? null : signedInAs;
+  const twins = twinsIn([...said.flatMap((comment) => [comment, ...comment.replies]), ...game.rating_list.map((rating) => ({ name: rating.author, tag: rating.author_tag }))]);
   const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
   const settings = !hasSettings ? '' : `
@@ -1528,7 +1729,7 @@ function gamePage(game, said, user, reports, error, moderator, own) {
 </section>`;
   const rate = expectedRate(game), side = issueList(game) + settings;
   const ratings = game.rating_list.length
-    ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports, own)).join('\n')
+    ? game.rating_list.map((rating) => ratingCard(game, rating, user, reports, own, twins)).join('\n')
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
 ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
@@ -1558,8 +1759,8 @@ ${moderator ? coverForm(game, error) : ''}
     <section id="comments">
       <h2>Comments</h2>
       ${COMMENT_ERRORS[error] ? `<p class="problem" role="alert">${COMMENT_ERRORS[error]}</p>` : ''}
-      ${commentForm(game, user)}
-      ${said.map((comment) => commentCard(game, comment, user, reports)).join('\n')}
+      ${commentForm(game, user, signedInAs?.banned)}
+      ${said.map((comment) => commentCard(game, comment, user, reports, twins)).join('\n')}
     </section>
   </div>
 </div>
@@ -1574,13 +1775,14 @@ ${moderator ? coverForm(game, error) : ''}
     count.textContent = Number(count.textContent) + (on ? 1 : -1);
     fetch(event.target.action, { method: 'POST' }).then((answer) => { if (!answer.ok) location.reload(); }, () => location.reload());
   });
-</script>`, moderator, 'games');
+</script>
+${user ? reportDialog() : ''}`, moderator, 'games');
 }
 
 const ACCOUNT_ERRORS = {
   signin: 'Signing in didn\'t work. Try again.',
   name: 'A username has 2 to 30 letters, digits, spaces, dots, dashes or underscores, and starts with a letter or digit.',
-  taken: 'That username is taken.',
+  taken: 'Too many people have that username. Try another.',
   picture: 'That picture didn\'t work. Try a JPEG or PNG.',
 };
 
@@ -1641,13 +1843,14 @@ function difference(entry) {
   return changed.length ? changed.join('\n') : 'Same as the current file.';
 }
 
-function suggestionCard(entry) {
+function suggestionCard(entry, query) {
   const facts = [entry.overpass && `OverPass ${entry.overpass}`, entry.wine && `Wine ${entry.wine}`, entry.runtime && `Runtime ${entry.runtime}`].filter(Boolean).map(escape).join(' · ');
+  const issue = entry.issue ? ` · <a href="${REPOSITORY}/issues/${entry.issue}" rel="noopener">Issue #${entry.issue}</a>` : '';
   const buttons = entry.status === 'approved' ? '<p class="muted">Approved. Goes out with the next publish, within the hour.</p>'
-    : `<div class="decide">${entry.problems.length ? '' : `<form method="post" action="/moderation/suggestions/${entry.id}/approve"><button class="button" type="submit">Approve</button></form>`}<form method="post" action="/moderation/suggestions/${entry.id}/reject"><button class="button quiet" type="submit">Reject</button></form></div>`;
+    : `<div class="decide">${entry.problems.length ? '' : `<form method="post" action="/moderation/suggestions/${entry.id}/approve${query}"><button class="button" type="submit">Approve</button></form>`}<form method="post" action="/moderation/suggestions/${entry.id}/reject${query}"><button class="button quiet" type="submit">Reject</button></form></div>`;
   return `<article class="rating">
   <div class="line"><span class="who"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a></span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
-  <p class="muted">profiles/${escape(entry.profile_id)}.ini · ${entry.current ? 'changes the file' : 'a new file'}${facts ? ` · ${facts}` : ''}</p>
+  <p class="muted">profiles/${escape(entry.profile_id)}.ini · ${entry.current ? 'changes the file' : 'a new file'}${facts ? ` · ${facts}` : ''}${issue}</p>
   ${entry.comment ? `<p class="comment">${escape(entry.comment)}</p>` : ''}
   <pre class="diff">${difference(entry)}</pre>
   ${entry.problems.length ? `<p class="muted">Can't be approved here: ${entry.problems.map(escape).join('; ')}.</p>` : ''}
@@ -1655,39 +1858,244 @@ function suggestionCard(entry) {
 </article>`;
 }
 
-function moderationCard(entry) {
-  const buttons = entry.hidden
-    ? [['show', 'Show', 'quiet']]
-    : [['hide', 'Hide', 'danger'], ['show', 'Keep', 'quiet']];
+/// How many reports gave each reason, biggest first, and who sent them, with any of theirs that came to nothing.
+function reportFacts(entry) {
+  if (!entry.filed.length) return '';
+  const reasons = new Map();
+  for (const { reason } of entry.filed) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+  const chips = [...reasons].sort((a, b) => b[1] - a[1]).map(([reason, n]) => `<span class="chip">${escape(REPORT_REASONS[reason] ?? 'No reason given')}${n > 1 ? ` × ${n}` : ''}</span>`);
+  const who = entry.filed.map((row) => `${fullName(row.name, row.tag)}${row.reports_dismissed ? ` <span class="muted">(${row.reports_dismissed} dismissed)</span>` : ''}`);
+  return `<p class="chips">${chips.join('')}</p><p class="muted small">Reported by ${who.join(', ')}</p>`;
+}
+
+function moderationCard(entry, query) {
+  const form = (path, title, style) => `<form method="post" action="/moderation/${path}"><button class="button ${style}" type="submit">${title}</button></form>`;
+  const act = (action, title, style, extra = '') => form(`${entry.kind}/${entry.id}/${action}${query}${extra}`, title, style);
+  const buttons = entry.hidden ? [act('show', 'Show', 'quiet')] : [act('hide', 'Hide', 'danger'), act('show', 'Keep', 'quiet')];
+  if (entry.kind === 'comments' && !entry.role) buttons.push(act('hide', 'Hide and Ban Author', 'danger', `${query ? '&' : '?'}ban=1`));
+  if (entry.picture) buttons.push(form(`pictures/${entry.picture}/remove${query}`, 'Remove Picture', 'quiet'));
   return `<article class="rating">
-  <div class="line"><span class="who">${entry.tier ? medal(entry.tier) : `${avatar(entry.author, entry.picture)}${escape(entry.author)}`}</span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
+  <div class="line"><span class="who">${entry.tier ? medal(entry.tier) : `${avatar(entry.author, entry.picture)}<a class="person" href="${profilePath(entry.author, entry.tag)}">${fullName(entry.author, entry.tag)}</a>`}</span><time datetime="${new Date(entry.created_at).toISOString()}">${date(entry.created_at)}</time></div>
   ${entry.text ? `<p class="comment">${escape(entry.text)}</p>` : ''}
-  <p class="muted"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a> · ${entry.hidden ? 'Hidden' : 'Showing'} · ${entry.reports === 1 ? '1 report' : `${entry.reports} reports`}</p>
-  <div class="decide">${buttons.map(([action, title, style]) => `<form method="post" action="/moderation/${entry.kind}/${entry.id}/${action}"><button class="button ${style}" type="submit">${title}</button></form>`).join('')}${entry.picture ? `<form method="post" action="/moderation/pictures/${entry.picture}/remove"><button class="button quiet" type="submit">Remove Picture</button></form>` : ''}</div>
+  ${reportFacts(entry)}
+  <p class="muted small"><a href="/games/${entry.game_id}">${escape(entry.game ?? entry.game_id)}</a> · ${entry.hidden ? 'Hidden' : 'Showing'}</p>
+  <div class="decide">${buttons.join('')}</div>
 </article>`;
 }
 
-/// `suggested` and `team` are only there for an Admin.
-const moderationPage = (entries, suggested, team, error) => shell('Moderation · OverPass', 'Reported and hidden comments and ratings, and suggested profiles.', `
-<header class="page"><h1>Moderation</h1><p>Reported and hidden comments and ratings${suggested ? ', suggested profiles and Mods' : ''}. Deciding clears an entry's reports.</p></header>
-${suggested ? `<section>
-  <h2>Suggested profiles</h2>
-  ${suggested.length ? suggested.map(suggestionCard).join('\n') : '<p class="empty">None waiting.</p>'}
-</section>` : ''}
-<section>
-  <h2>Reports</h2>
-  ${entries.length ? entries.map(moderationCard).join('\n') : '<p class="empty">Nothing to look at.</p>'}
+const usersTabBack = (url) => {
+  const query = new URLSearchParams({ tab: 'users' });
+  for (const key of ['q', 'filter']) if (url.searchParams.get(key)) query.set(key, url.searchParams.get(key));
+  return `?${query}`;
+};
+
+/// Rows of the Users tab. Admins change Mods; Admins and Mods ban anyone without a role.
+function personRows(list, viewer, query) {
+  if (!list.length) return '<p class="empty">Nobody by that name.</p>';
+  return list.map((person) => {
+    const facts = [`Joined ${date(person.created_at)}`, person.comments === 1 ? '1 comment' : `${person.comments} comments`,
+      ...(person.reports_dismissed ? [`${person.reports_dismissed} reports dismissed`] : [])];
+    const actions = [];
+    if (isAdmin(viewer) && person.role !== 'admin' && !person.banned) {
+      actions.push(`<form method="post" action="/moderation/mods/${person.id}/${person.role ? 'remove' : 'add'}${query}"><button class="button quiet" type="submit">${person.role ? 'Remove Mod' : 'Make Mod'}</button></form>`);
+    }
+    if (person.banned) actions.push(`<form method="post" action="/moderation/users/${person.id}/unban${query}"><button class="button quiet" type="submit">Lift Ban</button></form>`);
+    else if (!person.role) {
+      actions.push(`<details class="ban"><summary class="button quiet">Ban…</summary><form method="post" action="/moderation/users/${person.id}/ban${query}">
+        <select name="reason" aria-label="Reason">${Object.entries(BAN_REASONS).map(([key, title]) => `<option value="${key}">${title}</option>`).join('')}</select>
+        <button class="button danger" type="submit">Ban ${escape(person.name)}</button>
+      </form></details>`);
+    }
+    return `<article class="person-row">
+  <span class="who">${avatar(person.name, person.picture)}<a class="person" href="${profilePath(person.name, person.tag)}">${fullName(person.name, person.tag)}</a>${roleBadge(person.role === 'admin' ? 'Admin' : person.role && 'Mod')}${person.banned ? '<span class="chip bad">Banned</span>' : ''}</span>
+  <span class="muted small">${person.banned ? `${escape(person.banned)} · ` : ''}${facts.join(' · ')}</span>
+  <div class="row-actions">${actions.join('')}</div>
+</article>`;
+  }).join('\n');
+}
+
+/// Previous and Next, keeping the tab and its filters.
+function pager(params, page, more) {
+  if (page === 1 && !more) return '';
+  const link = (to, title) => `<a class="button quiet" href="/moderation?${new URLSearchParams({ ...params, page: to })}">${title}</a>`;
+  return `<nav class="pager">${page > 1 ? link(page - 1, 'Previous') : '<span></span>'}<span class="muted small">Page ${page}</span>${more ? link(page + 1, 'Next') : '<span></span>'}</nav>`;
+}
+
+function pills(params, key, chosen, options) {
+  return `<nav class="filters" aria-label="Show">${options.map(([value, title]) => {
+    const query = new URLSearchParams({ ...params, ...(value ? { [key]: value } : {}) });
+    return `<a class="pill" href="/moderation?${query}"${(chosen ?? '') === value ? ' aria-current="true"' : ''}>${title}</a>`;
+  }).join('')}</nav>`;
+}
+
+/// A headline number, what it adds up from this week, and where to go for it.
+const tile = (title, value, note, tab) => {
+  const body = `<span class="tile-title">${title}</span><strong>${value.toLocaleString('en-GB')}</strong>${note ? `<span class="muted small">${note}</span>` : ''}`;
+  return tab ? `<a class="tile" href="/moderation?tab=${tab}">${body}</a>` : `<div class="tile">${body}</div>`;
+};
+
+/// A column a day. One series, so the title says what it is; each column names its day and count on hover.
+function monthChart(month) {
+  const most = Math.max(1, ...month.map((day) => day.n));
+  const column = ({ day, n }) => {
+    const label = `${date(Date.parse(day))}: ${n === 1 ? '1 rating' : `${n} ratings`}`;
+    return `<span class="day" title="${label}" aria-label="${label}" role="img"><i style="height:${n ? Math.max(4, Math.round(100 * n / most)) : 0}%"></i></span>`;
+  };
+  return `<div class="days">${month.map(column).join('')}</div>
+  <p class="axis muted small"><span>${date(Date.parse(month[0].day))}</span><span>Most in a day: ${most}</span><span>Today</span></p>`;
+}
+
+/// Bars for one measure: how much of each thing's ratings were Bronze or Borked. Words beside them carry the numbers.
+function lowBars(rows, link) {
+  if (!rows.length) return '<p class="empty">No ratings yet.</p>';
+  return `<div class="bars">${rows.map((row) => {
+    const share = Math.round(100 * row.low / row.n);
+    return `<div class="bar wide-label"><span class="label">${link ? link(row) : escape(row.name)}</span><span class="track"><span class="fill borked" style="width:${share}%"></span></span><span class="count">${share}% of ${row.n}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function overviewTab(data, counts, admin) {
+  const { totals, tiers, month, backends, trouble, versions, unprofiled } = data;
+  const week = (n) => (n ? `+${n} this week` : 'None this week');
+  const rated = TIERS.reduce((sum, tier) => sum + (tiers[tier] || 0), 0);
+  const game = (row) => `<a href="/games/${row.game_id ?? row.id}">${escape(row.name)}</a>`;
+  const list = (rows, line) => (rows.length ? `<ul class="plain">${rows.map(line).join('')}</ul>` : '<p class="empty">Nothing yet.</p>');
+  return `<section class="tiles">
+  ${tile('Reports waiting', counts.reports, '', 'reports')}
+  ${tile('Hidden', counts.hidden, '', 'hidden')}
+  ${admin ? tile('Suggested profiles', counts.profiles, '', 'profiles') : ''}
+  ${tile('Open issues', counts.issues, '', 'issues')}
 </section>
-${team ? `<section id="mods">
-  <h2>Mods</h2>
-  ${error === 'mod' ? '<p class="problem" role="alert">No account without a role has that username.</p>' : ''}
-  ${team.map((mod) => `<article class="rating"><div class="line"><span class="who">${avatar(mod.name ?? '?', mod.picture)}${escape(mod.name ?? 'No username yet')}</span><form method="post" action="/moderation/mods/${mod.id}/remove"><button class="link" type="submit">Remove</button></form></div></article>`).join('\n')}
-  <form class="account" method="post" action="/moderation/mods">
-    <label for="mod-name">Make a Mod, by username</label>
-    <input id="mod-name" name="name" required maxlength="30" autocomplete="off">
-    <button class="button" type="submit">Add Mod</button>
-  </form>
-</section>` : ''}`, true);
+<section class="tiles">
+  ${tile('Users', totals.users, week(totals.new_users), 'users')}
+  ${tile('Ratings', totals.ratings, week(totals.new_ratings))}
+  ${tile('Comments', totals.comments, week(totals.new_comments))}
+  ${tile('Games rated', totals.rated, `of ${totals.games.toLocaleString('en-GB')}`)}
+</section>
+<div class="panels">
+  <section class="panel span"><h2>Ratings, last 30 days</h2>${monthChart(month)}</section>
+  <section class="panel"><h2>How games run</h2>${rated ? breakdown({ counts: tiers, ratings: rated }) : '<p class="empty">No ratings yet.</p>'}</section>
+  <section class="panel"><h2>Bronze and Borked by graphics</h2>${lowBars(backends)}</section>
+  <section class="panel"><h2>Games in most trouble</h2>${lowBars(trouble, game)}</section>
+  <section class="panel"><h2>Rated, with no profile</h2>${list(unprofiled, (row) => `<li>${game(row)}<span class="muted small">${row.n === 1 ? '1 rating' : `${row.n} ratings`}</span></li>`)}</section>
+  <section class="panel"><h2>OverPass versions, last 30 days</h2>${list(versions, (row) => `<li>${escape(row.name)}<span class="muted small">${row.n === 1 ? '1 rating' : `${row.n} ratings`}</span></li>`)}</section>
+</div>`;
+}
+
+const ISSUE_FILTERS = [['open', 'Open'], ['fixed', 'Fixed'], ['closed', 'Closed']];
+
+async function issuesTab(env, state, page) {
+  const chosen = ISSUE_FILTERS.some(([value]) => value === state) ? state : 'open';
+  const { results } = await env.DB.prepare(
+    `SELECT game_issues.*, games.name AS game FROM game_issues LEFT JOIN games ON games.id = game_issues.game_id WHERE state = ? ORDER BY number DESC LIMIT ? OFFSET ?`,
+  ).bind(chosen, PER_PAGE + 1, offset(page)).all();
+  return `<div class="tab-head">${pills({ tab: 'issues' }, 'state', chosen, ISSUE_FILTERS)}<a href="${REPOSITORY}/issues">All on GitHub</a></div>
+  ${results.length ? `<ul class="issues">${results.slice(0, PER_PAGE).map((issue) => `<li><a href="${escape(issue.url)}" rel="noopener">#${issue.number} ${escape(issue.title)}</a><a class="small" href="/games/${issue.game_id}">${escape(issue.game ?? issue.game_id)}</a><span class="state ${issue.state}">${ISSUE_STATES[issue.state]}</span></li>`).join('')}</ul>` : '<p class="empty">None here.</p>'}
+  ${pager({ tab: 'issues', state: chosen }, page, results.length > PER_PAGE)}
+  <p class="muted small">Issues about a game. Those about OverPass itself are on GitHub only.</p>`;
+}
+
+function usersTab(list, viewer, url, page) {
+  const filter = url.searchParams.get('filter') ?? '';
+  const q = url.searchParams.get('q') ?? '';
+  const params = { tab: 'users', ...(q ? { q } : {}) };
+  return `<div class="tab-head">
+  <input id="people-search" type="search" value="${escape(q)}" placeholder="Search usernames" aria-label="Search usernames" autocomplete="off" spellcheck="false">
+  ${pills(params, 'filter', filter, [['', 'Everyone'], ['mods', 'Team'], ['banned', 'Banned']])}
+</div>
+<div id="people">${personRows(list.slice(0, PER_PAGE), viewer, usersTabBack(url))}</div>
+${pager({ ...params, ...(filter ? { filter } : {}) }, page, list.length > PER_PAGE)}
+<script>
+  // Searches the accounts as you type. Only people who exist are listed, so only they can be chosen.
+  const field = document.getElementById('people-search'), rows = document.getElementById('people');
+  let waiting, asked = 0;
+  field.addEventListener('input', () => {
+    clearTimeout(waiting);
+    waiting = setTimeout(async () => {
+      const query = new URLSearchParams(location.search), mine = ++asked;
+      query.delete('page');
+      query.set('q', field.value);
+      const answer = await fetch('/moderation/users?' + query);
+      if (mine !== asked || !answer.ok) return;
+      rows.innerHTML = await answer.text();
+      document.querySelector('.pager')?.remove();
+      history.replaceState(null, '', '?' + query);
+    }, 180);
+  });
+</script>`;
+}
+
+/// One tab at a time, loaded only when asked for, so a long queue costs nothing elsewhere.
+async function dashboard(env, user, url) {
+  const admin = isAdmin(user);
+  const asked = url.searchParams.get('tab');
+  const tab = ['reports', 'hidden', 'issues', 'users', ...(admin ? ['profiles'] : [])].includes(asked) ? asked : 'overview';
+  const page = Math.max(1, Number.parseInt(url.searchParams.get('page'), 10) || 1);
+  const counts = await tabCounts(env);
+  const tabs = [
+    ['overview', 'Overview'], ['reports', 'Reports', counts.reports], ['hidden', 'Hidden', counts.hidden],
+    ...(admin ? [['profiles', 'Suggested Profiles', counts.profiles]] : []), ['issues', 'Issues', counts.issues], ['users', 'Users', counts.users],
+  ];
+  url.searchParams.delete('ban');
+  const query = url.search || `?tab=${tab}`;
+  let body;
+  if (tab === 'overview') body = overviewTab(await overview(env), counts, admin);
+  if (tab === 'reports' || tab === 'hidden') {
+    const show = url.searchParams.get('show');
+    const entries = await queue(env, tab, show, page);
+    const params = { tab, ...(show ? { show } : {}) };
+    body = `${pills({ tab }, 'show', show, [['', 'All'], ['comments', 'Comments'], ['ratings', 'Ratings']])}
+    ${entries.length ? `<div class="board">${entries.slice(0, PER_PAGE).map((entry) => moderationCard(entry, query)).join('\n')}</div>` : `<p class="empty">${tab === 'hidden' ? 'Nothing hidden.' : 'No reports waiting.'}</p>`}
+    ${pager(params, page, entries.length > PER_PAGE)}`;
+  }
+  if (tab === 'profiles') {
+    const entries = await suggestions(env, page);
+    body = `${entries.length ? entries.slice(0, PER_PAGE).map((entry) => suggestionCard(entry, query)).join('\n') : '<p class="empty">None waiting.</p>'}
+    ${pager({ tab }, page, entries.length > PER_PAGE)}`;
+  }
+  if (tab === 'issues') body = await issuesTab(env, url.searchParams.get('state'), page);
+  if (tab === 'users') body = usersTab(await people(env, url.searchParams.get('q') ?? '', url.searchParams.get('filter'), page), user, url, page);
+  return shell('Moderation · OverPass', 'Reports, suggested profiles, issues and users.', `
+<div class="dashboard">
+  <header class="page"><h1>Moderation</h1></header>
+  <nav class="dash-tabs" aria-label="Moderation">${tabs.map(([id, title, count]) => `<a href="/moderation?tab=${id}"${id === tab ? ' aria-current="page"' : ''}>${title}${count ? `<span class="count-badge">${count.toLocaleString('en-GB')}</span>` : ''}</a>`).join('')}</nav>
+  ${body}
+</div>`, true);
+}
+
+/// A person's public page. The tag always shows here. Ratings only for a Public Contributor, whose name is on them anyway.
+async function profilePage(env, viewer, url, encoded, tag) {
+  const name = decodeURIComponent(encoded);
+  const moderator = isModerator(env, viewer);
+  const person = await env.DB.prepare(
+    `SELECT users.id, users.name, users.tag, users.picture, users.role, users.public, users.created_at, users.reports_dismissed,
+       (SELECT reason FROM bans WHERE ${bannedHere}) AS banned, ${badgeOf('users')}
+     FROM users WHERE users.name = ? AND users.tag = ?`,
+  ).bind(name, tag).first();
+  if (!person || (person.banned && !moderator)) return html(shell('Nobody here · OverPass', 'No such person.', '<header class="page"><h1>Nobody here</h1><p>No one has this name and number.</p></header>', moderator), 404);
+  const [said, rated] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT comments.id, comments.body, comments.game_id, comments.created_at, games.name AS game FROM comments LEFT JOIN games ON games.id = comments.game_id
+       WHERE comments.user_id = ? AND comments.hidden = 0 ORDER BY comments.created_at DESC LIMIT 20`,
+    ).bind(person.id),
+    env.DB.prepare(
+      `SELECT ratings.tier, ratings.game_id, ratings.created_at, games.name AS game FROM ratings LEFT JOIN games ON games.id = ratings.game_id
+       WHERE ratings.user_id = ?1 AND ratings.hidden = 0 AND ?2 = 1 ORDER BY ratings.created_at DESC LIMIT 20`,
+    ).bind(person.id, person.public),
+  ]);
+  const back = `?tab=users&q=${encodeURIComponent(person.name)}`;
+  return (viewer ? personal : html)(shell(`${person.name} · OverPass`, `${person.name} on OverPass.`, `
+<header class="profile public">
+  <div class="portrait">${avatar(person.name, person.picture)}</div>
+  <div class="naming"><h1>${fullName(person.name, person.tag)}</h1><p>${roleBadge(person.badge)}${person.banned ? '<span class="chip bad">Banned</span> ' : ''}Joined ${date(person.created_at)}</p></div>
+</header>
+${moderator ? `<div class="people-tools">${personRows([person].map((row) => ({ ...row, comments: said.results.length })), viewer, back)}</div>` : ''}
+${rated.results.length ? `<section><h2>Ratings</h2><ul class="plain">${rated.results.map((row) => `<li><a href="/games/${row.game_id}">${escape(row.game ?? row.game_id)}</a>${medal(row.tier)}</li>`).join('')}</ul></section>` : ''}
+<section>
+  <h2>Comments</h2>
+  ${said.results.length ? said.results.map((comment) => `<article class="rating"><div class="line"><a href="/games/${comment.game_id}#comment-${comment.id}">${escape(comment.game ?? comment.game_id)}</a><time datetime="${new Date(comment.created_at).toISOString()}">${date(comment.created_at)}</time></div><p class="comment">${escape(comment.body)}</p></article>`).join('\n') : '<p class="empty">No comments yet.</p>'}
+</section>`, moderator));
+}
 
 /// The top of the account page: the picture, which changes on a click, and the name, which is edited where it stands.
 /// A person with no username yet only gets the name, as a picture needs a name to go with it.
@@ -1709,7 +2117,7 @@ ${user.name ? `<div class="portrait">
     <label class="pen" for="name" title="Change Username">${pen}</label>
     <button class="button save" type="submit">Save</button>
   </form>
-  ${user.name ? '' : '<p>This is the name others will see.</p>'}
+  ${user.name ? `<p class="small muted">Your number is ${number(user.tag)}. It shows on <a href="${profilePath(user.name, user.tag)}">your profile</a>, and beside your name when someone else on a page has the same one.</p>` : '<p>This is the name others will see.</p>'}
 </div>
 </header>
 <script>
@@ -1802,6 +2210,7 @@ ${problem}
   return shell('Your account · OverPass', 'Your OverPass account.', `
 ${profileHeader(user)}
 ${problem}
+${user.banned ? `<p class="problem" role="alert">This account is banned for: ${escape(user.banned)}. You can still read, but you can't post, vote or report, and your comments are hidden.</p>` : ''}
 ${user.name ? publicForm(user) : ''}
 ${user.name ? updatesForm(user, updates) : ''}
 <div class="choices">
@@ -1819,11 +2228,13 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
 <header class="page"><h1>Privacy</h1><p>What OverPass and this site keep, and for how long.</p></header>
 <section>
   <h2>Accounts</h2>
-  <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose and the date. Your e-mail and name aren't requested, and nothing comes from your Google profile.</p>
+  <p>Signing in with Google gives this site an ID for you that means nothing elsewhere. It's stored with the username you choose, a random four-digit number that tells you apart from anyone with the same name, and the date. Your e-mail and name aren't requested, and nothing comes from your Google profile.</p>
   <p>Signing in with e-mail keeps a keyed hash of your address, which can't be turned back into it, and a salted hash of your password. You type your address each time, and the code goes to what you typed. The mail goes out through our web host (web23.osl1.nordkapp.net), whose mail logs show the address and when, as any mail server's do. While you sign in we keep hashes of your address and your network address for up to a day, to limit tries.</p>
   <p>You can add a picture on your account page. It's public next to your comments, shrunk before it's sent, and gone as soon as you replace or remove it, or delete your account. Admins can remove it.</p>
   <p>A cookie keeps you signed in for 90 days. It's the only cookie here, apart from a short-lived one while you sign in. There's no tracking and no advertising.</p>
   <p>You can delete your account on <a href="/account">its page</a>. It's removed at once, with your picture and comments.</p>
+  <p>Your profile page is public: your username and number, the date you joined and your comments, and your ratings if you're a Public Contributor.</p>
+  <p>If an account is banned for breaking the rules, we keep its Google ID or scrambled address with the reason, even after the account is deleted, so that the ban holds.</p>
 </section>
 <section>
   <h2>E-mail updates</h2>
@@ -1835,7 +2246,7 @@ const privacyPage = (moderator) => shell('Privacy · OverPass', 'What OverPass k
   <h2>Comments</h2>
   <p>A comment or reply is public on the game's page, with your username and the date. You can delete your own at any time; replies others wrote to it stay.</p>
   <p>Signed-in people can upvote a comment. The number is public. Who gave which upvote is never shown, and it's kept only so each person counts once. You can take an upvote back, and yours go when your account does.</p>
-  <p>Signed-in people can report a comment or a rating. Three reports hide it until it's reviewed. Who reported what is never shown, and it's removed when the report is settled or the account is deleted.</p>
+  <p>Signed-in people can report a comment or a rating, with a reason. Three reports hide it until it's reviewed. Who reported what is shown only to Admins and Mods, and it's removed when the report is settled or the account is deleted. We keep a count of each person's reports that came to nothing, to spot abuse of reports. It goes with the account.</p>
 </section>
 <section>
   <h2>Ratings from the app</h2>

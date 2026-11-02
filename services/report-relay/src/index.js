@@ -42,6 +42,8 @@ export default {
       const path = "/" + rest.join("/");
       if (request.method === "POST" && path === "/report") return await report(request, env, url, app, repo);
       if (request.method === "POST" && path === "/draft") return await draft(request, env, app);
+      // Anyone may knock: it only works through the queue, which only the site's moderators fill.
+      if (request.method === "POST" && path === "/closures") return json({ closed: await closeIssues(env, repo) });
       const ticket = path.match(/^\/draft\/([0-9a-f]{64})$/);
       if (request.method === "POST" && ticket) return await sendDraft(request, env, url, app, repo, ticket[1]);
       const log = path.match(/^\/logs\/([0-9a-f-]{36})\/[^/]+\.zip$/);
@@ -57,8 +59,34 @@ export default {
   // GitHub's own schedule skips most runs, and art and issue links only move when sync-games.yml runs.
   async scheduled(controller, env, context) {
     context.waitUntil(startSync(env));
+    context.waitUntil(closeIssues(env, JSON.parse(env.APPS || "{}").overpass));
   },
 };
+
+/// Closes what moderators turned down. A row stays until GitHub agrees, so a failure is tried again by the next cron.
+async function closeIssues(env, repo) {
+  const { results } = await env.GAMES.prepare("SELECT number FROM issue_closes ORDER BY created_at LIMIT 20").all();
+  if (!results.length) return 0;
+  const token = await issueToken(env, repo);
+  let closed = 0;
+  for (const { number } of results) {
+    await github(env, `/repos/${repo}/issues/${number}/comments`, token, {
+      method: "POST",
+      body: JSON.stringify({ body: "An admin reviewed the settings sent with this report and didn't add them, so this report is closed." }),
+    });
+    const response = await github(env, `/repos/${repo}/issues/${number}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+    });
+    if (!response.ok && response.status !== 404 && response.status !== 410) {
+      console.error(`GitHub wouldn't close #${number} (${response.status})`);
+      continue;
+    }
+    await env.GAMES.prepare("DELETE FROM issue_closes WHERE number = ?").bind(number).run();
+    closed++;
+  }
+  return closed;
+}
 
 async function startSync(env) {
   const repo = JSON.parse(env.APPS || "{}").overpass;
@@ -242,7 +270,7 @@ async function deliver(env, url, app, repo, { title, what, steps, block, profile
   }
   const issue = await response.json();
   // The issue is filed: a problem with the rating or the profile mustn't fail the report.
-  if (submitted) await addSuggestion(env, block, profile, what, install).catch(() => {});
+  if (submitted) await addSuggestion(env, block, profile, what, install, issue.number).catch(() => {});
   await linkIssue(env, block, issue).catch(() => {});
   if (!/^rating: /m.test(block)) return json({ url: issue.html_url, issue: issue.number });
   // The game's page lists the issue, so that's where the person goes.
@@ -317,15 +345,15 @@ async function addRating(env, app, block, comment, issueURL, install) {
 }
 
 /// Keeps a suggested profile for a moderator. A newer one from the same install replaces one still waiting.
-async function addSuggestion(env, block, text, comment, install) {
+async function addSuggestion(env, block, text, comment, install, issue = null) {
   const fact = facts(block);
   const game = await gameFor(env.GAMES, fact);
   const file = await env.GAMES.prepare("SELECT profile_file FROM games WHERE id = ?").bind(game).first("profile_file");
   const profile = file?.match(/^profiles\/([a-z0-9-]+)\.ini$/)?.[1] ?? game;
   if (install) await env.GAMES.prepare("DELETE FROM suggestions WHERE install = ? AND game_id = ? AND status = 'pending'").bind(install, game).run();
   await env.GAMES.prepare(
-    "INSERT INTO suggestions (id, game_id, profile_id, body, comment, overpass, wine, runtime, install, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).bind(crypto.randomUUID(), game, profile, text, comment || null, fact.overpass || null, fact.wine || null, fact.runtime || null, install, Date.now()).run();
+    "INSERT INTO suggestions (id, game_id, profile_id, body, comment, overpass, wine, runtime, install, created_at, issue) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(crypto.randomUUID(), game, profile, text, comment || null, fact.overpass || null, fact.wine || null, fact.runtime || null, install, Date.now(), issue).run();
 }
 
 function github(env, path, token, init = {}) {

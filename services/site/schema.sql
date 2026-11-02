@@ -9,6 +9,13 @@
 --   ALTER TABLE game_art ADD COLUMN about TEXT;
 --   ALTER TABLE game_art ADD COLUMN about_source TEXT;
 --   CREATE INDEX comments_parent ON comments (parent_id);
+--   ALTER TABLE users ADD COLUMN tag TEXT;
+--   UPDATE users SET tag = printf('%04d', abs(random()) % 10000);
+--   ALTER TABLE users ADD COLUMN reports_dismissed INTEGER NOT NULL DEFAULT 0;
+--   DROP INDEX users_name;
+--   CREATE UNIQUE INDEX users_handle ON users (name, tag) WHERE name IS NOT NULL;
+--   ALTER TABLE reports ADD COLUMN reason TEXT;
+--   ALTER TABLE suggestions ADD COLUMN issue INTEGER;
 -- An Admin is only ever made here, by hand: UPDATE users SET role = 'admin', public = 1 WHERE id = '<users.id>';
 --
 -- The games database (D1 "overpass-games"), shared by the site's worker, which reads it and stores the list of games
@@ -100,9 +107,21 @@ CREATE TABLE IF NOT EXISTS users (
   public INTEGER NOT NULL DEFAULT 0, -- a Public Contributor: their name shows on their ratings. 0 is a Member: it doesn't
   role TEXT,                         -- admin, or mod, which Admins hand out on /moderation
   password TEXT,                     -- e-mail accounts: salt.hash. Their provider_id is the address's keyed hash
+  tag TEXT,                          -- four random digits: a name can be shared, a name with its tag can't
+  reports_dismissed INTEGER NOT NULL DEFAULT 0,  -- their reports a moderator found nothing in, to spot abuse
   UNIQUE (provider, provider_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (name) WHERE name IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_handle ON users (name, tag) WHERE name IS NOT NULL;
+
+-- Who can't post. By the sign-in's identity, not the account, so deleting the account doesn't lift it.
+CREATE TABLE IF NOT EXISTS bans (
+  provider TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  by_user TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (provider, provider_id)
+);
 
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
@@ -139,6 +158,7 @@ CREATE TABLE IF NOT EXISTS reports (
   target TEXT NOT NULL,
   user_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  reason TEXT,                       -- a key of REPORT_REASONS; none on reports from before reasons
   PRIMARY KEY (target, user_id)
 );
 CREATE INDEX IF NOT EXISTS reports_user ON reports (user_id, created_at);
@@ -156,7 +176,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
   runtime TEXT,
   install TEXT,                      -- the app's random ID: a newer suggestion from it replaces a waiting one
   status TEXT NOT NULL DEFAULT 'pending',   -- pending, approved or published; a refused one is deleted
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  issue INTEGER                      -- the GitHub issue filed with it, when logs came along
 );
 CREATE INDEX IF NOT EXISTS suggestions_status ON suggestions (status, created_at);
 CREATE INDEX IF NOT EXISTS suggestions_install ON suggestions (install, game_id);
@@ -214,6 +235,12 @@ CREATE TABLE IF NOT EXISTS game_issues (
   state TEXT NOT NULL                -- open, fixed or closed
 );
 CREATE INDEX IF NOT EXISTS game_issues_game ON game_issues (game_id);
+
+-- GitHub issues to close. The site writes them and holds no GitHub key; the relay, which does, closes them and removes the row.
+CREATE TABLE IF NOT EXISTS issue_closes (
+  number INTEGER PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
 
 -- E-mail updates, for those who turned them on: the one place an address is readable, since the site has to send to it.
 -- Gone when they stop, by the mail's link or on /account, or delete the account.

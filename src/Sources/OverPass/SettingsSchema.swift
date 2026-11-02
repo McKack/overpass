@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 
 /// What OverPass knows about the variables and options a title can set (Schema/settings.json): their type,
-/// values and limits, so the profile editor's Simple view can show a switch, a menu or a slider instead of
-/// NAME=value text. Anything not in it is shown as text.
+/// values and limits, so the Simple views can show a switch, a menu or a slider instead of NAME=value text.
+/// Anything not in it is shown as text. A newer copy comes from overpass-components, with no app release.
 struct SettingSpec: Decodable, Identifiable {
     struct Choice: Decodable, Hashable { let value: String; let title: String }
-    enum Kind: String, Decodable { case env, dxmtConfig = "dxmt-config", mtld3dConfig = "mtld3d-config", ruleKey = "rule-key", dllOverride = "dll-override" }
+    enum Kind: String, Decodable { case env, dxmtConfig = "dxmt-config", mtld3dConfig = "mtld3d-config", ruleKey = "rule-key", dllOverride = "dll-override", profileKey = "profile-key" }
 
     let id: String
     let kind: Kind
@@ -24,23 +24,66 @@ struct SettingSpec: Decodable, Identifiable {
     let unit: String?
     let `default`: String?
     let source: String?
+    let repeatable: Bool?
 
     /// A number that also accepts "auto" (its default).
     var allowsAutomatic: Bool { (type == "int" || type == "float") && self.default == "auto" }
 }
 
 enum SettingsSchema {
-    private struct File: Decodable { let format: Int; let settings: [SettingSpec] }
+    /// An entry this version can't read is left out, so a new kind of setting doesn't cost the whole file.
+    private struct Entry: Decodable {
+        let spec: SettingSpec?
+        init(from decoder: Decoder) { spec = try? SettingSpec(from: decoder) }
+    }
+    private struct File: Decodable {
+        let format: Int
+        /// Goes up with every change, so a cached copy never hides a newer one in the app.
+        let revision: Int
+        let settings: [Entry]
+        var specs: [SettingSpec] { settings.compactMap(\.spec) }
+    }
 
-    static let all: [SettingSpec] = {
-        guard let url = ProfileStore.resourceBundle.url(forResource: "settings", withExtension: "json", subdirectory: "Schema"),
-              let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder().decode(File.self, from: data), file.format == 1 else { return [] }
-        return file.settings
-    }()
+    static let remoteURL = URL(string: "https://raw.githubusercontent.com/McKack/overpass-components/main/settings.json")!
+
+    private static var cacheURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/OverPass/settings.json")
+    }
+
+    private static func decode(_ data: Data?) -> File? {
+        guard let data, let file = try? JSONDecoder().decode(File.self, from: data), file.format == 1,
+              !file.specs.isEmpty else { return nil }
+        return file
+    }
+
+    private static let bundled = decode(ProfileStore.resourceBundle
+        .url(forResource: "settings", withExtension: "json", subdirectory: "Schema")
+        .flatMap { try? Data(contentsOf: $0) })
+
+    /// The newest of the app's copy and the last good download.
+    private static var loaded = [bundled, decode(try? Data(contentsOf: cacheURL))].compactMap { $0 }
+        .max { $0.revision < $1.revision }
+
+    static var all: [SettingSpec] { loaded?.specs ?? [] }
+
+    /// Downloads the schema and keeps it when it parses and is newer; otherwise what's here stays.
+    @MainActor static func refresh() async {
+        guard let (data, response) = try? await URLSession.shared.data(from: remoteURL),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let file = decode(data), file.revision > loaded?.revision ?? -1 else { return }
+        try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: cacheURL, options: .atomic)
+        loaded = file
+    }
 
     static func spec(_ id: String, _ kind: SettingSpec.Kind) -> SettingSpec? {
         all.first { $0.kind == kind && ($0.kind == .env ? $0.id == id : $0.id.caseInsensitiveCompare(id) == .orderedSame) }
+    }
+
+    /// A key of a profile section: its own meaning in a recipe section, otherwise the rule key.
+    static func key(_ key: String, in section: String) -> SettingSpec? {
+        all.first { $0.kind == .profileKey && $0.group == section.lowercased() && $0.id == key } ?? spec(key, .ruleKey)
     }
 
     /// Variables holding options of their own, shown as their own sections.
@@ -68,8 +111,8 @@ enum SettingsSchema {
     }
 }
 
-/// The Simple view of a title's environment variables and DLL overrides: a control per known setting, for the
-/// schema groups of one tab. Reads and writes the same NAME=value lines the Technical view edits as text, and
+/// The Simple view of environment variables and DLL overrides: a control per known setting, for the schema
+/// groups of one tab of a title, a container, or one section of a profile file. Reads and writes the same NAME=value lines the Technical view edits as text, and
 /// leaves the lines of other tabs as they are.
 struct SimpleSettingsEditor: View {
     @Binding var environment: String
@@ -82,7 +125,14 @@ struct SimpleSettingsEditor: View {
     var pinned: [String] = []
     /// Settings OverPass has no description for, and DLL overrides, go on this tab.
     var showsOthers = false
+    var showsDLLs = true
+    /// Variables left as they are, with no row: OverPass sets them itself.
+    var kept: Set<String> = []
     var inherited = InheritedSettings()
+    var title = "More Settings"
+    var note = "For this title only. Hover over a setting for what it does in detail."
+    /// Rows for a section of the caller's, with no section of their own.
+    var bare = false
 
     /// One setting; `value` nil keeps a pinned setting on screen without writing it.
     struct Row: Identifiable, Equatable {
@@ -100,41 +150,54 @@ struct SimpleSettingsEditor: View {
 
     var body: some View {
         Group {
-            Section {
-                ForEach(rows) { row in
-                    SettingRow(row: Self.binding(row, in: $rows), spec: SettingsSchema.spec(row.name, row.kind),
-                               pinned: pinned.contains(row.name), inherited: inherited.variable(row.name)) {
-                        rows.removeAll { $0.id == row.id }
-                    }
-                }
-                addMenu
-                ForEach(SettingsSchema.optionVariables.filter { line($0.name).count >= 260 }, id: \.name) { variable in
-                    Label("\(variable.title): too many options. The runtime ignores all of them past 259 characters.",
-                          systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange).font(.caption)
-                }
-            } header: {
-                Text("More Settings")
-            } footer: {
-                Text("For this title only. Hover over a setting for what it does in detail.")
-            }
-            if showsOthers {
+            if bare {
+                settingRows
+                if showsDLLs { dllRows }
+            } else {
                 Section {
-                    ForEach(overrides) { row in
-                        DLLOverrideRow(row: Self.binding(row, in: $overrides)) { overrides.removeAll { $0.id == row.id } }
-                    }
-                    Button { overrides.append(Row(name: "", value: "n,b")) } label: { Label("Add DLL Override", systemImage: "plus") }
-                        .buttonStyle(.borderless)
+                    settingRows
                 } header: {
-                    Text("DLL Overrides")
+                    Text(title)
                 } footer: {
-                    Text("Which copy of a DLL the title loads: its own (native) or Wine's (builtin).")
+                    Text(note)
+                }
+                if showsOthers && showsDLLs {
+                    Section {
+                        dllRows
+                    } header: {
+                        Text("DLL Overrides")
+                    } footer: {
+                        Text("Which copy of a DLL the title loads: its own (native) or Wine's (builtin).")
+                    }
                 }
             }
         }
         .onAppear(perform: load)
         .onChange(of: rows) { write() }
         .onChange(of: overrides) { write() }
+    }
+
+    @ViewBuilder private var settingRows: some View {
+        ForEach(rows) { row in
+            SettingRow(row: Self.binding(row, in: $rows), spec: SettingsSchema.spec(row.name, row.kind),
+                       pinned: pinned.contains(row.name), inherited: inherited.variable(row.name)) {
+                rows.removeAll { $0.id == row.id }
+            }
+        }
+        addMenu
+        ForEach(SettingsSchema.optionVariables.filter { line($0.name).count >= 260 }, id: \.name) { variable in
+            Label("\(variable.title): too many options. The runtime ignores all of them past 259 characters.",
+                  systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange).font(.caption)
+        }
+    }
+
+    @ViewBuilder private var dllRows: some View {
+        ForEach(overrides) { row in
+            DLLOverrideRow(row: Self.binding(row, in: $overrides)) { overrides.removeAll { $0.id == row.id } }
+        }
+        Button { overrides.append(Row(name: "", value: "n,b")) } label: { Label("Add DLL Override", systemImage: "plus") }
+            .buttonStyle(.borderless)
     }
 
     /// The Add menu: known settings of this tab not set yet, by what reads them, then a variable of one's own.
@@ -201,7 +264,7 @@ struct SimpleSettingsEditor: View {
 
     /// Whether a setting is this tab's to show.
     private func isOurs(_ name: String, _ kind: SettingSpec.Kind) -> Bool {
-        SettingsSchema.spec(name, kind).map { groups.contains($0.group) } ?? showsOthers
+        !kept.contains(name) && (SettingsSchema.spec(name, kind).map { groups.contains($0.group) } ?? showsOthers)
     }
 
     private func isOptionVariable(_ line: String) -> Bool {
@@ -223,7 +286,7 @@ struct SimpleSettingsEditor: View {
         let set = rows
         rows = pinned.map { name in set.first { $0.name == name } ?? Row(name: name, value: nil) }
             + set.filter { !pinned.contains($0.name) }
-        guard showsOthers else { return }
+        guard showsOthers && showsDLLs else { return }
         overrides = dlls.split(separator: "\n").map { line in
             let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
             return Row(name: parts[0], value: parts.count > 1 ? parts[1] : "")
@@ -244,8 +307,9 @@ struct SimpleSettingsEditor: View {
         }
         // Showing a tab changes nothing, not even the order, so an unchanged title stays unchanged on Save.
         if Self.pairs(new) != Self.pairs(lines) { environment = new.joined(separator: "\n") }
-        guard showsOthers else { return }
-        dlls = overrides.filter { !$0.name.isEmpty }.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "\n")
+        guard showsOthers && showsDLLs else { return }
+        let newDLLs = overrides.filter { !$0.name.isEmpty }.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "\n")
+        if newDLLs != dlls { dlls = newDLLs }
     }
 
     /// Every variable and option in a list of lines, in no particular order.
@@ -265,12 +329,14 @@ struct SimpleSettingsEditor: View {
 }
 
 /// One setting: its plain title and sentence, and the control its type calls for.
-private struct SettingRow: View {
+struct SettingRow: View {
     @Binding var row: SimpleSettingsEditor.Row
     let spec: SettingSpec?
     /// Always on screen: a switch that writes a line only when it differs from what the title gets anyway.
     var pinned = false
     var inherited: (value: String, source: SettingSource)?
+    /// Text gets the width of the row, under its title: profile lines can be long.
+    var wide = false
     let remove: () -> Void
 
     /// The switch's position with no line of the title's own: a rule's value, else the setting's default.
@@ -278,19 +344,47 @@ private struct SettingRow: View {
         inherited?.value ?? spec?.default.flatMap { $0.hasPrefix("\(spec?.on ?? "") ") ? spec?.on : nil }
     }
 
+    private var isWide: Bool { wide && !["bool", "enum", "int", "float"].contains(spec?.type ?? "") }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let spec {
-                    SettingLabel(spec.title, pinned ? (row.value != nil ? .you : inherited?.source) : nil)
-                    Text(spec.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    TextField("Name", text: $row.name, prompt: Text("VARIABLE_NAME"))
-                        .font(.body.monospaced())
-                        .textFieldStyle(.plain)
+        if isWide {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    label
+                    Spacer(minLength: 8)
+                    removeButton
                 }
+                control
             }
-            .help(spec.map { "\($0.id): \($0.technical)" } ?? "A variable OverPass has no description for.")
+        } else {
+            line
+        }
+    }
+
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let spec {
+                SettingLabel(spec.title, pinned ? (row.value != nil ? .you : inherited?.source) : nil)
+                Text(spec.summary).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                TextField("Name", text: $row.name, prompt: Text("VARIABLE_NAME"))
+                    .font(.body.monospaced())
+                    .textFieldStyle(.plain)
+                    .labelsHidden()
+            }
+        }
+        .help(spec.map { "\($0.id): \($0.technical)" } ?? "A variable OverPass has no description for.")
+    }
+
+    private var removeButton: some View {
+        Button(action: remove) { Image(systemName: "minus.circle") }
+            .buttonStyle(.borderless)
+            .help("Remove this setting")
+    }
+
+    private var line: some View {
+        HStack(alignment: .center, spacing: 10) {
+            label
             Spacer(minLength: 8)
             if pinned {
                 Toggle("", isOn: Binding(get: { (row.value ?? usualValue) == spec?.on },
@@ -300,9 +394,7 @@ private struct SettingRow: View {
                     .toggleStyle(.switch).labelsHidden()
             } else {
                 control
-                Button(action: remove) { Image(systemName: "minus.circle") }
-                    .buttonStyle(.borderless)
-                    .help("Remove this setting")
+                removeButton
             }
         }
     }
@@ -330,7 +422,7 @@ private struct SettingRow: View {
             if let spec { NumberControl(value: text, spec: spec) }
         case "path":
             HStack(spacing: 4) {
-                TextField("", text: text, prompt: Text("Path")).frame(width: 180)
+                TextField("", text: text, prompt: Text("Path")).frame(width: wide ? nil : 180)
                 Button("Choose…") {
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
@@ -338,8 +430,10 @@ private struct SettingRow: View {
                 }
             }
         default:
-            TextField("", text: text, prompt: Text(spec?.default.map { "Default: \($0)" } ?? "Value"))
-                .frame(width: 200)
+            TextField("", text: text, prompt: Text(wide ? "Value" : spec?.default.map { "Default: \($0)" } ?? "Value"))
+                .labelsHidden()
+                .multilineTextAlignment(wide ? .leading : .trailing)
+                .frame(width: wide ? nil : 200)
         }
     }
 }
@@ -363,7 +457,8 @@ private struct NumberControl: View {
                            in: min...max, step: spec.step ?? (spec.type == "int" ? 1 : 0.01))
                         .frame(width: 130)
                 }
-                TextField("", text: $value).frame(width: 56).multilineTextAlignment(.trailing)
+                // Wider with no slider: IDs, not settings, are what has no limits.
+                TextField("", text: $value).frame(width: spec.max == nil ? 90 : 56).multilineTextAlignment(.trailing)
                 if let unit = spec.unit, !unit.isEmpty { Text(unit).foregroundStyle(.secondary) }
             }
         }
@@ -374,15 +469,15 @@ private struct NumberControl: View {
 private struct DLLOverrideRow: View {
     @Binding var row: SimpleSettingsEditor.Row
     let remove: () -> Void
-    private static let modes = SettingsSchema.all.first { $0.kind == .dllOverride }?.values ?? []
+    private var modes: [SettingSpec.Choice] { SettingsSchema.all.first { $0.kind == .dllOverride }?.values ?? [] }
 
     var body: some View {
         HStack {
             TextField("DLL", text: $row.name, prompt: Text("d3d9")).font(.body.monospaced()).frame(width: 160)
             Spacer()
             Picker("", selection: Binding(get: { row.value ?? "" }, set: { row.value = $0 })) {
-                ForEach(Self.modes, id: \.self) { Text($0.title).tag($0.value) }
-                if let value = row.value, !Self.modes.contains(where: { $0.value == value }) { Text(value).tag(value) }
+                ForEach(modes, id: \.self) { Text($0.title).tag($0.value) }
+                if let value = row.value, !modes.contains(where: { $0.value == value }) { Text(value).tag(value) }
             }
             .labelsHidden().fixedSize()
             Button(action: remove) { Image(systemName: "minus.circle") }.buttonStyle(.borderless)

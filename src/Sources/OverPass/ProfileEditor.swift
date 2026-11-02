@@ -843,10 +843,12 @@ struct ProfileEditor: View {
     }
 }
 
-/// The whole profile file as text, for rules the form doesn't show.
+/// The whole profile file, for rules the form doesn't show: laid out by what each line means, or as text in the
+/// Advanced view.
 struct ProfileFileEditor: View {
     @Environment(ProfileStore.self) private var profiles
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(SettingsDetail.key) private var detail = SettingsDetail.simple
     let id: String
     @State var text: String
     let saved: () -> Void
@@ -857,14 +859,20 @@ struct ProfileFileEditor: View {
             Text("\(id).ini").font(.headline)
             Text("The format is described in Profiles/README.md in the OverPass sources.")
                 .font(.callout).foregroundStyle(.secondary)
-            TextEditor(text: $text)
-                .font(.body.monospaced())
-                .border(.separator)
+            if detail == .simple {
+                ProfileFileForm(text: $text)
+            } else {
+                TextEditor(text: $text)
+                    .font(.body.monospaced())
+                    .border(.separator)
+            }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
             HStack {
                 Spacer()
+                DetailSwitch().padding(.trailing, 8)
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") {
+                    let text = detail == .simple ? ProfileText(text: text).withoutEmptyLines.text : text
                     guard GameProfile.parseINI(id: id, text: text) != nil else {
                         error = "A profile needs an [app] section with at least a name."
                         return
@@ -909,6 +917,8 @@ struct BottleSettings: View {
     @State private var choosingVerb = false
     @State private var winetricksVerb: String?
     @State private var environment = ""
+    @State private var environmentRead = false
+    @AppStorage(SettingsDetail.key) private var detail = SettingsDetail.simple
     @State private var playStation = false
     @State private var macKeys = BottleSetup.MacKeys.standard
     @State private var retina = false
@@ -936,6 +946,7 @@ struct BottleSettings: View {
 
     private func read() {
         environment = environmentText
+        environmentRead = true
         playStation = BottleSetup.playStationControllers(in: bottle) ?? false
         macKeys = BottleSetup.macKeys(in: bottle)
         retina = BottleSetup.retinaMode(in: bottle)
@@ -1102,20 +1113,38 @@ struct BottleSettings: View {
         }
     }
 
-    private var environmentSection: some View {
-        Section {
-            TextEditor(text: $environment)
-                .font(.body.monospaced())
-                .frame(height: 60)
-            HStack {
-                Spacer()
-                Button("Apply") { applyEnvironment() }
-                    .disabled(environment == environmentText)
+    /// The saved list is sorted, the edited one needn't be.
+    private var environmentChanged: Bool {
+        environment.split(separator: "\n").sorted() != environmentText.split(separator: "\n").sorted()
+    }
+
+    private var applyButton: some View {
+        HStack {
+            Spacer()
+            Button("Apply") { applyEnvironment() }
+                .disabled(!environmentChanged)
+        }
+    }
+
+    @ViewBuilder private var environmentSection: some View {
+        if detail == .technical {
+            Section {
+                TextEditor(text: $environment)
+                    .font(.body.monospaced())
+                    .frame(height: 60)
+                applyButton
+            } header: {
+                Text("Environment Variables")
+            } footer: {
+                Text("One NAME=value per line, for every app in the container.")
             }
-        } header: {
-            Text("Environment Variables")
-        } footer: {
-            Text("One NAME=value per line, for every app in the container.")
+        } else if environmentRead {
+            // Not before read(): the editor takes its rows from the text once.
+            SimpleSettingsEditor(environment: $environment, dlls: .constant(""),
+                                 groups: Set(SettingsSchema.all.map(\.group)), showsOthers: true, showsDLLs: false, kept: ["WINEMSYNC"],
+                                 title: "Environment Variables",
+                                 note: "For every app in the container. Hover over a setting for what it does in detail.")
+            if environmentChanged { Section { applyButton } }
         }
     }
 

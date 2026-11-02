@@ -1,6 +1,7 @@
 {
  "format": 1,
- "about": "Settings OverPass can set per title, for the profile editor's Simple view: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
+ "revision": 1,
+ "about": "Settings OverPass can set per title, for the Simple views of the profile editor, containers and profile files: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
  "settings": [
   {
    "id": "OVERPASS_X87",
@@ -1225,6 +1226,18 @@
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:31,371-373; Profiles/README.md"
   },
   {
+   "id": "beside",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Beside a file",
+   "summary": "Any program with a file of this name in its folder, such as libcef.dll for Chromium programs.",
+   "technical": "A rule applies when any of its program, steam-app or beside lines match.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "Profiles/README.md"
+  },
+  {
    "id": "add-arguments",
    "kind": "rule-key",
    "type": "string",
@@ -1312,6 +1325,41 @@
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:429-446; OverPass/src/Sources/OverPass/CompatRules.swift:100-111; Profiles.swift:321-365"
   },
   {
+   "id": "prefer-graphics",
+   "kind": "rule-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "auto",
+     "title": "Automatic"
+    },
+    {
+     "value": "dxmt",
+     "title": "OverPass Runtime (Metal)"
+    },
+    {
+     "value": "d3dmetal",
+     "title": "D3DMetal (Metal)"
+    },
+    {
+     "value": "wined3d",
+     "title": "WineD3D (OpenGL)"
+    },
+    {
+     "value": "dxvk",
+     "title": "DXVK (Vulkan via MoltenVK)"
+    }
+   ],
+   "default": "auto",
+   "title": "Preferred graphics backend",
+   "summary": "Like the graphics backend, but only while the program's container is on Automatic: a backend chosen for the container wins.",
+   "technical": "Used by presets.",
+   "group": "Direct3D",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
    "id": "d3d9",
    "kind": "rule-key",
    "type": "enum",
@@ -1359,6 +1407,688 @@
    "group": "Launch",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:45; Profiles/README.md"
+  },
+  {
+   "id": "name",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Name",
+   "summary": "The name shown for this app.",
+   "technical": "name in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "category",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Category",
+   "summary": "The group the app is listed under.",
+   "technical": "category in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "featured",
+   "kind": "profile-key",
+   "type": "int",
+   "repeatable": false,
+   "title": "Home position",
+   "summary": "Puts the app on Home, in this order.",
+   "technical": "featured in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "coming-soon",
+   "kind": "profile-key",
+   "type": "bool",
+   "repeatable": false,
+   "title": "Coming soon",
+   "summary": "Shows the app on Home as \"Coming soon…\" and keeps it out of the Install list.",
+   "technical": "coming-soon in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md",
+   "on": "true",
+   "off": "false"
+  },
+  {
+   "id": "steam-app",
+   "kind": "profile-key",
+   "type": "int",
+   "repeatable": false,
+   "title": "Steam app ID",
+   "summary": "The Steam game this profile is for.",
+   "technical": "steam-app in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "gog-game",
+   "kind": "profile-key",
+   "type": "int",
+   "repeatable": false,
+   "title": "GOG product ID",
+   "summary": "The GOG game this profile is for. With a Steam app ID, the profile applies in whichever client installed the game.",
+   "technical": "gog-game in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "brand-color",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Brand colour",
+   "summary": "A colour for the app, in hex without the #.",
+   "technical": "brand-color in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "rating",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "untested",
+     "title": "Untested"
+    },
+    {
+     "value": "platinum",
+     "title": "Platinum"
+    },
+    {
+     "value": "gold",
+     "title": "Gold"
+    },
+    {
+     "value": "silver",
+     "title": "Silver"
+    },
+    {
+     "value": "bronze",
+     "title": "Bronze"
+    },
+    {
+     "value": "borked",
+     "title": "Borked"
+    }
+   ],
+   "title": "Rating",
+   "summary": "How well the app runs.",
+   "technical": "rating in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "tested-with",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Tested with",
+   "summary": "What the rating was tested with.",
+   "technical": "tested-with in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "rating-date",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Rating date",
+   "summary": "When the rating was made.",
+   "technical": "rating-date in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "rating-notes",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Rating notes",
+   "summary": "Notes on the rating.",
+   "technical": "rating-notes in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "bottle",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "windows7",
+     "title": "Windows 7"
+    },
+    {
+     "value": "windows10",
+     "title": "Windows 10"
+    },
+    {
+     "value": "windows11",
+     "title": "Windows 11"
+    }
+   ],
+   "title": "Windows version",
+   "summary": "The Windows version the app's container is made with.",
+   "technical": "bottle in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "container",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "windows7",
+     "title": "Windows 7"
+    },
+    {
+     "value": "windows10",
+     "title": "Windows 10"
+    },
+    {
+     "value": "windows11",
+     "title": "Windows 11"
+    }
+   ],
+   "title": "Windows version",
+   "summary": "The Windows version the app's container is made with.",
+   "technical": "container in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "bottle-group",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Shared container",
+   "summary": "Apps with the same name here share one container.",
+   "technical": "bottle-group in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "container-group",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Shared container",
+   "summary": "Apps with the same name here share one container.",
+   "technical": "container-group in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "runtime",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": true,
+   "values": [
+    {
+     "value": "vcrun",
+     "title": "Visual C++ runtimes"
+    },
+    {
+     "value": "corefonts",
+     "title": "Core fonts"
+    },
+    {
+     "value": "d3dcompiler_47",
+     "title": "Direct3D shader compiler"
+    },
+    {
+     "value": "cjkfonts",
+     "title": "Chinese, Japanese and Korean fonts"
+    },
+    {
+     "value": "directx_jun2010",
+     "title": "DirectX June 2010"
+    }
+   ],
+   "title": "Installed into the container",
+   "summary": "Something to install into the container.",
+   "technical": "runtime in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "dependency",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Needs another profile",
+   "summary": "Another profile this app needs.",
+   "technical": "dependency in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "component",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": true,
+   "values": [
+    {
+     "value": "runtime",
+     "title": "OverPass Runtime"
+    },
+    {
+     "value": "d3dmetal",
+     "title": "D3DMetal"
+    },
+    {
+     "value": "winetricks",
+     "title": "Winetricks"
+    },
+    {
+     "value": "x87sidecar",
+     "title": "x87sidecar"
+    },
+    {
+     "value": "dotnet-web",
+     "title": ".NET web installer"
+    }
+   ],
+   "title": "Needs a component",
+   "summary": "A shared component the app needs besides its graphics backend. A missing one is fetched at install and offered at launch.",
+   "technical": "component in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "graphics",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "auto",
+     "title": "Automatic"
+    },
+    {
+     "value": "dxmt",
+     "title": "OverPass Runtime (Metal)"
+    },
+    {
+     "value": "d3dmetal",
+     "title": "D3DMetal (Metal)"
+    },
+    {
+     "value": "wined3d",
+     "title": "WineD3D (OpenGL)"
+    },
+    {
+     "value": "dxvk",
+     "title": "DXVK (Vulkan via MoltenVK)"
+    }
+   ],
+   "title": "Graphics backend",
+   "summary": "Which Direct3D 10-12 implementation the app uses.",
+   "technical": "graphics in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "prefer-graphics",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "auto",
+     "title": "Automatic"
+    },
+    {
+     "value": "dxmt",
+     "title": "OverPass Runtime (Metal)"
+    },
+    {
+     "value": "d3dmetal",
+     "title": "D3DMetal (Metal)"
+    },
+    {
+     "value": "wined3d",
+     "title": "WineD3D (OpenGL)"
+    },
+    {
+     "value": "dxvk",
+     "title": "DXVK (Vulkan via MoltenVK)"
+    }
+   ],
+   "title": "Preferred graphics backend",
+   "summary": "Like the graphics backend, but only while the container is on Automatic: a backend chosen for the container wins.",
+   "technical": "prefer-graphics in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "controllers",
+   "kind": "profile-key",
+   "type": "enum",
+   "repeatable": false,
+   "values": [
+    {
+     "value": "xbox",
+     "title": "Xbox pads"
+    },
+    {
+     "value": "playstation",
+     "title": "PlayStation controllers"
+    }
+   ],
+   "title": "Controllers",
+   "summary": "How DualShock 4 and DualSense reach the container. Applied when the container is made.",
+   "technical": "controllers in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "preset",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Preset",
+   "summary": "Ready-made settings this app also gets, before the profile's own rules.",
+   "technical": "preset in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "icon",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Icon",
+   "summary": "An image in your Profiles/Icons folder, shown instead of the app's Windows icon.",
+   "technical": "icon in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "cover",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Cover",
+   "summary": "The cover picture, set by the artwork editor.",
+   "technical": "cover in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "cover-style",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Cover style",
+   "summary": "How the made cover looks, set by the artwork editor.",
+   "technical": "cover-style in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "icon-style",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Icon style",
+   "summary": "How the icon looks, set by the artwork editor.",
+   "technical": "icon-style in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "notes",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Notes",
+   "summary": "Free text shown with the app.",
+   "technical": "notes in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "engine",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Game engine",
+   "summary": "Shown in the library's Engine column. Without it, OverPass tells the engine from the game's files.",
+   "technical": "engine in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "source",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Source",
+   "summary": "Where the information comes from: a title, then | and an address.",
+   "technical": "source in [app].",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "steam",
+   "kind": "profile-key",
+   "type": "int",
+   "repeatable": false,
+   "title": "Steam app ID",
+   "summary": "The game on Steam.",
+   "technical": "steam in [store].",
+   "group": "store",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "gog",
+   "kind": "profile-key",
+   "type": "int",
+   "repeatable": false,
+   "title": "GOG product ID",
+   "summary": "The game on GOG.",
+   "technical": "gog in [store].",
+   "group": "store",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "epic",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Epic Games app name",
+   "summary": "The game on Epic Games, as OverPass reports it.",
+   "technical": "epic in [store].",
+   "group": "store",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "link",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Store page",
+   "summary": "The address of the game's page on a store.",
+   "technical": "link in [store].",
+   "group": "store",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "download",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Download address",
+   "summary": "The address of the installer.",
+   "technical": "download in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "github-release",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "GitHub release",
+   "summary": "owner/repo, then a file pattern: a file from the latest GitHub release.",
+   "technical": "github-release in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "latest-link",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Download link from JSON",
+   "summary": "An address of a JSON document, then the key that holds the download link.",
+   "technical": "latest-link in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "download-page",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Download page",
+   "summary": "A web page where the installer can be found.",
+   "technical": "download-page in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "file",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Installer file name",
+   "summary": "Recognises an installer you open. * matches any run of characters.",
+   "technical": "file in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "silent",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Silent install switches",
+   "summary": "Switches for installing without questions, separated by spaces.",
+   "technical": "silent in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "wait-ignore",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Don't wait for",
+   "summary": "A process not to wait for after installing.",
+   "technical": "wait-ignore in [install].",
+   "group": "install",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "executable",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": false,
+   "title": "Program",
+   "summary": "The Windows path of the program to start.",
+   "technical": "executable in [launch].",
+   "group": "launch",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "argument",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Arguments",
+   "summary": "Arguments for the program, separated by spaces.",
+   "technical": "argument in [launch].",
+   "group": "launch",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "stale-file",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Remove before starting",
+   "summary": "A Windows path pattern. Matching files go before launch when nothing runs in the container.",
+   "technical": "stale-file in [launch].",
+   "group": "launch",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
+   "id": "json-setting",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Setting in a JSON file",
+   "summary": "Windows path | key | value: sets a value in the program's JSON settings file before launch.",
+   "technical": "json-setting in [launch].",
+   "group": "launch",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
   }
  ]
 }

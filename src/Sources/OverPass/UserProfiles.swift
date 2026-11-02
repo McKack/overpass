@@ -90,11 +90,87 @@ struct ProfileText {
     /// belong to it).
     private func range(of section: String) -> Range<Int>? {
         let lines = lines
-        guard let start = lines.firstIndex(where: { Self.sectionName($0)?.caseInsensitiveCompare(section) == .orderedSame })
-        else { return nil }
-        var end = lines[(start + 1)...].firstIndex { Self.sectionName($0) != nil } ?? lines.count
+        return lines.firstIndex { Self.sectionName($0)?.caseInsensitiveCompare(section) == .orderedSame }
+            .map { Self.range(from: $0, in: lines) }
+    }
+
+    private static func range(from start: Int, in lines: [String]) -> Range<Int> {
+        var end = lines[(start + 1)...].firstIndex { sectionName($0) != nil } ?? lines.count
         while end > start + 1, lines[end - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") { end -= 1 }
         return start..<end
+    }
+
+    /// One section of the file as it stands, for edits that go by line.
+    struct Part: Identifiable {
+        struct Line: Identifiable { let id: Int; let key: String; let value: String }
+        /// The name, numbered when a file repeats it, so a part keeps its identity while lines come and go.
+        let id: String
+        let name: String
+        let header: Int
+        let comment: String
+        let lines: [Line]
+    }
+
+    var parts: [Part] {
+        let lines = lines
+        var seen: [String: Int] = [:]
+        return lines.indices.compactMap { header in
+            guard let name = Self.sectionName(lines[header]) else { return nil }
+            var above: [String] = [], at = header
+            while at > 0, lines[at - 1].hasPrefix("#"), !lines[at - 1].hasPrefix(UserProfiles.basedOnPrefix) {
+                at -= 1
+                above.insert(String(lines[at].drop { $0 == "#" || $0 == " " }), at: 0)
+            }
+            seen[name.lowercased(), default: 0] += 1
+            return Part(id: "\(name.lowercased())#\(seen[name.lowercased()]!)", name: name, header: header,
+                        comment: above.joined(separator: " "),
+                        lines: Self.range(from: header, in: lines).dropFirst().compactMap { i in
+                            Self.keyValue(lines[i]).map { Part.Line(id: i, key: $0.key, value: $0.value) }
+                        })
+        }
+    }
+
+    /// Writes one line of the file again, or removes it.
+    mutating func setLine(_ index: Int, key: String, value: String?) {
+        var lines = lines
+        if let value { lines[index] = "\(key) = \(value)" } else { lines.remove(at: index) }
+        text = lines.joined(separator: "\n")
+    }
+
+    /// Replaces the lines of a key in one section, where the first of them stood, or at the section's end.
+    mutating func setAll(_ key: String, _ values: [String], in part: Part) {
+        var lines = lines
+        let old = part.lines.filter { $0.key == key }.map(\.id)
+        var at = old.first ?? Self.range(from: part.header, in: lines).upperBound
+        if old.isEmpty { while at > part.header + 1, lines[at - 1].trimmingCharacters(in: .whitespaces).isEmpty { at -= 1 } }
+        for i in old.reversed() { lines.remove(at: i) }
+        lines.insert(contentsOf: values.map { "\(key) = \($0)" }, at: at)
+        text = lines.joined(separator: "\n")
+    }
+
+    /// Removes a section and the comment above it.
+    mutating func remove(_ part: Part) {
+        var lines = lines
+        var start = part.header
+        while start > 0, lines[start - 1].hasPrefix("#"), !lines[start - 1].hasPrefix(UserProfiles.basedOnPrefix) { start -= 1 }
+        lines.removeSubrange(start..<Self.range(from: part.header, in: lines).upperBound)
+        text = lines.joined(separator: "\n")
+    }
+
+    /// Adds an empty rule at the end of the file.
+    mutating func addSection(_ name: String) {
+        var lines = lines
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+        text = (lines + ["", "[\(name)]", ""]).joined(separator: "\n")
+    }
+
+    /// The file without lines left with no value, as a new line is until it's filled in.
+    var withoutEmptyLines: ProfileText {
+        var file = self
+        for line in parts.flatMap(\.lines).filter({ $0.value.isEmpty }).reversed() {
+            file.setLine(line.id, key: line.key, value: nil)
+        }
+        return file
     }
 
     func values(in section: String) -> [(key: String, value: String)] {

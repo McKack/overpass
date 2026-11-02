@@ -26,12 +26,43 @@ test('the queue goes first, then those missing art, a month after their last loo
   assert.deepEqual(due([{ ...looked, checked_at: now - 1000 }], now), []);
   const many = Array.from({ length: 1500 }, (_, index) => ({ id: `g${index}`, ...looked, checked_at: 2000 - index }));
   assert.deepEqual(due(many, now).map((game) => game.id), ['g1499', 'g1498']);
-  const queued = Array.from({ length: 30 }, (_, index) => ({ id: `n${index}`, category: null, checked_at: 0, ...complete }));
-  assert.equal(due(queued, now).length, 20);
+  const queued = Array.from({ length: 120 }, (_, index) => ({ id: `n${index}`, category: null, checked_at: 0, ...complete }));
+  assert.equal(due(queued, now).length, 100);
   assert.equal(due([...queued, { id: 'rated', name: 'A', source: 'rated' }], now)[0].id, 'rated');
   assert.deepEqual(due([{ id: 'a', category: 'Games', brand: '112233' }, { id: 'b', category: 'Utilities' }], now), []);
   const wanted = { id: 'c', category: 'Utilities', wanted: 'https://x', ...looked };
   assert.deepEqual(due([{ ...wanted, category: 'Utilities', checked_at: now }], now).map((game) => game.id), ['c']);
+});
+
+test('in the queue, a game with no cover goes ahead of one Steam already gave a cover to', () => {
+  const list = [{ id: 'covered', cover: 'c' }, { id: 'bare' }, { id: 'rated', source: 'rated', cover: 'c' }];
+  assert.deepEqual(due(list).map((game) => game.id), ['rated', 'bare', 'covered']);
+});
+
+test('every game with a Steam ID and no cover gets Steam\'s art first, in one request, and stays in the queue', async () => {
+  const games = [
+    { id: 'a', name: 'A', steam: '1' }, { id: 'b', name: 'B', steam: '2' }, { id: 'none', name: 'C', steam: '3' }, { id: 'name', name: 'D' },
+    { id: 'seen', steam: '4', checked_at: 5 }, { id: 'kept', steam: '5', cover: 'c' }, { id: 'mod', steam: '6', wanted: 'https://art/x.png' }, { id: 'tile', steam: '7', brand: '112233' },
+  ];
+  const item = (appid) => ({ appid, basic_info: { short_description: 'Fun.' }, assets: { asset_url_format: `steam/apps/${appid}/\${FILENAME}`, library_capsule_2x: 'big.jpg', library_capsule: 'small.jpg' } });
+  const sent = [], asked = [];
+  const get = async (url, options) => {
+    if (options?.method === 'POST') { sent.push(JSON.parse(options.body)); return answer({}); }
+    if (String(url).endsWith('/api/art')) return answer({ games });
+    if (String(url).includes('GetItems')) {
+      const ids = JSON.parse(new URL(url).searchParams.get('input_json')).ids.map((entry) => entry.appid);
+      asked.push(ids);
+      return answer({ response: { store_items: ids.filter((id) => id !== 3).map(item) } });
+    }
+    return answer('', 404);
+  };
+  await run({ site: 'https://site', token: 't', get, log: () => {} });
+  assert.deepEqual(asked[0], [1, 2, 3]);
+  const quick = sent.filter((body) => body.partial);
+  assert.deepEqual(quick.map((body) => body.id), ['a', 'b']);
+  assert.equal(quick[0].cover, 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/big.jpg');
+  assert.deepEqual([quick[0].source, quick[0].about, quick[0].about_source, quick[0].links], ['steam', 'Fun.', 'steam', ['https://store.steampowered.com/app/1']]);
+  assert.ok(sent.some((body) => body.id === 'name' && !body.partial));
 });
 
 test('TheGamesDB\'s allowance is shared out over the runs left', async () => {

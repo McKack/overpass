@@ -777,18 +777,19 @@ async function artList(request, env) {
 }
 
 /// What find-covers.mjs found for one game or title. It fills gaps: art that's there stays, unless it's a moderator's
-/// image coming in. A stored copy from before covers were linked counts as a gap; a moderator's upload doesn't.
+/// image coming in. A stored copy from before covers were linked counts as a gap; a moderator's upload doesn't. `partial`
+/// art leaves the game in the queue, for the sources not asked yet.
 async function storeArt(request, env) {
   if (!env.SYNC_TOKEN || request.headers.get('Authorization') !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
-  const { id, links, source, cover: image, thumb, icon, hero, about, about_source: aboutSource } = await request.json();
+  const { id, links, source, cover: image, thumb, icon, hero, about, about_source: aboutSource, partial } = await request.json();
   const before = await env.DB.prepare('SELECT file, origin, locked FROM game_art WHERE game_id = ?').bind(id).first();
   if (!before && !await env.DB.prepare('SELECT 1 FROM games WHERE id = ?').bind(id).first()) return json({ error: 'No such game.' }, 404);
   const address = (value) => typeof value === 'string' && value.startsWith('https://') && value.length <= 1000 ? value : null;
   await env.DB.prepare(
-    `INSERT INTO game_art (game_id, links, icon, hero, about, about_source, checked_at) VALUES (?1, ?2, ?3, ?4, ?6, ?7, ?5)
+    `INSERT INTO game_art (game_id, links, icon, hero, about, about_source, checked_at) VALUES (?1, ?2, ?3, ?4, ?6, ?7, COALESCE(?5, 0))
      ON CONFLICT (game_id) DO UPDATE SET links = ?2, icon = COALESCE(icon, ?3), hero = COALESCE(hero, ?4),
-       about_source = CASE WHEN about IS NULL THEN ?7 ELSE about_source END, about = COALESCE(about, ?6), wanted = NULL, checked_at = ?5`,
-  ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), Date.now(),
+       about_source = CASE WHEN about IS NULL THEN ?7 ELSE about_source END, about = COALESCE(about, ?6), wanted = CASE WHEN ?5 IS NULL THEN wanted END, checked_at = COALESCE(?5, checked_at)`,
+  ).bind(id, JSON.stringify((links ?? []).filter(storeName)), address(icon), address(hero), partial ? null : Date.now(),
     typeof about === 'string' ? about.slice(0, 1000) : null, ABOUT_SOURCES[aboutSource] ? aboutSource : null).run();
   const moderator = source === 'moderator';
   const gap = !before?.locked && (!before?.origin || before.file);

@@ -4,10 +4,13 @@
 // SteamGridDB (SGDB_KEY). Only an exact name counts: a near match puts the wrong game's art on a page. A moderator's
 // image goes first and stays. Store pages found on the way go on the game's page.
 //
+// Every game with a Steam ID and no cover gets Steam's art at the start of the run, as Steam answers STEAM_A_CALL of
+// them in one request. The full look comes later and fills in what the other sources add.
+//
 // Art a game already has stays. A game missing a cover, hero or icon is looked at again once a month, the longest
 // unchecked first, spread out over the runs. The queue goes ahead of that, up to NEW_A_RUN at a time: games someone has
 // just rated, first, as their page is being looked at, then titles the app has asked about and anything else not checked
-// yet. TheGamesDB's monthly allowance is shared out the same way.
+// yet, those with no cover before the rest. TheGamesDB's monthly allowance is shared out the same way.
 //
 //   SITE=... SYNC_TOKEN=... node find-covers.mjs
 
@@ -16,7 +19,9 @@ import { pathToFileURL } from 'node:url';
 const RUN_SECONDS = 1800;
 const MONTH_SECONDS = 30 * 24 * 3600;
 const RUNS_A_MONTH = MONTH_SECONDS / RUN_SECONDS;
-const NEW_A_RUN = 20;
+const NEW_A_RUN = 100;
+/// The most apps Steam takes in one request; 400 is refused.
+const STEAM_A_CALL = 200;
 /// The most games TheGamesDB is asked about in a run, whatever is left of the allowance.
 const TGDB_A_RUN = 5;
 const STEAM_ART = 'https://shared.akamai.steamstatic.com/store_item_assets/';
@@ -32,12 +37,18 @@ export function sameName(a, b) {
   return plain(a) === plain(b);
 }
 
-/// The games to look at now: a moderator's image, the queue, and this run's share of those still missing art. Launchers
-/// and programs that aren't games keep their tiles.
+/// Launchers and programs that aren't games keep their tiles.
+const takesArt = (game) => !game.brand && [null, undefined, 'Games'].includes(game.category);
+
+/// The games Steam can give a cover to right now. A moderator's image takes the full look.
+export const steamWaiting = (games) => games.filter((game) => takesArt(game) && game.steam && !game.checked_at && !game.cover && !game.wanted);
+
+/// The games to look at now: a moderator's image, the queue, and this run's share of those still missing art.
 export function due(games, now = Date.now()) {
-  const turns = games.filter((game) => !game.brand && [null, undefined, 'Games'].includes(game.category));
+  const turns = games.filter(takesArt);
   const waiting = turns.filter((game) => !game.checked_at);
-  const fresh = [...waiting.filter((game) => game.source === 'rated'), ...waiting.filter((game) => game.source !== 'rated')].slice(0, NEW_A_RUN);
+  const rank = (game) => (game.source === 'rated' ? 0 : game.cover ? 2 : 1);
+  const fresh = waiting.map((game, index) => [rank(game), index, game]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((entry) => entry[2]).slice(0, NEW_A_RUN);
   const missing = turns.filter((game) => game.checked_at && !(game.cover && game.hero && game.icon && game.about));
   const ready = missing.filter((game) => now - game.checked_at >= MONTH_SECONDS * 1000).sort((a, b) => a.checked_at - b.checked_at);
   const picked = [...fresh, ...ready.slice(0, Math.ceil(missing.length / RUNS_A_MONTH))];
@@ -66,10 +77,13 @@ async function json(get, url, headers) {
   return response?.ok ? response.json().catch(() => null) : null;
 }
 
-async function steamArt(get, id) {
-  const input = { ids: [{ appid: Number(id) }], context: { language: 'english', country_code: 'US', steam_realm: 1 }, data_request: { include_assets: true, include_basic_info: true } };
+async function steamItems(get, ids) {
+  const input = { ids: ids.map((id) => ({ appid: Number(id) })), context: { language: 'english', country_code: 'US', steam_realm: 1 }, data_request: { include_assets: true, include_basic_info: true } };
   const answer = await json(get, `https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${encodeURIComponent(JSON.stringify(input))}`);
-  const item = answer?.response?.store_items?.[0];
+  return answer?.response?.store_items ?? [];
+}
+
+function steamFound(item, id) {
   const about = plainText(item?.basic_info?.short_description);
   const assets = item?.assets;
   if (!assets?.asset_url_format) return { about };
@@ -81,6 +95,10 @@ async function steamArt(get, id) {
     icon: assets.community_icon ? `${STEAM_ICONS}${id}/${assets.community_icon}.jpg` : undefined,
     about,
   };
+}
+
+async function steamArt(get, id) {
+  return steamFound((await steamItems(get, [id]))[0], id);
 }
 
 async function steamMatch(get, name) {
@@ -176,16 +194,33 @@ async function isImage(get, url) {
   return Boolean(response?.ok && response.headers.get('Content-Type')?.startsWith('image/'));
 }
 
+/// Steam's art for every game waiting on it, in as few requests as Steam allows. The game stays in the queue for the rest.
+async function steamFirst(games, { get, post, log }) {
+  const waiting = steamWaiting(games);
+  for (let start = 0; start < waiting.length; start += STEAM_A_CALL) {
+    const part = waiting.slice(start, start + STEAM_A_CALL);
+    const items = new Map((await steamItems(get, part.map((game) => game.steam))).map((item) => [String(item.appid), item]));
+    for (const game of part) {
+      const found = steamFound(items.get(String(game.steam)), game.steam);
+      if (!found.cover) continue;
+      const posted = await post({ id: game.id, partial: true, links: [`https://store.steampowered.com/app/${game.steam}`], source: 'steam', about_source: 'steam', ...found });
+      log(`${game.id}: steam at once ${posted.ok ? '' : `(the site said ${posted.status})`}`);
+    }
+  }
+}
+
 export async function run({ site, token, get = fetch, tgdb, sgdb, log = console.log }) {
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const answer = await get(`${site}/api/art`, { headers });
   if (!answer.ok) throw new Error(`GET /api/art: ${answer.status}`);
   const { games } = await answer.json();
+  const post = (body) => get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify(body) });
+  await steamFirst(games, { get, post, log });
   const allowance = tgdb ? { key: tgdb, share: await tgdbShare(get, tgdb) } : null;
   for (const game of due(games)) {
     const { art, links } = await findArt(game, { get, tgdb: allowance, sgdb });
     if (game.wanted && await isImage(get, game.wanted)) Object.assign(art, { source: 'moderator', cover: game.wanted, thumb: undefined });
-    const posted = await get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify({ id: game.id, links, ...art }) });
+    const posted = await post({ id: game.id, links, ...art });
     log(`${game.id}: ${art.source ?? 'nothing'} ${posted.ok ? '' : `(the site said ${posted.status})`}`);
   }
 }

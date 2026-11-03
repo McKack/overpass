@@ -1351,20 +1351,18 @@ function cover(game) {
   return `<div class="cover${hex ? ' tinted' : ''}" style="${paint}${logo ? `;--logo:url(/logos/${game.id}.svg)` : ''}">${art ? '' : mark('frost')}${mark('mark')}${art}</div>`;
 }
 
-const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>';
+const GAMES = { href: '/games', name: 'Games' };
 
-/// The path after the logo: `up` is the page to go back to, `here` this page's name. nav.js puts the page someone
-/// actually came from in place of `up`, and gives pages with no path of their own one.
-function trailOf(trail) {
-  const path = trail?.up
-    ? `<span class="crumb"><a class="up" href="${trail.up.href}">${CHEVRON}${escape(trail.up.name)}</a></span><span class="crumb here" aria-current="page">${escape(trail.here)}</span>`
-    : '';
-  return `<div class="trail"><a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>${path}</div>`;
+/// The header is a path from the logo, the site's root: the pages above this one in `up`, then this page. nav.js grows
+/// it with the pages someone actually came through. A `top` page keeps its own path whatever came before.
+function trailOf(here, up) {
+  const steps = up.map((step, index) => `<span class="crumb"><a${index === up.length - 1 ? ' class="up"' : ''} href="${step.href}">${escape(step.name)}</a></span>`);
+  return `<div class="trail"><a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>${steps.join('')}<span class="crumb here" aria-current="page"><span>${escape(here)}</span></span></div>`;
 }
 
-/// `tab` is the header's tab this page belongs to; a page with a tab and no `trail` is a top page, with no path.
-function shell(title, description, body, moderator = false, tab = null, trail = null) {
-  const name = trail?.here ?? title.replace(/ · OverPass$/, '');
+/// `place` puts the page in the header's path: { up, here, top }, by default a page of its own under the root.
+function shell(title, description, body, moderator = false, place = {}) {
+  const name = place.here ?? title.replace(/ · OverPass$/, '');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1379,9 +1377,8 @@ function shell(title, description, body, moderator = false, tab = null, trail = 
 <script src="/nav.js" defer></script>
 </head>
 <body>
-<nav class="top${trail?.up ? ' deep' : ''}" data-page="${escape(name)}"${tab && !trail ? ' data-top' : ''}>
-  ${trailOf(trail)}
-  <div class="tabs"><a href="/">OverPass</a><a href="/games"${tab === 'games' ? ' aria-current="page"' : ''}>Games</a></div>
+<nav class="top" data-page="${escape(name)}"${place.top ? ' data-top' : ''}>
+  ${trailOf(name, place.up ?? [])}
   <div class="side">
     ${moderator ? `<a class="round" href="/moderation" aria-label="Moderation" title="Moderation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Zm-1.100 14-3.600-3.600 1.400-1.400 2.200 2.200 4.800-4.800 1.400 1.400-6.200 6.200Z"/></svg></a>` : ''}
     <a class="round" href="/account" aria-label="Account" title="Account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a3.500 3.500 0 1 1 0 7 3.500 3.500 0 0 1 0-7Zm0 14a8 8 0 0 1-6-2.700C6.900 15.600 9.300 15 12 15s5.100.6 6 2.300A8 8 0 0 1 12 20Z"/></svg></a>
@@ -1549,7 +1546,7 @@ function gamesPage(games, moderator) {
     }
   }, { rootMargin: '400% 0px' });
   for (const card of cards) { near.observe(card); far.observe(card); }
-</script>`, moderator, 'games');
+</script>`, moderator, { here: 'Games', top: true });
 }
 
 /// One bar a tier, as wide as its share of the ratings.
@@ -1973,7 +1970,7 @@ ${moderator ? coverForm(game, error) : ''}
     fetch(event.target.action, { method: 'POST' }).then((answer) => { if (!answer.ok) location.reload(); }, () => location.reload());
   });
 </script>
-${user ? reportDialog() : ''}`, moderator, 'games', { up: { href: '/games', name: 'Games' }, here: game.name });
+${user ? reportDialog() : ''}`, moderator, { up: [GAMES], here: game.name });
 }
 
 const ACCOUNT_ERRORS = {
@@ -2522,7 +2519,7 @@ const reportGonePage = () => shell('Report not found · OverPass', 'This report 
 <header class="page"><h1>This report is gone</h1><p>It was already sent, or a day went by without it being sent. To rate the game again, use How Did It Run? in OverPass.</p></header>`);
 
 const missingPage = () => shell('Game not found · OverPass', 'This game has no page yet.', `
-<header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`, false, 'games');
+<header class="page"><h1>No page for this game yet</h1><p><a href="/games">See all games</a></p></header>`, false, { up: [GAMES], here: 'Not found' });
 const failedPage = () => shell('Something went wrong · OverPass', 'The games list could not be loaded.', `
 <header class="page"><h1>Something went wrong</h1><p>The games list could not be loaded. Try again in a moment.</p></header>`);
 

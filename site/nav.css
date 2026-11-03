@@ -4,13 +4,11 @@
   --glass: color-mix(in srgb, var(--surface) 62%, transparent);
   --glass-edge: rgba(255, 255, 255, 0.7);
   --glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
-  --pill: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --glass-edge: rgba(255, 255, 255, 0.14);
     --glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
-    --pill: rgba(255, 255, 255, 0.16);
   }
 }
 html { scroll-padding-top: calc(var(--nav-bottom) + 16px); }
@@ -19,7 +17,7 @@ html { scroll-padding-top: calc(var(--nav-bottom) + 16px); }
 }
 
 .top {
-  position: sticky; top: 10px; z-index: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
+  position: sticky; top: 10px; z-index: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px;
   width: min(980px, calc(100% - 24px)); height: 52px; margin: 10px auto 0; padding: 0 10px 0 12px; border-radius: 26px;
   background: var(--glass); backdrop-filter: saturate(180%) blur(24px); -webkit-backdrop-filter: saturate(180%) blur(24px);
   box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--separator), inset 0 1px 0 var(--glass-edge);
@@ -30,22 +28,23 @@ html { scroll-padding-top: calc(var(--nav-bottom) + 16px); }
 .home { display: block; flex: none; width: 30px; height: 30px; }
 .home img { display: block; width: 100%; height: 100%; }
 
-/* The path: logo / ‹ the page before / this page. */
+/* The path from the logo: logo / a page / ‹ the page before / this page. Long names end in an ellipsis, the pages
+   behind first; this page gives up its room last. */
 .trail { display: flex; align-items: center; justify-self: start; min-width: 0; max-width: 100%; }
-.crumb { display: flex; align-items: center; min-width: 0; white-space: nowrap; }
-.crumb::before { content: "/"; margin: 0 8px; color: var(--secondary); opacity: 0.6; }
-.crumb:not(.here) { flex: none; max-width: 50%; }
-.up { display: inline-flex; align-items: center; gap: 3px; min-width: 0; padding: 6px 8px 6px 4px; margin: -6px 0; border-radius: 980px; transition: background 0.15s; }
-.top .up { color: var(--secondary); }
-.top .up:hover { color: var(--text); background: rgba(127, 127, 127, 0.14); }
-.up svg { flex: none; width: 13px; height: 13px; fill: currentColor; }
-.up, .here { overflow: hidden; text-overflow: ellipsis; }
-.here { display: block; flex: 1 1 auto; font-weight: 600; }
-
-.tabs { display: flex; gap: 2px; padding: 3px; border-radius: 980px; background: rgba(127, 127, 127, 0.14); }
-.tabs a { padding: 8px 18px; border-radius: 980px; color: var(--secondary); transition: color 0.15s, background 0.2s; }
-.tabs a:hover { color: var(--text); }
-.tabs a[aria-current] { color: var(--text); background: var(--pill); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); }
+.crumb { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+.crumb::before { content: "/"; flex: none; margin: 0 2px; color: var(--secondary); opacity: 0.6; }
+.crumb:not(.here) { min-width: 5em; }
+.crumb.here { min-width: 4em; font-weight: 600; }
+.crumb > * { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; }
+.crumb a { border-radius: 980px; transition: color 0.15s, background 0.2s; }
+.top .crumb a { color: var(--secondary); }
+.top .crumb a:hover { color: var(--text); background: rgba(127, 127, 127, 0.14); }
+.top .crumb a.up { padding-left: 5px; }
+.up::before {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 3px; vertical-align: -1px; background: currentColor;
+  -webkit-mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>') center / contain no-repeat;
+  mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>') center / contain no-repeat;
+}
 
 .side { display: flex; justify-self: end; align-items: center; gap: 4px; }
 .round { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; transition: background 0.15s; }
@@ -74,20 +73,13 @@ body::after {
 }
 .above body::before, .below body::after { opacity: 1; }
 
-/* No room for both: a page with a path shows the path, and the tabs are one step back along it. */
-@media (max-width: 760px) {
-  .top.deep { grid-template-columns: minmax(0, 1fr) auto; }
-  .deep .tabs { display: none; }
+/* A phone shows the last two steps: the page before and this one. */
+@media (max-width: 600px) {
+  .crumb:not(:nth-last-child(-n + 2)) { display: none; }
+  .crumb:not(.here) { flex-shrink: 0; max-width: 45%; }
 }
 @media (max-width: 480px) {
-  .top { display: flex; justify-content: space-between; gap: 6px; padding: 0 8px; }
-  .home { display: none; }
-  .tabs a { padding: 8px 13px; }
-  .deep .trail { flex: 1; }
-  .deep .crumb:first-of-type::before { display: none; }
-  .top .get { margin-left: 0; padding: 9px 12px; }
-  .side:has(.round + .round) .get span { display: none; }
-}
-@media (max-width: 350px) {
+  .top { gap: 6px; padding: 0 8px 0 10px; }
+  .top .get { margin-left: 0; padding: 9px 11px; }
   .get span { display: none; }
 }

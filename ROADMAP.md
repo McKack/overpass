@@ -51,7 +51,7 @@ You shouldn't need to know how a game was built to play it.
 |---|---|
 | Feature | VSync and Max FPS settings for each game (done, VSync arrives with the next OverPass Wine) |
 | Fix | Smoother windowed games above 60 FPS |
-| Feature | Reusable game fixes that work across similar games |
+| Feature | Reusable game fixes that work across similar games (first three done: they arrive with the next OverPass Wine and Runtime) |
 | Fix | Less shader stutter in Direct3D 12 games |
 | Support | Unreal Engine 5 Nanite groundwork |
 | Support | HDR and smoother frame pacing |

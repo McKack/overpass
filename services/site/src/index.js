@@ -1403,20 +1403,17 @@ function shell(title, description, body, moderator = false, tab = null) {
 </html>`;
 }
 
-const KINDS = { profile: 'Profile', preset: 'Known fix', anticheat: 'Anti-cheat info' };
-const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['category', 'Category'], ['kind', 'Type']];
+const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['category', 'Category']];
 
 function card(game) {
-  const kind = KINDS[game.source] ?? '';
   // The list's script gives each picture its address as it nears the screen.
-  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}" data-kind="${kind}"${game.anticheat ? ' data-anticheat="1"' : ''}>
+  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}"${game.anticheat ? ' data-anticheat="1"' : ''}>
   ${cover(game).replace(/(<img\b[^>]*?) src=/g, '$1 data-src=')}
   <h3>${escape(game.name)}</h3>
-  <p>${medal(game.tier)}${kind ? `<span class="tag">${kind}</span>` : ''}</p>
+  <p>${medal(game.tier)}</p>
   <span class="column">${game.ratings || ''}</span>
   <span class="column">${game.last_rated ? date(game.last_rated) : ''}</span>
   <span class="column wide">${escape(game.category ?? '')}</span>
-  <span class="column medium">${kind}</span>
   <span class="column wide">${game.stores.map((store) => escape(store.name)).join(', ')}</span>
 </a>`;
 }
@@ -1425,8 +1422,8 @@ function gamesPage(games, moderator) {
   const rated = games.filter((game) => game.tier).length;
   const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated'], ['anticheat', 'Anti-cheat']]
     .map(([value, title]) => `<button type="button" data-filter="${value}" aria-pressed="${value === 'all'}">${title}</button>`).join('');
-  const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${{ category: 'wide', kind: 'medium' }[key] ?? ''}">${title}</button>`).join('');
-  const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['category', 'Category'], ['kind', 'Type']]
+  const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${key === 'category' ? 'wide' : ''}">${title}</button>`).join('');
+  const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['category', 'Category']]
     .map(([value, title]) => `<option value="${value}">${title}</option>`).join('');
   return shell('Games · OverPass', 'How Windows games run on a Mac with OverPass: ratings from players and each game\'s settings.', `
 <header class="page">
@@ -1462,7 +1459,6 @@ function gamesPage(games, moderator) {
     ratings: [(card) => Number(card.dataset.ratings) || null, false],
     last: [(card) => Number(card.dataset.last) || null, false],
     category: [(card) => card.dataset.category || null, true, (card) => card.dataset.category || 'No category'],
-    kind: [(card) => card.dataset.kind || null, true, (card) => card.dataset.kind || 'Other'],
   };
   let filter = 'all', state = { key: 'last', up: false, view: 'covers' };
   try { state = { ...state, ...JSON.parse(localStorage.getItem('games-view')) }; } catch {}
@@ -1816,6 +1812,13 @@ const ANTI_CHEATS = {
 };
 /// Need a Windows kernel driver, which can't run on a Mac. The same list as the app's AntiCheat.swift.
 const KERNEL_ONLY = ['ea anticheat', 'ea javelin', 'vanguard', 'ricochet', 'denuvo anti-cheat'];
+const ANTI_CHEAT_BLOCKED = 'This anti-cheat doesn\'t run on a Mac at all, so the game most likely won\'t get past it, and trying could flag your account.';
+const ANTI_CHEAT_RISK = 'Anti-cheats often refuse to run under Wine on a Mac; online play may not work, and some games ban accounts for it. Offline play usually works.';
+const ANTI_CHEAT_HOWEVER = {
+  Supported: 'However, it\'s listed as working on Linux with the developer\'s approval, and Linux runs it through Wine or Proton too. That can make it less risky, but not risk free: only the developer can promise you won\'t be banned for playing under Wine.',
+  Running: 'However, it\'s listed as running on Linux through Wine or Proton, without the developer\'s word on it. That can make it less risky, but not risk free.',
+};
+
 const LINUX_STATES = {
   Supported: 'Works on Linux, and the developer allows it.',
   Running: 'Runs on Linux, without the developer\'s word on it.',
@@ -1839,11 +1842,26 @@ function antiCheatIcon(name) {
   return `<span class="capsule-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
 }
 
+/// The warning OverPass shows before a game with an anti-cheat starts (AntiCheat.swift has the same words), then what
+/// AreWeAntiCheatYet says for it, if that helps.
+function antiCheatWarning(game) {
+  const guard = game.anticheat;
+  if (!guard) return '';
+  const names = new Intl.ListFormat('en', { type: 'conjunction' }).format(guard.names);
+  const blocked = guard.status === 'Denied' || guard.names.some((name) => KERNEL_ONLY.includes(name.toLowerCase()));
+  const however = !blocked && ANTI_CHEAT_HOWEVER[guard.status];
+  const notes = guard.notes.length ? `<ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul>` : '';
+  return `<div class="ac-warning">
+  <p>AreWeAntiCheatYet lists ${escape(names)} for “${escape(game.name)}”. ${blocked ? ANTI_CHEAT_BLOCKED : ANTI_CHEAT_RISK}</p>
+  ${however ? `<p>${however}</p>` : ''}
+  ${notes}
+</div>`;
+}
+
 /// A button for each anti-cheat; each opens a small card, and clicking or tapping elsewhere closes it.
 function antiCheatRow(game) {
   const guard = game.anticheat;
   if (!guard) return '';
-  const notes = guard.notes.length ? `<ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul>` : '';
   const cards = guard.names.map((name, i) => {
     const known = ANTI_CHEATS[name.toLowerCase()];
     const kernel = KERNEL_ONLY.includes(name.toLowerCase());
@@ -1852,8 +1870,7 @@ function antiCheatRow(game) {
   ${known ? `<p>${escape(known[1])}</p>` : ''}
   ${kernel ? '<p class="problem">Needs a Windows kernel driver, which can\'t run on a Mac.</p>' : ''}
   <p><span class="state">${escape(guard.status || 'Unknown')}</span> ${escape(LINUX_STATES[guard.status] ?? '')}</p>
-  <p class="muted small">That's on Linux, through Wine or Proton, which OverPass is built on too. It's a good guide for a Mac, not a test on one.</p>
-  ${notes}
+  <p class="muted small">That's on Linux, through Wine or Proton, which OverPass is built on too. It says something about a Mac, but it isn't a test on one.</p>
   <p class="ac-more"><a href="${WATCHDOG}/game/${encodeURIComponent(guard.slug)}" target="_blank" rel="noopener">See this game on AreWeAntiCheatYet</a></p>
 </div>`;
   }).join('');
@@ -1874,13 +1891,12 @@ function gamePage(game, said, signedInAs, reports, error, moderator, own) {
   // A banned person reads the page as someone who isn't signed in.
   const user = signedInAs?.banned ? null : signedInAs;
   const twins = twinsIn([...said.flatMap((comment) => [comment, ...comment.replies]), ...game.rating_list.map((rating) => ({ name: rating.author, tag: rating.author_tag }))]);
-  const hasSettings = game.profile_text || game.presets.length;
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
-  const settings = !hasSettings ? '' : `
+  const settings = !(game.notes || game.profile_text || game.presets.length) ? '' : `
 <section>
-  <h2>${game.profile_text ? 'Profile' : 'Known fixes'}</h2>
+  <h2>Profile</h2>
   ${game.notes ? `<p>${escape(game.notes)}</p>` : ''}
-  ${game.profile_text ? `<p class="muted">OverPass applies these settings for you.</p>` : `<p class="muted">OverPass applies these settings for this game. They come from reports and are not all tested on OverPass.</p>`}
+  ${game.profile_text ? `<p class="muted">OverPass applies these settings for you.</p>` : game.presets.length ? `<p class="muted">OverPass applies these settings for this game. They come from reports and are not all tested on OverPass.</p>` : ''}
   ${presets ? `<ul class="presets">${presets}</ul>` : ''}
   ${game.profile_text ? `<details><summary>Show the profile</summary><pre>${escape(game.profile_text)}</pre></details>
   <p><a href="${REPOSITORY}/blob/main/${escape(game.profile_file)}">See it on GitHub</a></p>` : ''}
@@ -1902,6 +1918,7 @@ ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolic
     ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
     ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a class="capsule" href="${escape(store.url)}" rel="noopener">${storeIcon(store.name)}${escape(store.name)}</a>`).join('')}</p>` : ''}
     ${antiCheatRow(game)}
+    ${antiCheatWarning(game)}
   </div>
 </header>
 ${moderator ? coverForm(game, error) : ''}

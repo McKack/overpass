@@ -12,6 +12,8 @@ enum AntiCheat {
         var blocked = false
         /// Where it came from, for the warning text.
         var fromDatabase: Bool
+        /// AreWeAntiCheatYet's status: how the game does on Linux.
+        var status: String?
     }
 
     static let listURL = URL(string: "https://raw.githubusercontent.com/AreWeAntiCheatYet/AreWeAntiCheatYet/HEAD/games.json")!
@@ -44,7 +46,7 @@ enum AntiCheat {
         for game in games {
             guard let names = game["anticheats"] as? [String], !names.isEmpty else { continue }
             let info = Info(names: names, blocked: game["status"] as? String == "Denied" || names.contains(where: kernelOnly.contains),
-                            fromDatabase: true)
+                            fromDatabase: true, status: game["status"] as? String)
             if let steam = (game["storeIds"] as? [String: Any])?["steam"] as? String { bySteamID[steam] = info }
             if let name = game["name"] as? String, !titleKey(name).isEmpty { byTitle[titleKey(name)] = info }
         }
@@ -85,6 +87,21 @@ enum AntiCheat {
                 + "and trying could flag your account."
         }
         return source + " Anti-cheats often refuse to run under Wine on a Mac; online play may not work, and some "
-            + "games ban accounts for it. Offline play usually works."
+            + "games ban accounts for it. Offline play usually works." + however(info.status)
+    }
+
+    /// The same words as the game's page on the site.
+    private static func however(_ status: String?) -> String {
+        switch status {
+        case "Supported":
+            return "\n\nHowever, it's listed as working on Linux with the developer's approval, and Linux runs it through "
+                + "Wine or Proton too. That can make it less risky, but not risk free: only the developer can promise you "
+                + "won't be banned for playing under Wine."
+        case "Running":
+            return "\n\nHowever, it's listed as running on Linux through Wine or Proton, without the developer's word on it. "
+                + "That can make it less risky, but not risk free."
+        default:
+            return ""
+        }
     }
 }

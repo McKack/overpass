@@ -16,6 +16,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Pick extra Windows components from a searchable list
 - Hiding the Mac's disk from a container now hides it everywhere, not only as drive Z:
 - Settings for more games
+- The anti-cheat warning says when a game is known to run on Linux, and how much that's worth
 - Container variables and whole profile files now have plain switches and descriptions, with the text still in Advanced view
 - Game pages show which anti-cheat a game uses, with what's known about it
 - Covers made from a game's name show at least two characters, and the whole number when a name starts with one

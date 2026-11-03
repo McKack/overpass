@@ -1033,6 +1033,8 @@ class BottleManager {
         // For a game's `d3d9 =` rule, which moves this folder into or out of the DLL path.
         if Direct3D9Backend.isInstalled { env["OVERPASS_D3D9_MTLD3D"] = Direct3D9Backend.directory.path }
         env[MaxResolution.variable] = MaxResolution.global
+        env[VSync.variable] = VSync.global
+        if VSync.displayRate > 0 { env[VSync.rateVariable] = String(VSync.displayRate) }
         // x87sidecar for 32-bit programs, once it has passed its probe here; a profile opts out with OVERPASS_X87=0.
         if X87Sidecar.isReady {
             env["OVERPASS_X87SIDECAR"] = ComponentManager.x87sidecarPath.path

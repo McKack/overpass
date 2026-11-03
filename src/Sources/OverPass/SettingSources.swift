@@ -100,7 +100,7 @@ struct InheritedSettings {
 
     /// Variables and DLLs with no control of their own in the editor.
     var others: [Entry] {
-        environment.filter { !["OVERPASS_X87=", MaxResolution.variable + "="].contains(where: $0.value.hasPrefix) }
+        environment.filter { !["OVERPASS_X87=", MaxResolution.variable + "=", VSync.variable + "="].contains(where: $0.value.hasPrefix) }
             + dlls.filter { !XAudioChoice.overrides.contains($0.value) || xaudio == nil }
     }
 }

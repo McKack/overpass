@@ -818,6 +818,7 @@ private struct GeneralSettings: View {
 
 private struct GameSettings: View {
     @AppStorage(MaxResolution.key) private var maxResolution = MaxResolution.desktop
+    @AppStorage(VSync.key) private var vsync = VSync.game
     @AppStorage(BottleManager.reportCrashesKey) private var reportCrashes = true
     @AppStorage(SettingsDetail.key) private var detail = SettingsDetail.simple
 
@@ -834,6 +835,19 @@ private struct GameSettings: View {
                      : "Sets OVERPASS_MAX_RESOLUTION for every launch (desktop, display or <width>x<height>); OverPass "
                        + "Wine's display driver lists only modes up to that size, and modes above the desktop are "
                        + "scaled to fit. A profile's own value replaces it for that game.")
+            }
+            Section {
+                Picker("VSync", selection: $vsync) {
+                    Text(VSync.title(VSync.game)).tag(VSync.game)
+                    Text(VSync.title(VSync.on)).tag(VSync.on)
+                }
+            } footer: {
+                Text(detail == .simple
+                     ? "Always on keeps games from outrunning the display, for those that tear with their own VSync off. "
+                       + "A game's profile can set its own."
+                     : "Sets OVERPASS_VSYNC for every launch. With on, OverPass Wine caps a program at the display's "
+                       + "refresh rate through the Runtime's frame limits, keeping a lower limit. A profile's own value "
+                       + "replaces it for that game.")
             }
             Section {
                 Toggle("Open a report when a program crashes", isOn: $reportCrashes)

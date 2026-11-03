@@ -78,6 +78,23 @@ enum FrameLimit {
     }
 }
 
+/// VSync for a title: the game's own choice, or always on. OverPass Wine turns "on" into a frame limit at the display's
+/// refresh rate, which is how both runtimes do a game's own vsync.
+enum VSync {
+    static let key = "vsync"
+    static let variable = "OVERPASS_VSYNC"
+    static let rateVariable = "OVERPASS_DISPLAY_HZ"
+    static let game = "game"
+    static let on = "on"
+
+    static var global: String { UserDefaults.standard.string(forKey: key) == on ? on : game }
+
+    /// The main display's refresh rate, where a game opens.
+    static var displayRate: Int { NSScreen.screens.first?.maximumFramesPerSecond ?? 0 }
+
+    static func title(_ value: String) -> String { value == on ? "Always on" : "Set by the game" }
+}
+
 struct ProfileEditor: View {
     @Environment(BottleManager.self) private var manager
     @Environment(ProfileStore.self) private var profiles
@@ -98,6 +115,8 @@ struct ProfileEditor: View {
     @State private var maxResolution = ""
     /// One frame rate limit for Direct3D 9 to 12; empty leaves it to the rules, "0" is no limit.
     @State private var frameLimit = ""
+    /// Empty leaves it to the rules and Settings.
+    @State private var vsync = ""
     @State private var environment = ""
     @State private var dlls = ""
     /// What the rules set for this title; the fields above hold only what the person set.
@@ -515,8 +534,22 @@ struct ProfileEditor: View {
                 Text("Paced by Metal, for even frame times. A limit that doesn't divide the display's refresh rate can "
                      + "come out lower. Applies to OverPass Runtime.")
             }
+            Section {
+                let rule = inherited.variable(VSync.variable)
+                Picker(selection: $vsync) {
+                    Text("\(rule?.source.title ?? "Same as Settings"): \(VSync.title(rule?.value ?? VSync.global))").tag("")
+                    Divider()
+                    Text(VSync.title(VSync.game)).tag(VSync.game)
+                    Text(VSync.title(VSync.on)).tag(VSync.on)
+                } label: {
+                    SettingLabel("VSync", vsync.isEmpty ? rule?.source : .you)
+                }
+            } footer: {
+                Text("Always on keeps a game from outrunning the display, for one that tears with its own VSync off. "
+                     + "Applies to OverPass Runtime.")
+            }
             BottleSettings(bottle: item.bottle, parts: [.display], embedded: true)
-            moreSettings("Display", hidden: Set([MaxResolution.variable] + FrameLimit.options.map(\.name)))
+            moreSettings("Display", hidden: Set([MaxResolution.variable, VSync.variable] + FrameLimit.options.map(\.name)))
         }
         .formStyle(.grouped)
     }
@@ -716,6 +749,9 @@ struct ProfileEditor: View {
         maxResolution = envLines.last { $0.hasPrefix(maxPrefix) }
             .flatMap { MaxResolution.normalized(String($0.dropFirst(maxPrefix.count))) } ?? ""
         envLines.removeAll { $0.hasPrefix(maxPrefix) }
+        let vsyncPrefix = VSync.variable + "="
+        vsync = envLines.last { $0.hasPrefix(vsyncPrefix) }.map { String($0.dropFirst(vsyncPrefix.count)) } ?? ""
+        envLines.removeAll { $0.hasPrefix(vsyncPrefix) }
         fasterX87 = envLines.contains("OVERPASS_X87=0") ? false : envLines.contains("OVERPASS_X87=1") || !inheritedX87Off
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
         // And one frame rate limit, when all of Direct3D 9 to 12 share it; different ones stay separate settings.
@@ -766,6 +802,8 @@ struct ProfileEditor: View {
         }
         envLines.removeAll { $0.hasPrefix(MaxResolution.variable + "=") }
         if let value = MaxResolution.normalized(maxResolution) { envLines.append("\(MaxResolution.variable)=\(value)") }
+        envLines.removeAll { $0.hasPrefix(VSync.variable + "=") }
+        if !vsync.isEmpty { envLines.append("\(VSync.variable)=\(vsync)") }
         envLines.removeAll { $0.hasPrefix("OVERPASS_X87=") }
         if fasterX87 == inheritedX87Off { envLines.append("OVERPASS_X87=\(fasterX87 ? 1 : 0)") }
         if !frameLimit.isEmpty { envLines = FrameLimit.setting(frameLimit, in: envLines) }

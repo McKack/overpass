@@ -1,6 +1,6 @@
 {
  "format": 1,
- "revision": 1,
+ "revision": 2,
  "about": "Settings OverPass can set per title, for the Simple views of the profile editor, containers and profile files: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
  "settings": [
   {
@@ -50,6 +50,28 @@
    "group": "Display",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/win32u/sysparams.c:643-665; OverPass/src/Sources/OverPass/MaxResolution.swift:4"
+  },
+  {
+   "id": "OVERPASS_VSYNC",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "game",
+     "title": "Set by the game"
+    },
+    {
+     "value": "on",
+     "title": "Always on"
+    }
+   ],
+   "default": "game",
+   "title": "VSync",
+   "summary": "Always on keeps a game from outrunning the display, for one that tears with its own VSync off.",
+   "technical": "With on, OverPass Wine caps each new process at OVERPASS_DISPLAY_HZ (set by OverPass) through d3d11.preferredMaxFrameRate, d3d12.preferredMaxFrameRate and present.maxFps, keeping a lower limit. Both runtimes do a game's own vsync as this same minimum present duration. OverPass sets a global value for every launch; a profile overrides it.",
+   "group": "Display",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c vsync_apply"
   },
   {
    "id": "OVERPASS_NO_MAC_FRAME",

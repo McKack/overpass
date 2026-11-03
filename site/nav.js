@@ -36,7 +36,7 @@ function trail(nav) {
   // The root's path is its way in, written in the page.
   if (location.pathname === '/') return;
 
-  const steps = nav.querySelector('.trail');
+  const steps = nav.querySelector('.steps');
   steps.querySelectorAll('.crumb').forEach((crumb) => crumb.remove());
   for (const [index, step] of path.entries()) {
     const crumb = document.createElement('span'), link = document.createElement('a');

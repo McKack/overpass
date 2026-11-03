@@ -1357,7 +1357,7 @@ const GAMES = { href: '/games', name: 'Games' };
 /// it with the pages someone actually came through. A `top` page keeps its own path whatever came before.
 function trailOf(here, up) {
   const steps = up.map((step, index) => `<span class="crumb"><a${index === up.length - 1 ? ' class="up"' : ''} href="${step.href}">${escape(step.name)}</a></span>`);
-  return `<div class="trail"><a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>${steps.join('')}<span class="crumb here" aria-current="page"><span>${escape(here)}</span></span></div>`;
+  return `<div class="trail"><a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a><span class="steps">${steps.join('')}<span class="crumb here" aria-current="page"><span>${escape(here)}</span></span></span></div>`;
 }
 
 /// `place` puts the page in the header's path: { up, here, top }, by default a page of its own under the root.

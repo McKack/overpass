@@ -40,11 +40,14 @@ html { scroll-padding-top: calc(var(--nav-bottom) + 16px); }
 .top .crumb a { color: var(--secondary); }
 .top .crumb a:hover { color: var(--text); background: rgba(127, 127, 127, 0.14); }
 .top .crumb a.up { padding-left: 5px; }
-.up::before {
+.top .crumb a.next { padding-right: 5px; }
+/* ‹ the page before, and on the root › the way in. */
+.up::before, .next::after {
   content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 3px; vertical-align: -1px; background: currentColor;
   -webkit-mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>') center / contain no-repeat;
   mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>') center / contain no-repeat;
 }
+.next::after { margin: 0 0 0 3px; transform: scaleX(-1); }
 
 .side { display: flex; justify-self: end; align-items: center; gap: 4px; }
 .round { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; transition: background 0.15s; }

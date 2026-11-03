@@ -33,6 +33,8 @@ function trail(nav) {
     try { history.replaceState({ ...history.state, path, came }, ''); } catch {}
   }
   try { sessionStorage.setItem(KEY, JSON.stringify({ path, here })); } catch {}
+  // The root's path is its way in, written in the page.
+  if (location.pathname === '/') return;
 
   const steps = nav.querySelector('.trail');
   steps.querySelectorAll('.crumb').forEach((crumb) => crumb.remove());
@@ -45,14 +47,12 @@ function trail(nav) {
     crumb.append(link);
     steps.append(crumb);
   }
-  if (location.pathname !== '/') {
-    const crumb = document.createElement('span'), name = document.createElement('span');
-    crumb.className = 'crumb here';
-    crumb.setAttribute('aria-current', 'page');
-    name.textContent = name.title = here.name;
-    crumb.append(name);
-    steps.append(crumb);
-  }
+  const crumb = document.createElement('span'), name = document.createElement('span');
+  crumb.className = 'crumb here';
+  crumb.setAttribute('aria-current', 'page');
+  name.textContent = name.title = here.name;
+  crumb.append(name);
+  steps.append(crumb);
   // The page just before, by Back rather than a new visit: a list keeps its place, filters and scroll.
   steps.querySelector('.up')?.addEventListener('click', (event) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button || event.currentTarget.getAttribute('href') !== came) return;

@@ -64,6 +64,11 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
+      if (path === '/api/status') return status(await writesPausedUntil());
+      if (request.method === 'POST') {
+        const until = await writesPausedUntil();
+        if (until) return paused(until, path);
+      }
       if (path === '/api/sync' && request.method === 'POST') return await sync(request, env);
       if (path === '/api/profiles' && request.method === 'POST') return await storeProfiles(request, env);
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
@@ -190,10 +195,61 @@ export default {
       return env.ASSETS.fetch(request);
     } catch (error) {
       console.error(error);
+      if (isWriteLimit(error)) return paused(await pauseWrites(error), path);
       return path.startsWith('/api/') ? json({ error: 'The games database failed.' }, 500) : html(failedPage(), 500);
     }
   },
 };
+
+// The database's daily write limit
+
+/// Cloudflare D1's free plan allows 100,000 rows written a day; past that every write fails until 00:00 UTC. The site
+/// then refuses writes up front and says when they work again (503, Retry-After), so the sync and art jobs can wait
+/// instead of trying. The pause is kept in Cloudflare's cache, which costs no database writes; each data centre learns
+/// it from its first failed write.
+const PAUSE_KEY = 'https://overpass.arctim.no/__writes-paused';
+
+/// D1 words the error in its own way, so this matches loosely; the full text is logged the first time.
+export const isWriteLimit = (error) => /\b(limit|exceeded|quota)\b/i.test(String(error?.message ?? error)) && /writ|row/i.test(String(error?.message ?? error));
+
+/// The next 00:00 UTC, when D1's daily limits start over.
+export const nextReset = (now = Date.now()) => {
+  const day = new Date(now);
+  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1);
+};
+
+async function pauseWrites(error) {
+  const until = nextReset();
+  console.error(`Database writes paused until ${new Date(until).toISOString()}: ${error?.message ?? error}`);
+  const seconds = Math.max(60, Math.ceil((until - Date.now()) / 1000));
+  await caches.default.put(PAUSE_KEY, new Response(String(until), { headers: { 'Cache-Control': `max-age=${seconds}` } }));
+  return until;
+}
+
+async function writesPausedUntil() {
+  const kept = await caches.default.match(PAUSE_KEY);
+  const until = kept ? Number(await kept.text()) : 0;
+  return until > Date.now() ? until : 0;
+}
+
+const status = (until) => new Response(JSON.stringify(until ? { writes: 'paused', resets_at: new Date(until).toISOString() } : { writes: 'ok' }), {
+  headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
+});
+
+function paused(until, path) {
+  const resetsAt = new Date(until).toISOString();
+  const headers = { 'Retry-After': String(Math.max(60, Math.ceil((until - Date.now()) / 1000))), 'Cache-Control': 'no-store' };
+  if (path.startsWith('/api/')) {
+    return new Response(JSON.stringify({ error: 'The games database is taking no changes until its daily limit resets.', resets_at: resetsAt }), {
+      status: 503, headers: { ...headers, 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  return new Response(shell('Try again later · OverPass', 'The site can\'t save changes right now.', `
+<header class="page"><h1>Try again later</h1><p>The site can't save changes right now. Reading works as usual; saving works
+again from ${new Date(until).toUTCString().replace(/:00 GMT$/, ' UTC')}.</p></header>`), {
+    status: 503, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
 
 // Data
 

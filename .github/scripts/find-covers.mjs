@@ -214,14 +214,24 @@ export async function run({ site, token, get = fetch, tgdb, sgdb, log = console.
   const answer = await get(`${site}/api/art`, { headers });
   if (!answer.ok) throw new Error(`GET /api/art: ${answer.status}`);
   const { games } = await answer.json();
-  const post = (body) => get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify(body) });
-  await steamFirst(games, { get, post, log });
-  const allowance = tgdb ? { key: tgdb, share: await tgdbShare(get, tgdb) } : null;
-  for (const game of due(games)) {
-    const { art, links } = await findArt(game, { get, tgdb: allowance, sgdb });
-    if (game.wanted && await isImage(get, game.wanted)) Object.assign(art, { source: 'moderator', cover: game.wanted, thumb: undefined });
-    const posted = await post({ id: game.id, links, ...art });
-    log(`${game.id}: ${art.source ?? 'nothing'} ${posted.ok ? '' : `(the site said ${posted.status})`}`);
+  // A 503 means the site's database is past its daily write limit: stop until the next run instead of trying every game.
+  const post = async (body) => {
+    const posted = await get(`${site}/api/art`, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (posted.status === 503) throw Object.assign(new Error('paused'), { paused: await posted.json().catch(() => ({})) });
+    return posted;
+  };
+  try {
+    await steamFirst(games, { get, post, log });
+    const allowance = tgdb ? { key: tgdb, share: await tgdbShare(get, tgdb) } : null;
+    for (const game of due(games)) {
+      const { art, links } = await findArt(game, { get, tgdb: allowance, sgdb });
+      if (game.wanted && await isImage(get, game.wanted)) Object.assign(art, { source: 'moderator', cover: game.wanted, thumb: undefined });
+      const posted = await post({ id: game.id, links, ...art });
+      log(`${game.id}: ${art.source ?? 'nothing'} ${posted.ok ? '' : `(the site said ${posted.status})`}`);
+    }
+  } catch (error) {
+    if (!error.paused) throw error;
+    log(`The site takes no changes until ${error.paused.resets_at ?? 'its daily limit resets'}: art waits for a later run.`);
   }
 }
 

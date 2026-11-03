@@ -35,6 +35,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     headers: { Authorization: `Bearer ${process.env.SYNC_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ issues }),
   });
+  if (answer.status === 503) {
+    console.log(`The site takes no changes until ${(await answer.json().catch(() => ({}))).resets_at ?? 'its daily limit resets'}: issues wait for a later run.`);
+    process.exit(0);
+  }
   if (!answer.ok) throw new Error(`POST /api/issues: ${answer.status}`);
   console.log(`${issues.length} issues: ${JSON.stringify(await answer.json())}`);
 }

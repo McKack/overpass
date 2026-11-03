@@ -52,7 +52,18 @@ export default {
       if (request.method === "GET" && shot) return await screenshot(shot[1], env);
       return new Response("Not found\n", { status: 404 });
     } catch (error) {
-      return json({ error: "The relay failed: " + error.message }, 500);
+      // Cloudflare D1's free plan takes 100,000 rows written a day; past that, writes fail until 00:00 UTC.
+      const message = String(error?.message ?? error);
+      if (/\b(limit|exceeded|quota)\b/i.test(message) && /writ|row/i.test(message)) {
+        console.error(`Database writes refused until the daily reset: ${message}`);
+        const day = new Date();
+        const reset = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1);
+        return new Response(JSON.stringify({
+          error: `The report service can't save anything until ${new Date(reset).toUTCString().replace(/:00 GMT$/, " UTC")}. Please send it again after that.`,
+          resets_at: new Date(reset).toISOString(),
+        }), { status: 503, headers: { "Content-Type": "application/json", "Retry-After": String(Math.max(60, Math.ceil((reset - Date.now()) / 1000))) } });
+      }
+      return json({ error: "The relay failed: " + message }, 500);
     }
   },
 

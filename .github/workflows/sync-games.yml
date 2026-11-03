@@ -13,14 +13,8 @@ on:
   # The report relay starts this every half hour as well (its wrangler.toml): GitHub skips most scheduled runs.
   schedule:
     - cron: '7,37 * * * *'
-  # The relay's runs come this way too, so like scheduled runs they send the list only when something in it changed;
-  # `gh workflow run sync-games.yml -f force=true` sends it anyway (after a worker change that needs fresh fields).
+  # Every run sends the whole list; the site writes only the rows that differ, so an unchanged list costs reads only.
   workflow_dispatch:
-    inputs:
-      force:
-        description: Send the games list even if nothing changed
-        type: boolean
-        default: false
 
 # One at a time, so two runs can't sign or push over each other.
 concurrency: sync-games
@@ -37,31 +31,47 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+      # While the site's database has hit its daily write limit (Cloudflare D1's free plan), every step that writes to
+      # the site waits: the first run after 00:00 UTC catches up, since publish-profiles compares with what's live.
+      - id: site
+        run: |
+          answer=$(curl -sS --max-time 20 https://overpass.arctim.no/api/status || echo '{}')
+          echo "$answer"
+          if echo "$answer" | grep -q '"writes":"paused"'; then
+            echo "paused=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::The site takes no changes until $(echo "$answer" | sed -n 's/.*"resets_at":"\([^"]*\)".*/\1/p'); site steps skipped."
+          fi
       - id: anticheat
         # Someone else's list: trouble with it mustn't stop the rest.
         continue-on-error: true
         run: node .github/scripts/sync-anticheat.mjs
       - id: publish
+        if: steps.site.outputs.paused != 'true'
         run: node .github/scripts/publish-profiles.mjs
         env:
           SITE: https://overpass.arctim.no
           SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
           PROFILES_SIGNING_KEY: ${{ secrets.PROFILES_SIGNING_KEY }}
-      - if: github.event_name == 'push' || inputs.force || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
+      - if: steps.site.outputs.paused != 'true'
         run: node .github/scripts/games-index.js > games.json
-      - if: github.event_name == 'push' || inputs.force || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
+      - if: steps.site.outputs.paused != 'true'
         run: |
-          curl --fail-with-body -sS -X POST https://overpass.arctim.no/api/sync \
-            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
+          code=$(curl -sS -o answer.json -w '%{http_code}' -X POST https://overpass.arctim.no/api/sync \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json)
+          cat answer.json; echo
+          # 503: past the database's daily write limit; the next run after the reset sends the list again.
+          [ "$code" = 200 ] || [ "$code" = 503 ] || exit 1
         env:
           TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
       - name: Issues
+        if: steps.site.outputs.paused != 'true'
         run: node .github/scripts/link-issues.mjs
         env:
           SITE: https://overpass.arctim.no
           SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
           GH_TOKEN: ${{ github.token }}
       - name: Art
+        if: steps.site.outputs.paused != 'true'
         run: node .github/scripts/find-covers.mjs
         env:
           SITE: https://overpass.arctim.no

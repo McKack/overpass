@@ -57,6 +57,12 @@ async function site(address, init = {}) {
   const response = await fetch(`${process.env.SITE}${address}`, {
     ...init, headers: { Authorization: `Bearer ${process.env.SYNC_TOKEN}`, 'Content-Type': 'application/json' },
   });
+  // Past the database's daily write limit. Safe to stop anywhere: a later run applies the same suggestions to the
+  // same files, so it makes no second commit, and then tells the site.
+  if (response.status === 503) {
+    console.log(`The site takes no changes until ${(await response.json().catch(() => ({}))).resets_at ?? 'its daily limit resets'}: publishing waits for a later run.`);
+    process.exit(0);
+  }
   if (!response.ok) throw new Error(`${address} answered ${response.status}: ${await response.text()}`);
   return response;
 }

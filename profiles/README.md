@@ -12,6 +12,10 @@ A file can hold two kinds of sections.
 - Recipe sections `[app]`, `[install]` and `[launch]`. All three are optional. Only the OverPass app
   reads them. They describe how to install and start the app.
 - `[store]`, optional: where the game is sold. Only the website reads it.
+- `[anti-cheat]`, optional: which anti-cheat the game uses and how that does on Linux. The app and the website read it;
+  overpass-wine doesn't. `sync-anticheat.mjs` writes it from [AreWeAntiCheatYet](https://areweanticheatyet.com) (MIT) once a
+  day, so edits there go to that list. A file with only `[store]` and `[anti-cheat]` is a game OverPass knows nothing else
+  about yet.
 - Every other `[section]` is a compatibility rule. OverPass and overpass-wine both read rules.
   overpass-wine applies them to every process, including programs a launcher starts on its own.
 
@@ -185,6 +189,17 @@ program = GalaxyClient Helper.exe
 add-arguments = --in-process-gpu --use-gl=swiftshader
 unless-argument = --type=crashpad-handler
 ```
+
+## [anti-cheat]
+
+| Key | Meaning | Repeatable |
+|---|---|---|
+| `game` | The game's name, for a file with no `[app]` | no |
+| `uses` | An anti-cheat | yes |
+| `status` | `Supported`, `Running`, `Planned`, `Broken` or `Denied`, on Linux | no |
+| `page` | The game's page on AreWeAntiCheatYet | no |
+| `changed` | When the list last changed it | no |
+| `note` | A note, then ` \| ` and its link if it has one | yes |
 
 ## Presets
 

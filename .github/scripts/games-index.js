@@ -40,8 +40,9 @@ function profile(id, text) {
   const parts = sections(text);
   const app = parts.find((part) => part.name === 'app');
   const store = parts.find((part) => part.name === 'store');
-  const rules = parts.filter((part) => part.name && !['app', 'install', 'launch', 'store'].includes(part.name));
-  const name = first(app, 'name') || rules[0]?.name.split(':')[0].trim() || id;
+  const guard = parts.find((part) => part.name === 'anti-cheat');
+  const rules = parts.filter((part) => part.name && !['app', 'install', 'launch', 'store', 'anti-cheat'].includes(part.name));
+  const name = first(app, 'name') || first(guard, 'game') || rules[0]?.name.split(':')[0].trim() || id;
   const steam = first(app, 'steam-app') || first(store, 'steam') || rules.map((rule) => first(rule, 'steam-app')).find(Boolean) || null;
   const gog = first(app, 'gog-game') || first(store, 'gog') || null;
   const epic = first(store, 'epic') || null;
@@ -52,6 +53,10 @@ function profile(id, text) {
     profile_file: `profiles/${id}.ini`, profile_text: text.trim(), presets: all(app, 'preset'), steam, gog,
     links: all(store, 'link'), brand: first(app, 'brand-color') || null, color: first(app, 'brand-color') || null,
     keys: [['profile', id], ...(steam ? [['steam', steam]] : []), ...(gog ? [['gog', gog]] : []), ...(epic ? [['epic', epic]] : [])],
+    anticheat: guard ? {
+      page: first(guard, 'page') || null, status: first(guard, 'status') || '', names: all(guard, 'uses'), changed: first(guard, 'changed') || null,
+      notes: all(guard, 'note').map((note) => note.match(/^(.*?)(?: \| (https:\S+))?$/)).map(([, text, url]) => [text, url ?? '']),
+    } : null,
   };
 }
 

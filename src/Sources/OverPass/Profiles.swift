@@ -530,16 +530,18 @@ class ProfileStore {
                   let original = try? String(contentsOf: bundled[id]!, encoding: .utf8) else { return false }
             return UserProfiles.basedOn(mine).map { $0 != UserProfiles.version(of: original) } ?? false
         })
-        profiles = effective.compactMap { id, url in
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-            return GameProfile.parseINI(id: id, text: text)
-        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let texts = effective.compactMapValues { try? String(contentsOf: $0, encoding: .utf8) }
+        // A person's copy may lack what the bundled file says about the anti-cheat.
+        AntiCheat.read(texts.values + edited.compactMap { bundled[$0].flatMap { try? String(contentsOf: $0, encoding: .utf8) } })
+        profiles = texts.compactMap { GameProfile.parseINI(id: $0.key, text: $0.value) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         // Presets go first (rules apply in file-name order), so a profile's own rules come after them.
         let presets = Self.iniFiles(in: Self.bundledDirectory?.appendingPathComponent("Presets"))
             .merging(Self.iniFiles(in: UserProfiles.directory.appendingPathComponent("Presets"))) { $1 }
         self.presets = presets.keys.sorted()
         presetSummaries = presets.reduce(into: [:]) { $0[$1.key] = Self.presetSummary($1.value, name: $1.key) }
-        var rules = Array(effective.values)
+        // Most profiles hold only anti-cheat info. Wine reads this folder at every process start, so those stay out.
+        var rules = effective.filter { !CompatRules.parse(texts[$0.key] ?? "").isEmpty }.map(\.value)
         for (name, url) in presets {
             rules.append(UserProfiles.generatedRule("00-preset-\(name).ini", text: (try? String(contentsOf: url, encoding: .utf8)) ?? ""))
         }

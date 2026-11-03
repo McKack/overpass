@@ -452,7 +452,6 @@ struct ContentView: View {
             back: canGoBack ? { go(-1) } : nil,
             forward: canGoForward ? { go(1) } : nil))
         .frame(minWidth: 760, minHeight: 440)
-        .task { await AntiCheat.refresh() }
         .onAppear {
             try? FileManager.default.createDirectory(at: Bottle.bottlesDirectory(), withIntermediateDirectories: true)
             manager.detectWine()

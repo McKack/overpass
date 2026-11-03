@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS issue_closes (
   created_at INTEGER NOT NULL
 );
 
--- AreWeAntiCheatYet's word on a game, from sync-anticheat.mjs each month. A game known only from this has source 'anticheat'.
+-- A profile's [anti-cheat] section, kept here by /api/sync for the pages. A game known only from this has source 'anticheat'.
 CREATE TABLE IF NOT EXISTS anticheat (
   game_id TEXT PRIMARY KEY,
   slug TEXT NOT NULL,                -- its page: areweanticheatyet.com/game/<slug>

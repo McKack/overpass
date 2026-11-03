@@ -1,6 +1,6 @@
 # Keeps the site in step with profiles/: approved suggestions go in (publish-profiles.mjs), the set the app downloads is
 # signed, every change updates overpass.arctim.no/games, each run links issues to their games (link-issues.mjs) and checks a share
-# of the games' art and descriptions (find-covers.mjs). Once a month AreWeAntiCheatYet's list comes in too (sync-anticheat.mjs).
+# of the games' art and descriptions (find-covers.mjs). Once a day AreWeAntiCheatYet's list goes into profiles/ (sync-anticheat.mjs).
 # Needs the repository secrets GAMES_SYNC_TOKEN, the site's SYNC_TOKEN (services/site/wrangler.toml), and
 # PROFILES_SIGNING_KEY, whose public half is in the app (ProfileUpdates.swift). TGDB_KEY and SGDB_KEY are optional: without
 # them, art comes from Steam and GOG only.
@@ -30,15 +30,19 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+      - id: anticheat
+        # Someone else's list: trouble with it mustn't stop the rest.
+        continue-on-error: true
+        run: node .github/scripts/sync-anticheat.mjs
       - id: publish
         run: node .github/scripts/publish-profiles.mjs
         env:
           SITE: https://overpass.arctim.no
           SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
           PROFILES_SIGNING_KEY: ${{ secrets.PROFILES_SIGNING_KEY }}
-      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true'
+      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
         run: node .github/scripts/games-index.js > games.json
-      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true'
+      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
         run: |
           curl --fail-with-body -sS -X POST https://overpass.arctim.no/api/sync \
             -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json
@@ -50,13 +54,6 @@ jobs:
           SITE: https://overpass.arctim.no
           SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-      - name: Anti-cheat
-        # Someone else's list: trouble with it mustn't stop the art.
-        continue-on-error: true
-        run: node .github/scripts/sync-anticheat.mjs
-        env:
-          SITE: https://overpass.arctim.no
-          SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
       - name: Art
         run: node .github/scripts/find-covers.mjs
         env:

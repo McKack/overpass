@@ -30,7 +30,6 @@
 //   GET  /api/art/<store>/<id>?name=   the art the app shows; a title not seen before joins the queue for find-covers.mjs
 //   POST /games/<id>/cover, /games/<id>/cover/url, /games/<id>/cover/reset   a moderator changes a game's cover
 //   GET  /pictures/covers/<file>  a moderator's upload
-//   GET  /api/anticheat          when AreWeAntiCheatYet's list last came, for sync-anticheat.mjs; POST { run, games } or { run, done }; needs the SYNC_TOKEN secret
 //   GET  /api/profiles           the signed set of profiles the app downloads
 //   POST /api/profiles           { serial, body } from publish-profiles.mjs; needs the SYNC_TOKEN secret
 //   GET  /api/suggestions        the approved suggestions, for publish-profiles.mjs; needs the SYNC_TOKEN secret
@@ -70,7 +69,6 @@ export default {
       if (path === '/api/suggestions' && request.method === 'POST') return await settleSuggestions(request, env);
       if (path === '/api/art' && request.method === 'POST') return await storeArt(request, env);
       if (path === '/api/issues' && request.method === 'POST') return await storeIssues(request, env, context);
-      if (path === '/api/anticheat' && request.method === 'POST') return await storeAntiCheat(request, env);
       const commented = path.match(/^\/games\/([a-z0-9-]+)\/comments(?:\/([0-9a-f-]+)\/(delete|vote))?$/);
       const reported = path.match(/^\/games\/([a-z0-9-]+)\/(comments|ratings)\/([0-9a-f-]+)\/report$/);
       const moderated = path.match(/^\/moderation\/(comments|ratings)\/([0-9a-f-]+)\/(hide|show)$/);
@@ -163,7 +161,6 @@ export default {
           return (moderator ? personal : html)(privacyPage(moderator));
         }
         if (ticket) return await showReport(env, ticket[1], await signedIn(request, env));
-        if (path === '/api/anticheat') return await antiCheatStamp(request, env);
         if (path === '/api/recent') return json(await recent(env));
         if (path === '/api/profiles') return await serveProfiles(env);
         if (path === '/api/suggestions') return await approvedSuggestions(request, env);
@@ -295,6 +292,9 @@ async function detail(env, id) {
   };
 }
 
+/// How many writes go to the database at a time.
+const SYNC_BATCH = 500;
+
 /// Replaces the list of games. A game that gained a profile takes over the ratings and comments of the page it had;
 /// one that lost its file keeps its page while it has either.
 async function sync(request, env) {
@@ -304,6 +304,8 @@ async function sync(request, env) {
   if (!Array.isArray(games) || !games.length) return json({ error: 'No games.' }, 400);
   const now = Date.now();
   const steps = [];
+  const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
+  const owners = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
   for (const game of games) {
     steps.push(env.DB.prepare(
       `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, color, created_at)
@@ -314,7 +316,18 @@ async function sync(request, env) {
          links = excluded.links, brand = excluded.brand, color = excluded.color`,
     ).bind(game.id, game.name, game.category, game.source, game.verified, game.notes, game.profile_file, game.profile_text,
       JSON.stringify(game.presets), game.steam, game.gog, JSON.stringify(game.links ?? []), game.brand ?? null, game.color ?? null, now));
+    if (game.anticheat) {
+      const guard = game.anticheat;
+      steps.push(env.DB.prepare('INSERT OR REPLACE INTO anticheat (game_id, slug, status, anticheats, notes, changed, run) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(game.id, guard.page ?? '', guard.status, JSON.stringify(guard.names), JSON.stringify(guard.notes), guard.changed ?? null, now));
+    }
     for (const [store, id] of game.keys) {
+      const owner = owners.get(`${store}:${id}`);
+      if (owner === game.id) continue;
+      if (!owner) {
+        steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, id, game.id));
+        continue;
+      }
       steps.push(env.DB.prepare(
         `UPDATE ratings SET game_id = ?1 WHERE game_id IN (SELECT game_id FROM game_keys WHERE store = ?2 AND store_id = ?3 AND game_id <> ?1)`,
       ).bind(game.id, store, id));
@@ -326,15 +339,15 @@ async function sync(request, env) {
   }
   const ids = JSON.stringify(games.map((game) => game.id));
   steps.push(env.DB.prepare(
-    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)
-       AND id NOT IN (SELECT game_id FROM anticheat)`,
+    `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`,
   ).bind(ids));
   steps.push(env.DB.prepare(
     `UPDATE games SET source = 'rated', verified = NULL, notes = NULL, profile_file = NULL, profile_text = NULL, presets = '[]'
-     WHERE id NOT IN (SELECT value FROM json_each(?1)) AND source <> 'anticheat'`,
+     WHERE id NOT IN (SELECT value FROM json_each(?1))`,
   ).bind(ids));
   steps.push(env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'));
-  await env.DB.batch(steps);
+  steps.push(env.DB.prepare('DELETE FROM anticheat WHERE run <> ?').bind(now));
+  for (let start = 0; start < steps.length; start += SYNC_BATCH) await env.DB.batch(steps.slice(start, start + SYNC_BATCH));
   const { results: gone } = await env.DB.prepare(`SELECT game_id, file FROM game_art WHERE game_id NOT IN (SELECT id FROM games) AND game_id NOT LIKE '%:%'`).all();
   for (const entry of gone) {
     if (entry.file) await env.PICTURES.delete(`covers/${entry.file}`);
@@ -837,51 +850,6 @@ async function storeIssues(request, env, context) {
   await env.DB.batch(steps);
   if (fixed.length) context.waitUntil(tellAboutFixes(env, fixed).catch((error) => console.error(`Mail failed: ${error.message}`)));
   return json({ linked: steps.length - 1 });
-}
-
-async function antiCheatStamp(request, env) {
-  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
-  const synced = await env.DB.prepare('SELECT MAX(run) AS run FROM anticheat').first('run');
-  return new Response(JSON.stringify({ synced_at: synced }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-}
-
-/// Part of AreWeAntiCheatYet's list, from sync-anticheat.mjs. A game is found by its store IDs, then its name; one the site
-/// doesn't have gets a page. `done` ends a run: what it didn't send has left the list.
-async function storeAntiCheat(request, env) {
-  if (!fromGitHub(request, env)) return json({ error: 'Not allowed.' }, 403);
-  const { run, games, done } = await request.json();
-  if (!Number.isInteger(run)) return json({ error: 'No run.' }, 400);
-  if (done) {
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM anticheat WHERE run <> ?').bind(run),
-      env.DB.prepare(`DELETE FROM games WHERE source = 'anticheat' AND id NOT IN (SELECT game_id FROM anticheat) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`),
-      env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'),
-    ]);
-    return json({ done: true });
-  }
-  const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
-  const { results: known } = await env.DB.prepare('SELECT id FROM games').all();
-  const byKey = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
-  const ids = new Set(known.map((game) => game.id));
-  const steps = [];
-  for (const game of games) {
-    let id = byKey.get(`steam:${game.steam}`) ?? byKey.get(`epic:${game.epic}`);
-    if (!id && ids.has(slug(game.name))) id = slug(game.name);
-    if (!id) {
-      id = slug(game.name);
-      if (!id) continue;
-      ids.add(id);
-      steps.push(env.DB.prepare("INSERT OR IGNORE INTO games (id, name, source, steam, created_at) VALUES (?, ?, 'anticheat', ?, ?)").bind(id, game.name, game.steam, Date.now()));
-    }
-    for (const [store, value] of [['steam', game.steam], ['epic', game.epic]]) {
-      if (value) steps.push(env.DB.prepare('INSERT OR IGNORE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, value, id));
-    }
-    steps.push(env.DB.prepare(
-      `INSERT OR REPLACE INTO anticheat (game_id, slug, status, anticheats, notes, changed, run) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(id, game.slug, game.status, JSON.stringify(game.anticheats), JSON.stringify(game.notes), game.changed, run));
-  }
-  if (steps.length) await env.DB.batch(steps);
-  return json({ stored: games.length });
 }
 
 /// A page's address from a game's name, the same as games-index.js.
@@ -1842,39 +1810,45 @@ function antiCheatIcon(name) {
   return `<span class="capsule-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
 }
 
-/// The warning OverPass shows before a game with an anti-cheat starts (AntiCheat.swift has the same words), then what
-/// AreWeAntiCheatYet says for it, if that helps.
-function antiCheatWarning(game) {
-  const guard = game.anticheat;
-  if (!guard) return '';
-  const names = new Intl.ListFormat('en', { type: 'conjunction' }).format(guard.names);
-  const blocked = guard.status === 'Denied' || guard.names.some((name) => KERNEL_ONLY.includes(name.toLowerCase()));
-  const however = !blocked && ANTI_CHEAT_HOWEVER[guard.status];
-  const notes = guard.notes.length ? `<ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul>` : '';
-  return `<div class="ac-warning">
-  <p>AreWeAntiCheatYet lists ${escape(names)} for “${escape(game.name)}”. ${blocked ? ANTI_CHEAT_BLOCKED : ANTI_CHEAT_RISK}</p>
-  ${however ? `<p>${however}</p>` : ''}
-  ${notes}
-</div>`;
+/// Whether an anti-cheat stands in the way of this game. Words on it match AntiCheat.swift.
+function antiCheatFacts(guard, name) {
+  const blocked = guard.status === 'Denied' || KERNEL_ONLY.includes(name.toLowerCase());
+  return { blocked, fine: !blocked && Boolean(ANTI_CHEAT_HOWEVER[guard.status]) };
 }
 
-/// A button for each anti-cheat; each opens a small card, and clicking or tapping elsewhere closes it.
-function antiCheatRow(game) {
+const MARKS = {
+  fine: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.500 6.300 2.500 2.500 4.500-5.300"/></svg>',
+  bad: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3l-6 6"/></svg>',
+};
+
+/// A chip for each anti-cheat, ending in a tick when it's known to work and a cross when it isn't; each opens a card.
+function antiCheatChips(game) {
   const guard = game.anticheat;
   if (!guard) return '';
-  const cards = guard.names.map((name, i) => {
+  return guard.names.map((name, i) => {
+    const { fine } = antiCheatFacts(guard, name);
+    return `<button type="button" class="capsule" popovertarget="anticheat-${i}" aria-label="${escape(name)}, ${fine ? 'works on Linux' : 'not supported'}">${antiCheatIcon(name)}${escape(name)}<span class="capsule-mark ${fine ? 'fine' : 'bad'}">${MARKS[fine ? 'fine' : 'bad']}</span></button>`;
+  }).join('');
+}
+
+function antiCheatCards(game) {
+  const guard = game.anticheat;
+  if (!guard) return '';
+  const notes = guard.notes.length ? `<section class="pane wide-pane"><h4>Notes</h4><ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul></section>` : '';
+  return guard.names.map((name, i) => {
     const known = ANTI_CHEATS[name.toLowerCase()];
-    const kernel = KERNEL_ONLY.includes(name.toLowerCase());
+    const { blocked, fine } = antiCheatFacts(guard, name);
     return `<div class="ac-card" id="anticheat-${i}" popover>
-  <h3>${antiCheatIcon(name)}${escape(name)}</h3>
-  ${known ? `<p>${escape(known[1])}</p>` : ''}
-  ${kernel ? '<p class="problem">Needs a Windows kernel driver, which can\'t run on a Mac.</p>' : ''}
-  <p><span class="state">${escape(guard.status || 'Unknown')}</span> ${escape(LINUX_STATES[guard.status] ?? '')}</p>
-  <p class="muted small">That's on Linux, through Wine or Proton, which OverPass is built on too. It says something about a Mac, but it isn't a test on one.</p>
+  <header>${antiCheatIcon(name)}<h3>${escape(name)}</h3><span class="state ${fine ? '' : 'bad'}">${escape(guard.status || 'Unknown')}</span>
+    <button type="button" class="close" popovertarget="anticheat-${i}" popovertargetaction="hide" aria-label="Close"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3l-6 6"/></svg></button></header>
+  <div class="panes">
+    <section class="pane${blocked ? ' danger' : ''}"><h4>On a Mac</h4><p>${blocked ? ANTI_CHEAT_BLOCKED : ANTI_CHEAT_RISK}</p>${fine ? `<p>${ANTI_CHEAT_HOWEVER[guard.status]}</p>` : ''}</section>
+    <section class="pane"><h4>On Linux</h4><p>${escape(LINUX_STATES[guard.status] ?? 'Nothing is known yet.')}</p>${known ? `<h4>What it is</h4><p>${escape(known[1])}</p>` : ''}</section>
+    ${notes}
+  </div>
   <p class="ac-more"><a href="${WATCHDOG}/game/${encodeURIComponent(guard.slug)}" target="_blank" rel="noopener">See this game on AreWeAntiCheatYet</a></p>
 </div>`;
   }).join('');
-  return `<p class="anticheats">${guard.names.map((name, i) => `<button type="button" class="capsule" popovertarget="anticheat-${i}">${antiCheatIcon(name)}${escape(name)}</button>`).join('')}</p>${cards}`;
 }
 
 /// GitHub issues about the game, open ones first.
@@ -1892,11 +1866,12 @@ function gamePage(game, said, signedInAs, reports, error, moderator, own) {
   const user = signedInAs?.banned ? null : signedInAs;
   const twins = twinsIn([...said.flatMap((comment) => [comment, ...comment.replies]), ...game.rating_list.map((rating) => ({ name: rating.author, tag: rating.author_tag }))]);
   const presets = game.presets.map((name) => `<li><a href="${REPOSITORY}/blob/main/profiles/Presets/${encodeURIComponent(name)}.ini">${escape(name)}</a></li>`).join('');
+  const hasRules = /^\[(?!store\]|anti-cheat\])/m.test(game.profile_text ?? '');
   const settings = !(game.notes || game.profile_text || game.presets.length) ? '' : `
 <section>
   <h2>Profile</h2>
   ${game.notes ? `<p>${escape(game.notes)}</p>` : ''}
-  ${game.profile_text ? `<p class="muted">OverPass applies these settings for you.</p>` : game.presets.length ? `<p class="muted">OverPass applies these settings for this game. They come from reports and are not all tested on OverPass.</p>` : ''}
+  ${hasRules ? `<p class="muted">OverPass applies these settings for you.</p>` : game.profile_text ? `<p class="muted">No settings yet, only what's known about its anti-cheat.</p>` : game.presets.length ? `<p class="muted">OverPass applies these settings for this game. They come from reports and are not all tested on OverPass.</p>` : ''}
   ${presets ? `<ul class="presets">${presets}</ul>` : ''}
   ${game.profile_text ? `<details><summary>Show the profile</summary><pre>${escape(game.profile_text)}</pre></details>
   <p><a href="${REPOSITORY}/blob/main/${escape(game.profile_file)}">See it on GitHub</a></p>` : ''}
@@ -1916,11 +1891,10 @@ ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolic
     ${rate.chips}
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
     ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
-    ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a class="capsule" href="${escape(store.url)}" rel="noopener">${storeIcon(store.name)}${escape(store.name)}</a>`).join('')}</p>` : ''}
-    ${antiCheatRow(game)}
-    ${antiCheatWarning(game)}
+    ${game.stores.length || game.anticheat ? `<p class="stores">${game.stores.map((store) => `<a class="capsule" href="${escape(store.url)}" rel="noopener">${storeIcon(store.name)}${escape(store.name)}</a>`).join('')}${antiCheatChips(game)}</p>` : ''}
   </div>
 </header>
+${antiCheatCards(game)}
 ${moderator ? coverForm(game, error) : ''}
 <div class="columns">
   ${side ? `<aside>${side}</aside>` : ''}

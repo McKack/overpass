@@ -1,9 +1,9 @@
 import Foundation
 
 // Which games use an anti-cheat, so OverPass can say so on the tile and before the first start. It never stops a
-// game from starting. The list is AreWeAntiCheatYet's (areweanticheatyet.com, MIT), downloaded once a day and
-// matched by Steam app ID, then by title (Epic, GOG and installed games). A game the list doesn't have is still
-// caught by Detection, from the anti-cheat files it ships.
+// game from starting. It comes from the [anti-cheat] section of the profiles, which sync-anticheat.mjs fills from
+// AreWeAntiCheatYet (areweanticheatyet.com, MIT), matched by Steam app ID, then by title (Epic, GOG and installed
+// games). A game the profiles don't have is still caught by Detection, from the anti-cheat files it ships.
 @MainActor
 enum AntiCheat {
     struct Info: Equatable {
@@ -16,16 +16,11 @@ enum AntiCheat {
         var status: String?
     }
 
-    static let listURL = URL(string: "https://raw.githubusercontent.com/AreWeAntiCheatYet/AreWeAntiCheatYet/HEAD/games.json")!
     /// Anti-cheats that need a Windows kernel driver; Highball found these never run on macOS.
     nonisolated private static let kernelOnly: Set<String> = ["EA anticheat", "EA Javelin", "Vanguard", "Ricochet", "Denuvo Anti-Cheat"]
     private static let acknowledgedKey = "antiCheatAcknowledged"
 
-    nonisolated static var cacheURL: URL {
-        Bottle.bottlesDirectory().deletingLastPathComponent().appendingPathComponent("AntiCheat/games.json")
-    }
-
-    private static var list = parse((try? Data(contentsOf: cacheURL)) ?? Data())
+    private static var list: (bySteamID: [String: Info], byTitle: [String: Info]) = ([:], [:])
 
     /// The anti-cheat a title uses, if any is known.
     static func info(for item: LibraryItem) -> Info? {
@@ -40,32 +35,31 @@ enum AntiCheat {
         String(title.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) && $0.isASCII })
     }
 
-    nonisolated private static func parse(_ data: Data) -> (bySteamID: [String: Info], byTitle: [String: Info]) {
-        guard let games = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return ([:], [:]) }
+    /// Fills the list from the text of every profile.
+    static func read(_ profiles: [String]) {
         var bySteamID: [String: Info] = [:], byTitle: [String: Info] = [:]
-        for game in games {
-            guard let names = game["anticheats"] as? [String], !names.isEmpty else { continue }
-            let info = Info(names: names, blocked: game["status"] as? String == "Denied" || names.contains(where: kernelOnly.contains),
-                            fromDatabase: true, status: game["status"] as? String)
-            if let steam = (game["storeIds"] as? [String: Any])?["steam"] as? String { bySteamID[steam] = info }
-            if let name = game["name"] as? String, !titleKey(name).isEmpty { byTitle[titleKey(name)] = info }
+        for text in profiles where text.contains("[anti-cheat]") {
+            var section = "", names: [String] = [], status: String?, steam: String?, title: String?
+            for raw in text.components(separatedBy: .newlines) {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if line.hasPrefix("["), line.hasSuffix("]") { section = String(line.dropFirst().dropLast()).lowercased(); continue }
+                guard !line.hasPrefix("#"), !line.hasPrefix(";"), let eq = line.firstIndex(of: "=") else { continue }
+                let key = line[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+                switch (section, key) {
+                case ("anti-cheat", "uses"): names.append(value)
+                case ("anti-cheat", "status"): status = value
+                case ("anti-cheat", "game"): title = value
+                case ("store", "steam"), ("app", "steam-app"): steam = steam ?? value
+                default: break
+                }
+            }
+            guard !names.isEmpty else { continue }
+            let info = Info(names: names, blocked: status == "Denied" || names.contains(where: kernelOnly.contains), fromDatabase: true, status: status)
+            if let steam { bySteamID[steam] = info }
+            if let title, !titleKey(title).isEmpty { byTitle[titleKey(title)] = info }
         }
-        return (bySteamID, byTitle)
-    }
-
-    /// Downloads the list when the cached copy is older than a day.
-    static func refresh() async {
-        let modified = (try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        guard (modified.map { Date.now.timeIntervalSince($0) } ?? .infinity) > 86_400,
-              let (data, response) = try? await URLSession.shared.data(from: listURL),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return }
-        let parsed = parse(data)
-        guard !parsed.byTitle.isEmpty else { return }
-        try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: cacheURL)
-        list = parsed
-        // The list used to come through Highball's database.
-        try? FileManager.default.removeItem(at: cacheURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Highball"))
+        list = (bySteamID, byTitle)
     }
 
     static func isAcknowledged(_ item: LibraryItem) -> Bool {

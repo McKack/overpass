@@ -38,6 +38,7 @@ You shouldn't need to know how a game was built to play it.
 | Feature | 32-bit and 64-bit games pick the right graphics and CPU settings on their own |
 | Feature | OverPass recognises a game's engine and applies known settings for it |
 | Feature | Missing components are offered when a game needs them |
+| Feature | Extra Windows parts a game needs (Visual C++, shader compilers) are added before it starts |
 | Feature | New game profiles arrive without an app update |
 | Feature | More games get known settings, from reports in the open Highball database |
 | Feature | Clearer profile editor: Direct3D, Display, Sound, Input each in their own place |

@@ -236,10 +236,21 @@ function storeLinks(game) {
   return [...stores].map(([name, url]) => ({ name, url }));
 }
 
+/// A name that opens in another script and carries a Latin one, as Latin first: "大海战 Navy Field IV" and
+/// "死寂（Deathly Stillness）" read "Navy Field IV (大海战)" and "Deathly Stillness (死寂)". Others stay as they are.
+export function latinName(name) {
+  const start = name.search(/\p{Script=Latin}/u);
+  if (start <= 0 || !/(?!\p{Script=Latin})\p{L}/u.test(name.slice(0, start))) return name;
+  const latin = name.slice(start).replace(/[\s)）\]】」』]+$/u, '');
+  const native = name.slice(0, start).replace(/[\s(（\[【「『:：\-–—~～/|]+$/u, '');
+  if (/(?!\p{Script=Latin})\p{L}/u.test(latin) || latin.match(/\p{Script=Latin}/gu).length < 2) return name;
+  return `${latin} (${native})`;
+}
+
 function summary(game, rated) {
   const counts = rated?.counts ?? {};
   return {
-    id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat), anticheats: game.anticheats ? JSON.parse(game.anticheats) : [], anticheat_status: game.anticheat_status ?? null,
+    id: game.id, name: latinName(game.name), category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat), anticheats: game.anticheats ? JSON.parse(game.anticheats) : [], anticheat_status: game.anticheat_status ?? null,
     tier: overall(rated?.weights ?? {}), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), unconfirmed: rated?.unconfirmed ?? 0, last_rated: rated?.last ?? null,
     art: picture(game), brand: game.brand ?? null, color: game.color ?? game.brand ?? null, icon: game.icon ?? null, stores: storeLinks(game),
   };

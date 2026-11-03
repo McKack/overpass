@@ -1,6 +1,6 @@
 {
  "format": 1,
- "revision": 2,
+ "revision": 3,
  "about": "Settings OverPass can set per title, for the Simple views of the profile editor, containers and profile files: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
  "settings": [
   {
@@ -1701,13 +1701,25 @@
    "source": "Profiles/README.md"
   },
   {
+   "id": "winetricks",
+   "kind": "profile-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Winetricks verbs",
+   "summary": "Windows parts the app needs, such as d3dcompiler_47 or vcrun2019. OverPass adds any the container lacks at install and before each start. Containers are shared, so other programs in it get them too.",
+   "technical": "winetricks in [app]: one or more verbs, space-separated. Installed with winetricks -q; done verbs are read from the container's winetricks.log.",
+   "group": "app",
+   "applies": "overpass",
+   "source": "Profiles/README.md"
+  },
+  {
    "id": "dependency",
    "kind": "profile-key",
    "type": "string",
    "repeatable": true,
-   "title": "Needs another profile",
-   "summary": "Another profile this app needs.",
-   "technical": "dependency in [app].",
+   "title": "Winetricks verb (old name)",
+   "summary": "Old name for winetricks: read the same way.",
+   "technical": "dependency in [app]; same as winetricks.",
    "group": "app",
    "applies": "overpass",
    "source": "Profiles/README.md"

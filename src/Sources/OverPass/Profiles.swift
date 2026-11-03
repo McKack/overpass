@@ -24,7 +24,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
     var installer: InstallerSpec?
     /// Runtimes OverPass installs itself (see Runtime), before the installer runs.
     var runtimes: [String] = []
-    /// Winetricks verbs installed into the bottle before the installer runs, after `runtimes`.
+    /// Winetricks verbs (`winetricks =`, formerly `dependency =`): installed before the installer runs, after
+    /// `runtimes`, and before any start that finds one missing from the container.
     var dependencies: [String] = []
     /// Shared components the program needs besides its graphics backends' (`component = runtime`, the catalog's names).
     var components: [ComponentID] = []
@@ -227,7 +228,8 @@ struct GameProfile: Codable, Identifiable, Hashable {
 
     /// Every component the program needs: its own list, then what the backends it asks for come from.
     func neededComponents(graphics: GraphicsBackend) -> [ComponentID] {
-        (components + ([graphics] + ruleGraphics).compactMap(\.component)).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+        (components + (dependencies.isEmpty ? [] : [.winetricks]) + ([graphics] + ruleGraphics).compactMap(\.component))
+            .reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
 
     /// Reads a profile from its INI file; nil when the file has no [app] section (rules only).
@@ -287,7 +289,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         p.bottle.template = (first(app, "container") ?? first(app, "bottle")).flatMap(WineTemplate.init(rawValue:)) ?? .windows10
         p.bottle.group = first(app, "container-group") ?? first(app, "bottle-group")
         p.runtimes = all(app, "runtime")
-        p.dependencies = all(app, "dependency")
+        p.dependencies = (all(app, "winetricks") + all(app, "dependency")).flatMap { $0.split(separator: " ").map(String.init) }
         p.components = all(app, "component").compactMap(ComponentID.init(catalogID:))
         for e in all(app, "env") { if let (k, v) = pair(e, "=") { p.environment[k] = v } }
         for d in all(app, "dll") { if let (k, v) = pair(d, "=") { p.dllOverrides[k] = v } }

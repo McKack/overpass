@@ -46,7 +46,8 @@ Comments start with `#` or `;` at the beginning of a line. Keys are not case sen
 | `bottle` | Windows version template for the container. `windows7`, `windows10` (default) or `windows11`. `container` works too | no |
 | `bottle-group` | Apps with the same group share one container. `container-group` works too | no |
 | `runtime` | Runtime to install into the container: `vcrun`, `corefonts`, `d3dcompiler_47`, `cjkfonts` or `directx_jun2010` | yes |
-| `dependency` | Another profile this app needs | yes |
+| `winetricks` | Winetricks verbs the app needs, space-separated (`d3dcompiler_47 vcrun2019`). Any the container lacks are added at install and before each start, under "Adding … for X…"; the container's `winetricks.log` says which are done. Containers are shared (every Steam game uses Steam's), so the other programs there get them too. A verb that fails is tried again at the next start | yes |
+| `dependency` | Old name for `winetricks` | yes |
 | `component` | A shared component the app needs besides its graphics backend: `runtime`, `d3dmetal`, `winetricks`, `x87sidecar` or `dotnet-web`. A missing one is fetched at install and offered at launch. A `graphics` line asks for its own component, so it needs no `component` line | yes |
 | `env` | `NAME=value`, set for the app | yes |
 | `dll` | `name=mode` DLL override | yes |

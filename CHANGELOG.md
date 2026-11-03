@@ -14,6 +14,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 - One frame rate limit for a game, whichever Direct3D it uses
 - Your changes to a game's profile now stay when OverPass updates that profile
 - Pick extra Windows components from a searchable list
+- A game that needs extra Windows components gets them before it starts, even when it came from a store
+- Installing extra Windows components no longer fails in some containers, or waits for Steam to close
 - Hiding the Mac's disk from a container now hides it everywhere, not only as drive Z:
 - Settings for more games
 - The anti-cheat warning says when a game is known to run on Linux, and how much that's worth
@@ -45,6 +47,7 @@ What changed in each release of OverPass, newest first. The short list at the to
 **Profiles**
 - OverPass picks up new and changed game profiles when it checks for updates, so a fix no longer has to wait for a release. Updates are signed, and your own profiles still win.
 - Settings you share wait for review on the site instead of filing a public issue.
+- A profile can list the Windows components a game needs. OverPass adds any the container lacks before the game starts, the first time and after any that failed. A container is shared, so the other games in it get them too.
 
 **Covers**
 - Covers can now come from the games site, so a corrected cover and games a store has no art for reach the app. OverPass sends the site a title's store ID and name to ask for one, and nothing about you.

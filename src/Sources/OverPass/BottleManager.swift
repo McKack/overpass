@@ -563,7 +563,9 @@ class BottleManager {
     /// Runs `start` once what the title needs is here. A missing component is offered first, not left to fail
     /// inside Wine. Wrappers can't get here: they start without the app.
     func whenReady(_ profile: GameProfile?, in bottle: Bottle, name: String, start begin: @escaping @MainActor () throws -> Void) throws {
-        let start: @MainActor () throws -> Void = { [self] in try afterRefresh(bottle, name: name, start: begin) }
+        let start: @MainActor () throws -> Void = { [self] in
+            try afterRefresh(bottle, name: name) { [self] in try afterVerbs(profile, in: bottle, name: name, start: begin) }
+        }
         guard !bottle.isMac, let components = ComponentManager.current else { return try start() }
         let needed = (profile?.neededComponents(graphics: profile?.graphics ?? .auto) ?? []) + [bottle.graphics.component].compactMap { $0 }
         var missing: [ComponentID] = []
@@ -644,6 +646,97 @@ class BottleManager {
                     recipeTasks[i].failed = "\(name) couldn't start: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    /// The profile's Winetricks verbs that the container doesn't have yet. Winetricks lists each verb it
+    /// installed in the container's winetricks.log.
+    nonisolated static func missingVerbs(_ verbs: [String], in bottle: Bottle) -> [String] {
+        let log = (try? String(contentsOf: bottle.path.appendingPathComponent("winetricks.log"), encoding: .utf8)) ?? ""
+        let have = Set(log.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        return verbs.reduce(into: []) { if !have.contains($1.lowercased()) && !$0.contains($1) { $0.append($1) } }
+    }
+
+    /// Installs the profile's missing Winetricks verbs, then starts. Containers are shared (every Steam game uses
+    /// Steam's), so a verb's overrides reach the other programs there too. A verb that fails doesn't stop the
+    /// start; it is tried again next time.
+    private func afterVerbs(_ profile: GameProfile?, in bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
+        let missing = Self.missingVerbs(profile?.dependencies ?? [], in: bottle)
+        guard !bottle.isMac, !missing.isEmpty, let root = wineRoot,
+              FileManager.default.isExecutableFile(atPath: ComponentManager.winetricksPath.path) else { return try start() }
+        let message = "Adding \(missing.formatted(.list(type: .and))) for \(name)…"
+        guard !recipeTasks.contains(where: { $0.message == message && $0.failed == nil }) else { return }
+        let task = RecipeTask(message: message)
+        recipeTasks.append(task)
+        Task {
+            let before = await Task.detached { WineProcess.all(under: root, in: bottle.path) }.value
+            let wait = runningPrograms(in: bottle, among: before).isEmpty ? nil : try? WineserverWait(keeping: before, in: bottle, under: root)
+            var failed: [String] = []
+            let log = LogCollector.lastRunHandle("Winetricks", in: bottle)
+            for verb in missing {
+                log?.write(Data("$ winetricks -q \(verb)\n".utf8))
+                let status = try? await runTool(ComponentManager.winetricksPath, ["-q", verb], in: bottle,
+                                                extraEnv: wait?.environment ?? [:]) { log?.write(Data($0.utf8)) }
+                if status != 0 { failed.append(verb) }
+            }
+            try? log?.close()
+            wait?.stop()
+            recipeTasks.removeAll { $0.id == task.id }
+            do {
+                try start()
+                if !failed.isEmpty {
+                    var note = RecipeTask(message: message)
+                    note.failed = "Couldn't add \(failed.formatted(.list(type: .and))) for \(name). It will be tried again at the next start."
+                    recipeTasks.append(note)
+                }
+            } catch {
+                var note = RecipeTask(message: message)
+                note.failed = "\(name) couldn't start: \(error.localizedDescription)"
+                recipeTasks.append(note)
+            }
+        }
+    }
+
+    /// Winetricks waits with `wineserver -w` for every process in the container to end, which never happens
+    /// while something else runs there (Steam, when one of its games starts). This hands Winetricks a stand-in
+    /// whose `-w` waits only for the processes started since.
+    private struct WineserverWait {
+        let environment: [String: String]
+        private let folder: URL
+        private let watcher: Task<Void, Never>
+
+        @MainActor init(keeping before: [WineProcess], in bottle: Bottle, under root: URL) throws {
+            folder = FileManager.default.temporaryDirectory.appendingPathComponent("overpass-wineserver-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let script = folder.appendingPathComponent("wineserver"), flag = folder.appendingPathComponent("waiting")
+            try """
+            #!/bin/sh
+            # Made by OverPass: `-w` asks OverPass to wait, which removes the file once Winetricks' own processes end.
+            if [ "$1" = "-w" ]; then
+                : > "$OVERPASS_WAIT_FILE"
+                while [ -e "$OVERPASS_WAIT_FILE" ]; do sleep 0.5; done
+                exit 0
+            fi
+            exec "$OVERPASS_WINESERVER" "$@"
+
+            """.write(to: script, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            environment = ["WINESERVER": script.path, "OVERPASS_WAIT_FILE": flag.path]
+            let kept = Set(before.map(\.pid))
+            watcher = Task.detached {
+                while !Task.isCancelled {
+                    if FileManager.default.fileExists(atPath: flag.path),
+                       WineProcess.all(under: root, in: bottle.path).allSatisfy({ kept.contains($0.pid) }) {
+                        try? FileManager.default.removeItem(at: flag)
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
+        }
+
+        func stop() {
+            watcher.cancel()
+            try? FileManager.default.removeItem(at: folder)
         }
     }
 
@@ -844,7 +937,7 @@ class BottleManager {
 
     /// Runs an arbitrary tool (e.g. winetricks) with the bottle's Wine environment.
     func runTool(_ tool: URL, _ args: [String], in bottle: Bottle,
-                 log: (@MainActor (String) -> Void)? = nil) async throws -> Int32 {
+                 extraEnv: [String: String] = [:], log: (@MainActor (String) -> Void)? = nil) async throws -> Int32 {
         guard let root = wineRoot, let wine = Self.wineBinary(in: root) else { throw WineError.noWineInstallation }
         let process = Process()
         process.executableURL = tool
@@ -852,6 +945,13 @@ class BottleManager {
         var env = buildWineEnv(for: bottle, wine: wine)
         Self.addBackendPlaceholders(to: bottle)
         env["WINE"] = wine.path
+        // x87sidecar prints its cache notes on stdout, inside the output of `wine cmd /c echo …` that Winetricks
+        // reads back (seen: "w_metadata … corrupt"). Tools only run small helpers, which need no exact x87.
+        env["OVERPASS_X87"] = "0"
+        // A stand-in wineserver (WineserverWait) passes everything but `-w` on to the real one.
+        // WINESERVER_BIN is Winetricks' own name for the binary behind a wrapper (it reads its architecture).
+        if extraEnv["WINESERVER"] != nil { env["OVERPASS_WINESERVER"] = env["WINESERVER"]; env["WINESERVER_BIN"] = env["WINESERVER"] }
+        env.merge(extraEnv) { $1 }
         process.environment = env
         process.currentDirectoryURL = bottle.path
         return try await Self.runStreaming(process, log: log)

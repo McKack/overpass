@@ -27,6 +27,23 @@ enum Runtime: String, CaseIterable, Identifiable {
     /// is on in every bottle).
     static let launcherSet: [Runtime] = [.vcrun, .corefonts, .d3dcompiler47, .cjkfonts]
 
+    /// The runtime of ours that does a Winetricks verb's job, so a container that has it needs nothing more and
+    /// one that hasn't gets ours, which needs no cabextract. Names as in Winetricks.
+    static func covering(verb: String) -> Runtime? {
+        let verb = verb.lowercased()
+        switch verb {
+        case "vcrun2015", "vcrun2017", "vcrun2019", "vcrun2022", "ucrtbase2019", "mfc140": return .vcrun
+        case "corefonts", "andale", "arial", "comicsans", "courier", "georgia", "impact", "times", "trebuchet",
+             "verdana", "webdings": return .corefonts
+        case "d3dcompiler_47": return .d3dcompiler47
+        case "cjkfonts", "sourcehansans", "fakechinese", "fakejapanese", "fakejapanese_ipamona", "fakekorean": return .cjkfonts
+        // What the June 2010 DirectX end-user runtime brings.
+        case "d3dx9", "d3dx10", "d3dx10_43", "d3dx11_42", "d3dx11_43", "xact", "xact_x64", "xinput",
+             "d3dcompiler_42", "d3dcompiler_43": return .directx2010
+        default: return verb.hasPrefix("d3dx9_") ? .directx2010 : nil
+        }
+    }
+
     static var cacheDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/OverPass/Runtimes")
     }

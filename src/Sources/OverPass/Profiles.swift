@@ -228,7 +228,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
 
     /// Every component the program needs: its own list, then what the backends it asks for come from.
     func neededComponents(graphics: GraphicsBackend) -> [ComponentID] {
-        (components + (dependencies.isEmpty ? [] : [.winetricks]) + ([graphics] + ruleGraphics).compactMap(\.component))
+        (components + (dependencies.contains { Runtime.covering(verb: $0) == nil } ? [.winetricks] : []) + ([graphics] + ruleGraphics).compactMap(\.component))
             .reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
 

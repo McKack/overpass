@@ -555,19 +555,24 @@ class BottleManager {
     func launchApp(_ app: WineApp, option: LaunchOption? = nil, in bottle: Bottle) throws {
         let item = LibraryItem(app: app, bottle: bottle)
         let option = option ?? LaunchChoice.remembered(for: item)
-        try whenReady(profiles?.profile(for: item), in: bottle, name: app.name) { [self] in
+        try whenReady(profiles?.profile(for: item), verbs: CompatRules.winetricks(for: item), in: bottle, name: app.name) { [self] in
             try startApp(app, option: option, in: bottle)
         }
     }
 
     /// Runs `start` once what the title needs is here. A missing component is offered first, not left to fail
-    /// inside Wine. Wrappers can't get here: they start without the app.
-    func whenReady(_ profile: GameProfile?, in bottle: Bottle, name: String, start begin: @escaping @MainActor () throws -> Void) throws {
+    /// inside Wine. Wrappers can't get here: they start without the app. `verbs`: Winetricks verbs the rules ask for
+    /// besides the profile's own.
+    func whenReady(_ profile: GameProfile?, verbs: [String] = [], in bottle: Bottle, name: String,
+                   start begin: @escaping @MainActor () throws -> Void) throws {
+        let verbs = (profile?.dependencies ?? []) + verbs
         let start: @MainActor () throws -> Void = { [self] in
-            try afterRefresh(bottle, name: name) { [self] in try afterVerbs(profile, in: bottle, name: name, start: begin) }
+            try afterRefresh(bottle, name: name) { [self] in try afterVerbs(verbs, in: bottle, name: name, start: begin) }
         }
         guard !bottle.isMac, let components = ComponentManager.current else { return try start() }
-        let needed = (profile?.neededComponents(graphics: profile?.graphics ?? .auto) ?? []) + [bottle.graphics.component].compactMap { $0 }
+        let needed = (profile?.neededComponents(graphics: profile?.graphics ?? .auto) ?? [])
+            + (verbs.contains { Runtime.covering(verb: $0) == nil } ? [.winetricks] : [])
+            + [bottle.graphics.component].compactMap { $0 }
         var missing: [ComponentID] = []
         for id in needed where !missing.contains(id) && !components.isInstalled(id) && components.blocker(for: id) == nil {
             missing.append(id)
@@ -649,22 +654,29 @@ class BottleManager {
         }
     }
 
-    /// The profile's Winetricks verbs that the container doesn't have yet. Winetricks lists each verb it
-    /// installed in the container's winetricks.log.
+    /// The Winetricks verbs that the container doesn't have yet. Winetricks lists each verb it installed in the
+    /// container's winetricks.log; a verb one of our runtimes covers is there once that runtime is.
     nonisolated static func missingVerbs(_ verbs: [String], in bottle: Bottle) -> [String] {
         let log = (try? String(contentsOf: bottle.path.appendingPathComponent("winetricks.log"), encoding: .utf8)) ?? ""
         let have = Set(log.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
-        return verbs.reduce(into: []) { if !have.contains($1.lowercased()) && !$0.contains($1) { $0.append($1) } }
+        let runtimes = Runtime.installed(in: bottle)
+        return verbs.reduce(into: []) {
+            if !have.contains($1.lowercased()) && !$0.contains($1) && !(Runtime.covering(verb: $1).map(runtimes.contains) ?? false) {
+                $0.append($1)
+            }
+        }
     }
 
-    /// Installs the profile's missing Winetricks verbs, then starts. Containers are shared (every Steam game uses
-    /// Steam's), so a verb's overrides reach the other programs there too. A verb that fails doesn't stop the
-    /// start; it is tried again next time.
-    private func afterVerbs(_ profile: GameProfile?, in bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
-        let missing = Self.missingVerbs(profile?.dependencies ?? [], in: bottle)
-        guard !bottle.isMac, !missing.isEmpty, let root = wineRoot,
-              FileManager.default.isExecutableFile(atPath: ComponentManager.winetricksPath.path) else { return try start() }
-        let message = "Adding \(missing.formatted(.list(type: .and))) for \(name)…"
+    /// Installs the missing Winetricks verbs, then starts: through our own runtime where one does the verb's job,
+    /// else through Winetricks. Containers are shared (every Steam game uses Steam's), so a verb's overrides reach
+    /// the other programs there too. A verb that fails doesn't stop the start; it is tried again next time.
+    private func afterVerbs(_ verbs: [String], in bottle: Bottle, name: String, start: @escaping @MainActor () throws -> Void) throws {
+        let hasWinetricks = FileManager.default.isExecutableFile(atPath: ComponentManager.winetricksPath.path)
+        let missing = Self.missingVerbs(verbs, in: bottle)
+        let runtimes = missing.compactMap { Runtime.covering(verb: $0) }.reduce(into: [Runtime]()) { if !$0.contains($1) { $0.append($1) } }
+        let tricks = hasWinetricks ? missing.filter { Runtime.covering(verb: $0) == nil } : []
+        guard !bottle.isMac, !runtimes.isEmpty || !tricks.isEmpty, let root = wineRoot else { return try start() }
+        let message = "Adding \((runtimes.map(\.name) + tricks).formatted(.list(type: .and))) for \(name)…"
         guard !recipeTasks.contains(where: { $0.message == message && $0.failed == nil }) else { return }
         let task = RecipeTask(message: message)
         recipeTasks.append(task)
@@ -673,7 +685,15 @@ class BottleManager {
             let wait = runningPrograms(in: bottle, among: before).isEmpty ? nil : try? WineserverWait(keeping: before, in: bottle, under: root)
             var failed: [String] = []
             let log = LogCollector.lastRunHandle("Winetricks", in: bottle)
-            for verb in missing {
+            for runtime in runtimes {
+                do {
+                    try await runtime.install(in: bottle, using: self) { log?.write(Data($0.utf8)) }
+                } catch {
+                    log?.write(Data("\(runtime.name): \(error.localizedDescription)\n".utf8))
+                    failed.append(runtime.name)
+                }
+            }
+            for verb in tricks {
                 log?.write(Data("$ winetricks -q \(verb)\n".utf8))
                 let status = try? await runTool(ComponentManager.winetricksPath, ["-q", verb], in: bottle,
                                                 extraEnv: wait?.environment ?? [:]) { log?.write(Data($0.utf8)) }
@@ -951,6 +971,11 @@ class BottleManager {
         // A stand-in wineserver (WineserverWait) passes everything but `-w` on to the real one.
         // WINESERVER_BIN is Winetricks' own name for the binary behind a wrapper (it reads its architecture).
         if extraEnv["WINESERVER"] != nil { env["OVERPASS_WINESERVER"] = env["WINESERVER"]; env["WINESERVER_BIN"] = env["WINESERVER"] }
+        // Winetricks unpacks Microsoft's cabinets with cabextract, which macOS lacks; OverPass brings its own.
+        if let helpers = Bundle.main.executableURL?.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Helpers") {
+            env["PATH"] = "\(env["PATH"] ?? "/usr/bin:/bin"):\(helpers.path)"
+        }
         env.merge(extraEnv) { $1 }
         process.environment = env
         process.currentDirectoryURL = bottle.path

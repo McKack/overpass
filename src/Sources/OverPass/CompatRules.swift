@@ -23,6 +23,10 @@ struct CompatRule: Hashable {
     /// mtld3d or WineD3D for this program's Direct3D 9, applied after `graphics`.
     var direct3D9: Direct3D9Backend?
     var replacePaths: [(from: String, to: String)] = []
+    /// Winetricks verbs the program needs. Only OverPass reads these: it adds them before it starts the program.
+    var winetricks: [String] = []
+    /// The GOG and Epic IDs in the [store] of the rule's file, as "gog:<id>" and "epic:<name>".
+    var stores: [String] = []
 
     static func == (a: CompatRule, b: CompatRule) -> Bool { a.name == b.name && a.programs == b.programs }
     func hash(into hasher: inout Hasher) { hasher.combine(name); hasher.combine(programs) }
@@ -51,6 +55,18 @@ struct CompatRule: Hashable {
     func covers(_ item: LibraryItem) -> Bool {
         if item.app.launcher == "Steam", let id = item.app.storeID, steamAppIDs.contains(id) { return true }
         return matches(program: item.app.target.map { BottleManager.hostPath($0, in: item.bottle).path } ?? item.app.executable)
+    }
+
+    /// Whether the file's [store] names the title's GOG or Epic game. Only for what OverPass applies itself:
+    /// OverPass Wine doesn't know which game a process belongs to.
+    @MainActor
+    func names(_ item: LibraryItem) -> Bool {
+        guard let id = item.app.storeID else { return false }
+        switch item.app.launcher {
+        case "GOG": return stores.contains("gog:" + id)
+        case EpicStore.launcherName: return stores.contains("epic:" + id)
+        default: return false
+        }
     }
 }
 
@@ -85,19 +101,23 @@ enum CompatRules {
 
     static func parse(_ text: String) -> [CompatRule] {
         var rules: [CompatRule] = []
-        var inRecipe = false
+        var inRecipe = false, inStore = false
+        var stores: [String] = []
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FEFF}")))
             if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") { continue }
             if line.hasPrefix("["), line.hasSuffix("]") {
                 let name = String(line.dropFirst().dropLast())
                 inRecipe = recipeSections.contains(name.lowercased())
+                inStore = name.lowercased() == "store"
                 if !inRecipe { rules.append(CompatRule(name: name)) }
                 continue
             }
-            guard !inRecipe, !rules.isEmpty, let eq = line.firstIndex(of: "=") else { continue }
+            guard let eq = line.firstIndex(of: "=") else { continue }
             let key = line[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if inStore, key == "gog" || key == "epic", !value.isEmpty { stores.append("\(key):\(value)") }
+            guard !inRecipe, !rules.isEmpty else { continue }
             var rule = rules.removeLast()
             switch key {
             case "program": rule.programs.append(value)
@@ -119,11 +139,24 @@ enum CompatRules {
                     let to = value[sep.upperBound...].trimmingCharacters(in: .whitespaces)
                     if !from.isEmpty, !to.isEmpty { rule.replacePaths.append((from, to)) }
                 }
+            // "dependency" is the key's old name in [app].
+            case "winetricks", "dependency": rule.winetricks += value.split(separator: " ").map(String.init)
             default: break  // source and anything newer
             }
             rules.append(rule)
         }
-        return rules
+        return rules.map { rule in
+            var rule = rule
+            rule.stores = stores
+            return rule
+        }
+    }
+
+    /// The Winetricks verbs the rules ask for a library title: by its Steam app or program, as every rule
+    /// matches, or by the GOG or Epic game in the [store] of the rule's file.
+    @MainActor
+    static func winetricks(for item: LibraryItem) -> [String] {
+        all.filter { !$0.winetricks.isEmpty && ($0.covers(item) || $0.names(item)) }.flatMap(\.winetricks)
     }
 
     /// Environment that points OverPass Wine at the bundled rules and at each graphics backend's DLLs.

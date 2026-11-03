@@ -53,6 +53,8 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
 
 - **[winetricks](https://github.com/Winetricks/winetricks)** installs Windows components into bottles.
   LGPL-2.1. [Sponsor its maintainer](https://github.com/sponsors/austin987).
+- **[cabextract](https://www.cabextract.org.uk)** by Stuart Caie unpacks Microsoft's cabinet files for Winetricks.
+  GPL-3.0; OverPass builds version 1.11 from its source release and ships it inside the app.
 - **[Legendary](https://github.com/legendary-gl/legendary)** by Rodney (derrod) and contributors is the Epic
   Games Store client behind the Epic Games Library. GPL-3.0; OverPass downloads upstream's own macOS build and
   runs it as a separate program. [Heroic Games Launcher](https://heroicgameslauncher.com) and Highball showed
@@ -69,7 +71,8 @@ Each build of overpass-wine carries these projects' licence texts in its `licens
   run on macOS; OverPass marks those red. A few presets also list games from its CC0 reports, marked in each
   preset file.
 - **[umu-protonfixes](https://github.com/Open-Wine-Components/umu-protonfixes)** collects per-game fixes for Proton
-  on Linux (BSD-2-Clause). A few presets list games from it, marked in each preset file.
+  on Linux (BSD-2-Clause). A few presets list games from it, and about 150 game profiles take the Windows
+  components it lists, marked in each file.
 - **[Are We Anti-Cheat Yet?](https://areweanticheatyet.com)** collects which games use which anti-cheat (MIT).
   OverPass downloads its list to warn before a game with an anti-cheat starts.
 - **[SteamDB's FileDetectionRuleSets](https://github.com/SteamDatabase/FileDetectionRuleSets)** (MIT) tells a game's

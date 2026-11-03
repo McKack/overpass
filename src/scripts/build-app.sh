@@ -19,6 +19,17 @@ rm -rf "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 cp -R ../profiles "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles"
 # When they last changed, so OverPass can tell whether a downloaded set is newer (ProfileUpdates.swift).
 git log -1 --format=%ct -- ../profiles > "$APP/Contents/Resources/OverPass_OverPass.bundle/Profiles/serial"
+# Winetricks unpacks Microsoft's cabinets with cabextract (GPL-3.0), which macOS lacks: built once from its
+# pinned source release, then cached in build/.
+CABEXTRACT=cabextract-1.11
+if [ ! -x "build/$CABEXTRACT/cabextract" ]; then
+    curl -sfL -o "build/$CABEXTRACT.tar.gz" "https://www.cabextract.org.uk/$CABEXTRACT.tar.gz"
+    echo "b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6  build/$CABEXTRACT.tar.gz" | shasum -a 256 -c -
+    tar -xzf "build/$CABEXTRACT.tar.gz" -C build
+    (cd "build/$CABEXTRACT" && ./configure --quiet && make --quiet)
+fi
+mkdir -p "$APP/Contents/Helpers"
+cp "build/$CABEXTRACT/cabextract" "$APP/Contents/Helpers/cabextract"
 # The Credits window shows the repository's CREDITS.md.
 cp ../CREDITS.md "$APP/Contents/Resources/CREDITS.md"
 # The What's New window shows the plain lists from the repository's CHANGELOG.md.

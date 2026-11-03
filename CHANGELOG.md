@@ -16,6 +16,8 @@ What changed in each release of OverPass, newest first. The short list at the to
 - Pick extra Windows components from a searchable list
 - A game that needs extra Windows components gets them before it starts, even when it came from a store
 - Installing extra Windows components no longer fails in some containers, or waits for Steam to close
+- About 150 more games get the Windows components they're known to need before they start
+- Extra Windows components that come as Microsoft cabinet files install without anything else on your Mac
 - Hiding the Mac's disk from a container now hides it everywhere, not only as drive Z:
 - Settings for more games
 - The anti-cheat warning says when a game is known to run on Linux, and how much that's worth
@@ -48,6 +50,9 @@ What changed in each release of OverPass, newest first. The short list at the to
 - OverPass picks up new and changed game profiles when it checks for updates, so a fix no longer has to wait for a release. Updates are signed, and your own profiles still win.
 - Settings you share wait for review on the site instead of filing a public issue.
 - A profile can list the Windows components a game needs. OverPass adds any the container lacks before the game starts, the first time and after any that failed. A container is shared, so the other games in it get them too.
+- About 150 games list the Windows components they needed under Proton on Linux, from umu-protonfixes: PhysX, DirectPlay, Visual C++, D3DX and D3D compilers, .NET and fonts. They're untested on OverPass. Settings that change a whole container for every game in it, such as the Windows version or Microsoft's DirectSound, are left out.
+- A component that one of OverPass's own runtimes provides, such as Visual C++, the core fonts or DirectX June 2010, comes from that runtime, and a container that already has it skips it.
+- OverPass brings cabextract, which Winetricks needs for Microsoft's cabinet files. Before, most components failed on a Mac without it.
 
 **Covers**
 - Covers can now come from the games site, so a corrected cover and games a store has no art for reach the app. OverPass sends the site a title's store ID and name to ask for one, and nothing about you.

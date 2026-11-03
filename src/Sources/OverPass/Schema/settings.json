@@ -1,6 +1,6 @@
 {
  "format": 1,
- "revision": 3,
+ "revision": 4,
  "about": "Settings OverPass can set per title, for the Simple views of the profile editor, containers and profile files: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
  "settings": [
   {
@@ -1707,7 +1707,7 @@
    "repeatable": true,
    "title": "Winetricks verbs",
    "summary": "Windows parts the app needs, such as d3dcompiler_47 or vcrun2019. OverPass adds any the container lacks at install and before each start. Containers are shared, so other programs in it get them too.",
-   "technical": "winetricks in [app]: one or more verbs, space-separated. Installed with winetricks -q; done verbs are read from the container's winetricks.log.",
+   "technical": "winetricks in [app], or in a rule section for the programs and Steam games it covers and the GOG or Epic game in the file's [store]: one or more verbs, space-separated. A verb one of OverPass's runtimes does (vcrun2019, corefonts, d3dx9_43…) gets that runtime; the rest run with winetricks -q. Done verbs are read from the container's winetricks.log and its runtimes.",
    "group": "app",
    "applies": "overpass",
    "source": "Profiles/README.md"

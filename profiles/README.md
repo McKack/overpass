@@ -121,6 +121,7 @@ source = https://...
 | `graphics` | `dxmt`, `d3dmetal`, `wined3d`, `dxvk` or `auto` | no |
 | `d3d9` | `mtld3d` or `wined3d`: Direct3D 9 for the program, after any `graphics` line | no |
 | `replace-path` | `from => to`: start another program instead. The part of the program's path matching `from` (any case) is replaced by `to`, or the whole path when `to` is absolute (`C:\...`). The arguments stay. Skipped when the new program doesn't exist. `C:\windows\system32\donothing.exe` (OverPass Wine 11.0-14 and newer) exits at once with success, to skip a launcher step | yes |
+| `winetricks` | Winetricks verbs the game needs, space-separated, as in `[app]`. Only OverPass reads it: it adds the missing ones before it starts a title the rule covers, or a GOG or Epic game named in the file's `[store]`. A verb that one of OverPass's own runtimes does (`vcrun2019`, `corefonts`, `d3dcompiler_47`, `d3dx9_43`, `xact` and the like) gets that runtime instead. A game started from a launcher's own window doesn't get them | yes |
 | `source` | Where the fix comes from: bug report, test, forum thread | yes |
 
 A rule applies when any of its `program`, `steam-app` or `beside` lines match. Matching rules apply in file-name

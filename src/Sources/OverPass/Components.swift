@@ -623,9 +623,6 @@ class ComponentManager {
         try fm.moveItem(at: file, to: Self.winetricksPath)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Self.winetricksPath.path)
         log += "Installed to \(Self.winetricksPath.path)\n"
-        if !["/opt/homebrew/bin/cabextract", "/usr/local/bin/cabextract"].contains(where: fm.isExecutableFile(atPath:)) {
-            log += "Note: some runtimes (e.g. corefonts) also need cabextract: brew install cabextract\n"
-        }
     }
 
     private func chooseGPTK() -> URL? {

@@ -56,8 +56,6 @@ h1 { font: 700 44px/1.1 -apple-system, "SF Pro Display", sans-serif; letter-spac
 h2 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 12px; }
 section { margin-top: 40px; }
 .muted { color: var(--secondary); font-size: 15px; }
-.back { display: inline-block; margin-bottom: 8px; font-size: 15px; }
-.back::before { content: "‹ "; }
 
 .controls { display: flex; flex-direction: column; gap: 12px; margin: 20px 0 24px; }
 #search {
@@ -86,10 +84,6 @@ main:has(> .hero) { position: relative; }
   display: block; width: 100vw; height: calc(clamp(230px, 25vw, 380px) + 80px); margin: calc(-1 * var(--reach)) 0 0 calc(50% - 50vw);
   object-fit: cover; object-position: center top;
   -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 40%, transparent 95%); mask-image: linear-gradient(rgba(0, 0, 0, .5), #000 72px, #000 40%, transparent 95%);
-}
-.hero + .back {
-  position: absolute; top: 12px; left: 16px; padding: 4px 12px; border-radius: 980px; color: #ffffff; font-size: 14px;
-  background: rgba(0, 0, 0, .45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
 .hero ~ .game { position: relative; margin-top: -136px; } /* 40px more than the hero's extra height above, so the cover stays put */
 .hero ~ .game .game-intro { padding-top: 64px; }
@@ -131,7 +125,10 @@ aside pre { overflow-x: auto; }
 .choice { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
 .choice legend { padding: 0; margin-bottom: 8px; font-size: 15px; color: var(--secondary); }
 .rating .author { margin-right: auto; }
-.role { padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent); box-shadow: inset 0 0 0 1px currentColor; }
+.role { display: inline-flex; flex: none; vertical-align: -3px; color: var(--accent); }
+.role svg { width: 16px; height: 16px; fill: currentColor; }
+h1 + p .role svg, .naming .role svg { width: 20px; height: 20px; }
+.role.admin { color: var(--gold); }
 .group { grid-column: 1 / -1; margin: 16px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--separator); font-size: 20px; }
 .group:first-child { margin-top: 0; }
 .grid.rows { display: block; }

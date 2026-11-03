@@ -1275,7 +1275,12 @@ async function serveProfiles(env) {
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const date = (time) => new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const roleBadge = (title) => (title ? `<span class="role">${escape(title)}</span>` : '');
+const ROLE_ICONS = {
+  Admin: '<path d="M3 7.500 7.500 11 12 4l4.500 7L21 7.500 19 18H5L3 7.500ZM5 20h14v2H5v-2Z"/>',
+  Mod: '<path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Zm-1.100 14-3.600-3.600 1.400-1.400 2.200 2.200 4.800-4.800 1.400 1.400-6.200 6.200Z"/>',
+};
+/// A role as its icon, named on hover and to screen readers.
+const roleBadge = (title) => (title ? `<span class="role ${title.toLowerCase()}" role="img" aria-label="${escape(title)}" title="${escape(title)}"><svg viewBox="0 0 24 24" aria-hidden="true">${ROLE_ICONS[title]}</svg></span>` : '');
 const profilePath = (name, tag) => `/users/${encodeURIComponent(name)}-${tag}`;
 const number = (tag) => `<span class="number">#${escape(tag)}</span>`;
 /// A name always with its tag, for moderators and profiles.
@@ -1346,8 +1351,20 @@ function cover(game) {
   return `<div class="cover${hex ? ' tinted' : ''}" style="${paint}${logo ? `;--logo:url(/logos/${game.id}.svg)` : ''}">${art ? '' : mark('frost')}${mark('mark')}${art}</div>`;
 }
 
-/// `tab` is the header's tab this page belongs to.
-function shell(title, description, body, moderator = false, tab = null) {
+const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.700 4.300a1 1 0 0 1 0 1.400L9.400 12l6.300 6.300a1 1 0 0 1-1.400 1.400l-7-7a1 1 0 0 1 0-1.400l7-7a1 1 0 0 1 1.400 0Z"/></svg>';
+
+/// The path after the logo: `up` is the page to go back to, `here` this page's name. nav.js puts the page someone
+/// actually came from in place of `up`, and gives pages with no path of their own one.
+function trailOf(trail) {
+  const path = trail?.up
+    ? `<span class="crumb"><a class="up" href="${trail.up.href}">${CHEVRON}${escape(trail.up.name)}</a></span><span class="crumb here" aria-current="page">${escape(trail.here)}</span>`
+    : '';
+  return `<div class="trail"><a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>${path}</div>`;
+}
+
+/// `tab` is the header's tab this page belongs to; a page with a tab and no `trail` is a top page, with no path.
+function shell(title, description, body, moderator = false, tab = null, trail = null) {
+  const name = trail?.here ?? title.replace(/ · OverPass$/, '');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1362,8 +1379,8 @@ function shell(title, description, body, moderator = false, tab = null) {
 <script src="/nav.js" defer></script>
 </head>
 <body>
-<nav class="top">
-  <a class="home" href="/" aria-label="OverPass"><img src="/icon.svg" alt=""></a>
+<nav class="top${trail?.up ? ' deep' : ''}" data-page="${escape(name)}"${tab && !trail ? ' data-top' : ''}>
+  ${trailOf(trail)}
   <div class="tabs"><a href="/">OverPass</a><a href="/games"${tab === 'games' ? ' aria-current="page"' : ''}>Games</a></div>
   <div class="side">
     ${moderator ? `<a class="round" href="/moderation" aria-label="Moderation" title="Moderation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Zm-1.100 14-3.600-3.600 1.400-1.400 2.200 2.200 4.800-4.800 1.400 1.400-6.200 6.200Z"/></svg></a>` : ''}
@@ -1913,7 +1930,6 @@ function gamePage(game, said, signedInAs, reports, error, moderator, own) {
     : '<p class="empty">No ratings yet. Play it in OverPass and tell others how it ran.</p>';
   return shell(`${game.name} on Mac · OverPass`, `How ${game.name} runs on a Mac with OverPass.`, `
 ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
-<a class="back" href="/games">All games</a>
 <header class="game">
   ${moderator ? `<button class="cover-button" type="button" popovertarget="cover" aria-label="Change Cover">${cover(game)}<span class="upload">Change Cover</span></button>` : cover(game)}
   <div class="game-intro">
@@ -1957,7 +1973,7 @@ ${moderator ? coverForm(game, error) : ''}
     fetch(event.target.action, { method: 'POST' }).then((answer) => { if (!answer.ok) location.reload(); }, () => location.reload());
   });
 </script>
-${user ? reportDialog() : ''}`, moderator, 'games');
+${user ? reportDialog() : ''}`, moderator, 'games', { up: { href: '/games', name: 'Games' }, here: game.name });
 }
 
 const ACCOUNT_ERRORS = {
@@ -2202,7 +2218,7 @@ ${pager({ ...params, ...(filter ? { filter } : {}) }, page, list.length > PER_PA
       if (mine !== asked || !answer.ok) return;
       rows.innerHTML = await answer.text();
       document.querySelector('.pager')?.remove();
-      history.replaceState(null, '', '?' + query);
+      history.replaceState(history.state, '', '?' + query);
     }, 180);
   });
 </script>`;

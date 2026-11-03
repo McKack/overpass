@@ -30,7 +30,7 @@ class BottleManager {
     /// Profiles being installed or removed, so their Home tiles can show a spinner.
     var busyProfiles: Set<String> = []
     /// Set by the app, so a launch can apply its bottle's profile options.
-    var profiles: ProfileStore?
+    var profiles: ProfileStore? { didSet { bottles.forEach(writeProgramTitles) } }
     /// A Detection pass is running.
     @ObservationIgnored var detecting = false
 
@@ -240,6 +240,7 @@ class BottleManager {
         bottles = ContainerLocations.all.flatMap(ContainerLocations.containers(in:)).map { Self.loadBottle(at: $0) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         AppWrappers.sync(library.filter { !$0.bottle.isMac })
+        bottles.forEach(writeProgramTitles)
         applyBottleSetup()
         syncAppearance()
         applyGameRecipes()
@@ -1078,10 +1079,37 @@ class BottleManager {
         process.arguments = args
         process.environment = buildWineEnv(for: bottle, wine: wine)
         Self.addBackendPlaceholders(to: bottle)
+        writeProgramTitles(for: bottles.first { $0.path == bottle.path } ?? bottle)
         // A new bottle has no drive_c until `wineboot --init` makes it, and Process won't start in a missing directory.
         let driveCExists = FileManager.default.fileExists(atPath: bottle.driveC.path)
         process.currentDirectoryURL = driveCExists ? bottle.driveC : bottle.path
         return process
+    }
+
+    /// The titles OverPass Wine names each program by in the Dock and menu bar, instead of its file name
+    /// (ntdll's library_title): every title's program, its launch options' programs by their own titles, and the
+    /// game's folder, so a launcher's real program (Unreal's <project>-Win64-Shipping.exe) shows the game's title.
+    /// Wine reads it at each process start, so games a store client starts later get their titles too.
+    private func writeProgramTitles(for bottle: Bottle) {
+        // The --launch wrapper has no profiles, so no renamed titles: it leaves the file the app wrote.
+        guard !bottle.isMac, profiles != nil else { return }
+        var lines: [String] = [], options: [String] = [], folders: [String] = []
+        for item in bottle.apps.map({ personalized(LibraryItem(app: $0, bottle: bottle)) }) {
+            let app = item.app
+            if let target = app.target { lines.append(target + "\t" + app.name) }
+            for option in app.launchOptions where option.kind != .document && option.path.lowercased().hasSuffix(".exe") {
+                let path = LauncherGames.windowsPath(URL(fileURLWithPath: option.path), bottlePath: bottle.path)
+                options.append(path + "\t" + option.name)
+            }
+            if let root = item.installFolder.flatMap(Detection.root) {
+                folders.append(LauncherGames.windowsPath(root, bottlePath: bottle.path) + "\\\t" + app.name)
+            }
+        }
+        // The first line for a path wins in Wine, so the library's own titles go before the launch options'.
+        let text = (lines + options + folders).filter { !$0.contains("\n") }.joined(separator: "\n") + "\n"
+        let url = bottle.path.appendingPathComponent("overpass-titles.txt")
+        guard (try? String(contentsOf: url, encoding: .utf8)) != text else { return }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Wine loads a builtin DLL only when the bottle has a file of that name in system32 (or syswow64), and

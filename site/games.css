@@ -132,7 +132,16 @@ aside pre { overflow-x: auto; }
   .heads .medium, .grid.rows .medium, .heads button:nth-child(4), .grid.rows .column:nth-of-type(2) { display: none; }
 }
 .stores { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
-.stores a { padding: 4px 12px; border-radius: 980px; font-size: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); }
+.capsule {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 0; border-radius: 980px; cursor: pointer;
+  font: inherit; font-size: 14px; line-height: 20px; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+}
+.capsule:has(.capsule-icon) { padding-left: 4px; }
+.capsule:hover { text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.capsule-icon { position: relative; flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; overflow: hidden; color: var(--secondary); background: var(--separator); }
+.capsule-icon i { width: 14px; height: 14px; background: var(--text); -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
+.capsule-icon svg { width: 14px; height: 14px; fill: currentColor; }
+.capsule-icon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
 #cover-url { width: 100%; padding: 9px 12px; border: 0; border-radius: 10px; font: inherit; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); }
 
 .game { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 16px; align-items: start; }
@@ -397,20 +406,13 @@ a.tile:hover { text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent);
 
 /* Anti-cheats on a game's page */
 .anticheats { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
-.ac {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 6px; border: 0; border-radius: 980px; cursor: pointer;
-  font: 500 14px -apple-system, sans-serif; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
-}
-.ac:hover { box-shadow: inset 0 0 0 1px var(--accent); }
-.ac-icon { position: relative; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; overflow: hidden; color: var(--secondary); }
-.ac-icon svg { width: 18px; height: 18px; fill: currentColor; }
-.ac-icon img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
 .ac-card {
   width: min(360px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 18px 20px; border: 0; border-radius: 16px;
   color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(0, 0, 0, .35), inset 0 0 0 1px var(--separator);
 }
 .ac-card::backdrop { background: rgba(0, 0, 0, .25); }
 .ac-card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 19px; }
+.ac-card h3 .capsule-icon { width: 24px; height: 24px; }
 .ac-card p { margin: 8px 0; font-size: 15px; }
 .ac-card .small { font-size: 13px; }
 .ac-notes { margin: 10px 0; padding-left: 18px; font-size: 14px; }

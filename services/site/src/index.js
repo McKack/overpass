@@ -1824,12 +1824,19 @@ const LINUX_STATES = {
   Denied: 'The developer has shut out Linux.',
 };
 
+/// The logos the app and the launcher covers use, by store.
+const STORE_LOGOS = { Steam: 'steam', GOG: 'gog-galaxy', Epic: 'epic-games-launcher', 'Epic Games': 'epic-games-launcher', 'Battle.net': 'battle-net', EA: 'ea-app', Ubisoft: 'ubisoft-connect', Rockstar: 'rockstar-games-launcher', Xbox: 'xbox-app' };
+
+function storeIcon(name) {
+  return STORE_LOGOS[name] ? `<span class="capsule-icon"><i style="--logo:url(/logos/${STORE_LOGOS[name]}.svg)"></i></span>` : '';
+}
+
 const shield = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3Z"/></svg>';
 
 /// An anti-cheat's picture, from where it's published, over a plain shield when there's none.
 function antiCheatIcon(name) {
   const file = ANTI_CHEATS[name.toLowerCase()]?.[0];
-  return `<span class="ac-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
+  return `<span class="capsule-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
 }
 
 /// A button for each anti-cheat; each opens a small card, and clicking or tapping elsewhere closes it.
@@ -1850,7 +1857,7 @@ function antiCheatRow(game) {
   <p class="ac-more"><a href="${WATCHDOG}/game/${encodeURIComponent(guard.slug)}" target="_blank" rel="noopener">See this game on AreWeAntiCheatYet</a></p>
 </div>`;
   }).join('');
-  return `<p class="anticheats">${guard.names.map((name, i) => `<button type="button" class="ac" popovertarget="anticheat-${i}">${antiCheatIcon(name)}${escape(name)}</button>`).join('')}</p>${cards}`;
+  return `<p class="anticheats">${guard.names.map((name, i) => `<button type="button" class="capsule" popovertarget="anticheat-${i}">${antiCheatIcon(name)}${escape(name)}</button>`).join('')}</p>${cards}`;
 }
 
 /// GitHub issues about the game, open ones first.
@@ -1893,7 +1900,7 @@ ${game.hero ? `<img class="hero" src="${escape(game.hero)}" alt="" referrerpolic
     ${rate.chips}
     ${game.verified ? `<p class="muted">Tested by OverPass: ${escape(TITLES[game.verified] ?? game.verified)}</p>` : ''}
     ${game.about ? `<p class="about">${escape(game.about).replace(/\n+/g, '<br>')}</p><p class="muted credit">From ${ABOUT_SOURCES[game.about_source] ?? 'the store'}</p>` : ''}
-    ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a href="${escape(store.url)}" rel="noopener">${escape(store.name)}</a>`).join('')}</p>` : ''}
+    ${game.stores.length ? `<p class="stores">${game.stores.map((store) => `<a class="capsule" href="${escape(store.url)}" rel="noopener">${storeIcon(store.name)}${escape(store.name)}</a>`).join('')}</p>` : ''}
     ${antiCheatRow(game)}
   </div>
 </header>

@@ -239,7 +239,7 @@ function storeLinks(game) {
 function summary(game, rated) {
   const counts = rated?.counts ?? {};
   return {
-    id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat),
+    id: game.id, name: game.name, category: game.category, source: game.source, steam: game.steam, verified: game.verified, anticheat: Boolean(game.anticheat), anticheats: game.anticheats ? JSON.parse(game.anticheats) : [], anticheat_status: game.anticheat_status ?? null,
     tier: overall(rated?.weights ?? {}), counts, ratings: Object.values(counts).reduce((sum, n) => sum + n, 0), unconfirmed: rated?.unconfirmed ?? 0, last_rated: rated?.last ?? null,
     art: picture(game), brand: game.brand ?? null, color: game.color ?? game.brand ?? null, icon: game.icon ?? null, stores: storeLinks(game),
   };
@@ -254,7 +254,7 @@ async function list(env) {
   const [{ results }, rated] = await Promise.all([
     env.DB.prepare(
       `SELECT g.id, g.name, g.category, g.source, g.steam, g.verified, g.links, g.brand, g.color, a.file AS art, a.thumb, a.origin, a.icon, a.links AS found,
-         c.game_id IS NOT NULL AS anticheat
+         c.game_id IS NOT NULL AS anticheat, c.anticheats, c.status AS anticheat_status
        FROM games g LEFT JOIN game_art a ON a.game_id = g.id LEFT JOIN anticheat c ON c.game_id = g.id`,
     ).all(),
     tally(env),
@@ -1371,16 +1371,24 @@ function shell(title, description, body, moderator = false, tab = null) {
 </html>`;
 }
 
-const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['category', 'Category']];
+const COLUMNS = [['name', 'Game'], ['tier', 'Rating'], ['ratings', 'Ratings'], ['last', 'Last Rated'], ['anticheat', 'Anti-Cheat'], ['category', 'Category']];
+
+/// The Anti-Cheat column: the names, and the mark of the worst one.
+function antiCheatColumn(game) {
+  const marks = game.anticheats.map((name) => antiCheatFacts({ status: game.anticheat_status }, name).mark);
+  const mark = ['bad', 'warn', 'fine'].find((one) => marks.includes(one));
+  return mark ? `<span class="capsule-mark ${mark}" title="${MARK_WORDS[mark]}">${MARKS[mark]}</span>${escape(game.anticheats.join(', '))}` : '';
+}
 
 function card(game) {
   // The list's script gives each picture its address as it nears the screen.
-  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}"${game.anticheat ? ' data-anticheat="1"' : ''}>
+  return `<a class="card" href="/games/${game.id}" data-name="${escape(game.name.toLowerCase())}" data-tier="${game.tier ?? 'none'}" data-ratings="${game.ratings}" data-last="${game.last_rated ?? 0}" data-category="${escape(game.category ?? '')}"${game.anticheat ? ` data-anticheat="${escape(game.anticheats.join(', ').toLowerCase())}"` : ''}>
   ${cover(game).replace(/(<img\b[^>]*?) src=/g, '$1 data-src=')}
   <h3>${escape(game.name)}</h3>
   <p>${medal(game.tier)}</p>
   <span class="column">${game.ratings || ''}</span>
   <span class="column">${game.last_rated ? date(game.last_rated) : ''}</span>
+  <span class="column wide anticheat">${antiCheatColumn(game)}</span>
   <span class="column wide">${escape(game.category ?? '')}</span>
   <span class="column wide">${game.stores.map((store) => escape(store.name)).join(', ')}</span>
 </a>`;
@@ -1390,8 +1398,8 @@ function gamesPage(games, moderator) {
   const rated = games.filter((game) => game.tier).length;
   const filters = [['all', 'All'], ...TIERS.map((tier) => [tier, TITLES[tier]]), ['none', 'Not rated'], ['anticheat', 'Anti-cheat']]
     .map(([value, title]) => `<button type="button" data-filter="${value}" aria-pressed="${value === 'all'}">${title}</button>`).join('');
-  const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${key === 'category' ? 'wide' : ''}">${title}</button>`).join('');
-  const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['category', 'Category']]
+  const heads = COLUMNS.map(([key, title]) => `<button type="button" data-sort="${key}" class="${['anticheat', 'category'].includes(key) ? 'wide' : ''}">${title}</button>`).join('');
+  const sorts = [['last', 'Last Rated'], ['name', 'Name'], ['tier', 'Rating'], ['ratings', 'Number of Ratings'], ['anticheat', 'Anti-Cheat'], ['category', 'Category']]
     .map(([value, title]) => `<option value="${value}">${title}</option>`).join('');
   return shell('Games · OverPass', 'How Windows games run on a Mac with OverPass: ratings from players and each game\'s settings.', `
 <header class="page">
@@ -1402,6 +1410,7 @@ function gamesPage(games, moderator) {
   <input id="search" type="search" placeholder="Search games" aria-label="Search games" autocomplete="off">
   <div class="filters" id="filters">${filters}</div>
   <div class="arrange">
+    <span class="shown" id="shown" aria-live="polite">${games.length} games</span>
     <label>Sort by <select id="sort">${sorts}</select></label>
     <button type="button" id="direction" aria-label="Reverse the order"></button>
     <span class="filters" id="views"><button type="button" data-view="covers" aria-pressed="true">Covers</button><button type="button" data-view="rows" aria-pressed="false">Rows</button></span>
@@ -1415,17 +1424,21 @@ function gamesPage(games, moderator) {
   const cards = [...grid.querySelectorAll('.card')], search = document.getElementById('search');
   const direction = document.getElementById('direction'), views = [...document.querySelectorAll('#views button')];
   const buttons = [...document.querySelectorAll('#filters button')], nothing = document.getElementById('nothing');
+  const count = document.getElementById('shown');
   const tiers = ${JSON.stringify(TIERS)}, titles = ${JSON.stringify(TITLES)};
   // What each sort reads from a card, which way it starts, and the heading of the group a card falls under, for the
   // sorts where groups make sense. null sorts last either way. NFD splits an accent from its letter: É goes under E.
+  // A to Z each have a heading; names starting with any other letter share one, Other, last in either direction.
+  const nameGroup = (card) => {
+    const first = [...card.dataset.name.normalize('NFD')][0] ?? '';
+    return /[a-z]/.test(first) ? first.toUpperCase() : /\\p{L}/u.test(first) ? 'Other' : '#';
+  };
   const keys = {
-    name: [(card) => card.dataset.name, true, (card) => {
-      const first = [...card.dataset.name.normalize('NFD')][0] ?? '';
-      return /\\p{L}/u.test(first) ? first.toUpperCase() : '#';
-    }],
+    name: [(card) => nameGroup(card) === 'Other' ? null : card.dataset.name, true, nameGroup],
     tier: [(card) => tiers.includes(card.dataset.tier) ? tiers.indexOf(card.dataset.tier) : null, true, (card) => titles[card.dataset.tier] ?? 'Not rated'],
     ratings: [(card) => Number(card.dataset.ratings) || null, false],
     last: [(card) => Number(card.dataset.last) || null, false],
+    anticheat: [(card) => card.dataset.anticheat || null, true],
     category: [(card) => card.dataset.category || null, true, (card) => card.dataset.category || 'No category'],
   };
   let filter = 'all', state = { key: 'last', up: false, view: 'covers' };
@@ -1440,6 +1453,7 @@ function gamesPage(games, moderator) {
       if (!card.hidden) shown++;
     }
     nothing.hidden = shown > 0;
+    count.textContent = shown === cards.length ? shown + ' games' : shown + ' of ' + cards.length + ' games';
     // A heading shows when a card under it does.
     let heading = null;
     for (const item of grid.children) {

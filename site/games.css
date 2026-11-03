@@ -73,6 +73,7 @@ section { margin-top: 40px; }
 .filters button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); box-shadow: none; }
 
 .arrange { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; color: var(--secondary); }
+.shown { margin-right: 8px; font-variant-numeric: tabular-nums; }
 .arrange select { margin-left: 4px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--separator); font: inherit; color: var(--text); background: var(--glass-fill); }
 #direction { width: 32px; height: 30px; padding: 0; border: 1px solid var(--separator); border-radius: 8px; cursor: pointer; font: inherit; color: var(--text); background: var(--glass-fill); }
 #views { margin-left: auto; }
@@ -118,7 +119,7 @@ aside pre { overflow-x: auto; }
 
 /* Rows: every card a line of a table, under headers that sort it. */
 .heads, .grid.rows .card {
-  --columns: 36px minmax(0, 1fr) 88px 64px 104px 112px 104px;
+  --columns: 36px minmax(0, 1fr) 88px 64px 104px 150px 88px 104px;
   display: grid; grid-template-columns: var(--columns); align-items: center; column-gap: 12px; padding: 6px 12px;
 }
 .heads { position: sticky; top: var(--nav-bottom); z-index: 1; background: var(--bg); border-bottom: 1px solid var(--separator); color: var(--secondary); font-size: 13px; }
@@ -141,6 +142,8 @@ aside pre { overflow-x: auto; }
 .grid.rows .cover { border-radius: 4px; box-shadow: none; transform: none; }
 .grid.rows h3 { margin: 0; }
 .grid.rows .tag { display: none; }
+.grid.rows .column.anticheat .capsule-mark { width: 16px; height: 16px; margin: 0 6px 0 0; vertical-align: -3px; }
+.grid.rows .column.anticheat .capsule-mark svg { width: 10px; height: 10px; }
 .grid.rows .column { display: block; min-width: 0; overflow: hidden; font-size: 13px; color: var(--secondary); white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 860px) {
   .heads, .grid.rows .card { --columns: 36px minmax(0, 1fr) 88px 64px 104px; }
@@ -351,7 +354,7 @@ h1 .number { font-size: .55em; letter-spacing: 0; }
 .button[disabled] { opacity: .4; cursor: default; filter: none; }
 
 /* The moderation dashboard */
-main:has(.dashboard) { max-width: 1240px; }
+main:has(.dashboard), main:has(.grid.rows) { max-width: 1240px; }
 .dashboard .page { padding-bottom: 12px; }
 .dash-tabs { display: flex; gap: 4px; margin-bottom: 24px; overflow-x: auto; border-bottom: 1px solid var(--separator); scrollbar-width: none; }
 .dash-tabs a {

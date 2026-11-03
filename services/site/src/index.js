@@ -307,7 +307,8 @@ async function detail(env, id) {
 const SYNC_BATCH = 500;
 
 /// Replaces the list of games. A game that gained a profile takes over the ratings and comments of the page it had;
-/// one that lost its file keeps its page while it has either.
+/// one that lost its file keeps its page while it has either. Only rows that differ are written: the sync runs every
+/// 30 minutes and D1 counts every row written, changed or not.
 async function sync(request, env) {
   const token = request.headers.get('Authorization');
   if (!env.SYNC_TOKEN || token !== `Bearer ${env.SYNC_TOKEN}`) return json({ error: 'Not allowed.' }, 403);
@@ -315,26 +316,51 @@ async function sync(request, env) {
   if (!Array.isArray(games) || !games.length) return json({ error: 'No games.' }, 400);
   const now = Date.now();
   const steps = [];
-  const { results: keys } = await env.DB.prepare('SELECT store, store_id, game_id FROM game_keys').all();
+  const [{ results: keys }, { results: stored }, { results: guards }] = await env.DB.batch([
+    env.DB.prepare('SELECT store, store_id, game_id FROM game_keys'),
+    env.DB.prepare(`SELECT id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links,
+      brand, color FROM games`),
+    env.DB.prepare('SELECT game_id, slug, status, anticheats, notes, changed FROM anticheat'),
+  ]);
   const owners = new Map(keys.map((key) => [`${key.store}:${key.store_id}`, key.game_id]));
+  const storedGames = new Map(stored.map((row) => [row.id, row]));
+  const storedGuards = new Map(guards.map((row) => [row.game_id, row]));
+  const same = (row, values) => row && Object.entries(values).every(([column, value]) => (row[column] ?? null) === value);
+  let written = 0;
   for (const game of games) {
-    steps.push(env.DB.prepare(
-      `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, color, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET name = excluded.name, category = excluded.category, source = excluded.source,
-         verified = excluded.verified, notes = excluded.notes, profile_file = excluded.profile_file,
-         profile_text = excluded.profile_text, presets = excluded.presets, steam = excluded.steam, gog = excluded.gog,
-         links = excluded.links, brand = excluded.brand, color = excluded.color`,
-    ).bind(game.id, game.name, game.category, game.source, game.verified, game.notes, game.profile_file, game.profile_text,
-      JSON.stringify(game.presets), game.steam, game.gog, JSON.stringify(game.links ?? []), game.brand ?? null, game.color ?? null, now));
+    const values = {
+      name: game.name, category: game.category ?? null, source: game.source, verified: game.verified ?? null,
+      notes: game.notes ?? null, profile_file: game.profile_file ?? null, profile_text: game.profile_text ?? null,
+      presets: JSON.stringify(game.presets), steam: game.steam ?? null, gog: game.gog ?? null,
+      links: JSON.stringify(game.links ?? []), brand: game.brand ?? null, color: game.color ?? null,
+    };
+    if (!same(storedGames.get(game.id), values)) {
+      written++;
+      steps.push(env.DB.prepare(
+        `INSERT INTO games (id, name, category, source, verified, notes, profile_file, profile_text, presets, steam, gog, links, brand, color, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, category = excluded.category, source = excluded.source,
+           verified = excluded.verified, notes = excluded.notes, profile_file = excluded.profile_file,
+           profile_text = excluded.profile_text, presets = excluded.presets, steam = excluded.steam, gog = excluded.gog,
+           links = excluded.links, brand = excluded.brand, color = excluded.color`,
+      ).bind(game.id, ...Object.values(values), now));
+    }
     if (game.anticheat) {
       const guard = game.anticheat;
-      steps.push(env.DB.prepare('INSERT OR REPLACE INTO anticheat (game_id, slug, status, anticheats, notes, changed, run) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(game.id, guard.page ?? '', guard.status, JSON.stringify(guard.names), JSON.stringify(guard.notes), guard.changed ?? null, now));
+      const values = {
+        slug: guard.page ?? '', status: guard.status, anticheats: JSON.stringify(guard.names),
+        notes: JSON.stringify(guard.notes), changed: guard.changed ?? null,
+      };
+      if (!same(storedGuards.get(game.id), values)) {
+        written++;
+        steps.push(env.DB.prepare('INSERT OR REPLACE INTO anticheat (game_id, slug, status, anticheats, notes, changed, run) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .bind(game.id, ...Object.values(values), now));
+      }
     }
     for (const [store, id] of game.keys) {
       const owner = owners.get(`${store}:${id}`);
       if (owner === game.id) continue;
+      written++;
       if (!owner) {
         steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, id, game.id));
         continue;
@@ -348,23 +374,27 @@ async function sync(request, env) {
       steps.push(env.DB.prepare('INSERT OR REPLACE INTO game_keys (store, store_id, game_id) VALUES (?, ?, ?)').bind(store, id, game.id));
     }
   }
+  // These only touch rows that need it: games gone from the list, and anti-cheat rows for games without one now.
   const ids = JSON.stringify(games.map((game) => game.id));
+  const guarded = JSON.stringify(games.filter((game) => game.anticheat).map((game) => game.id));
   steps.push(env.DB.prepare(
     `DELETE FROM games WHERE id NOT IN (SELECT value FROM json_each(?1)) AND id NOT IN (SELECT game_id FROM ratings) AND id NOT IN (SELECT game_id FROM comments)`,
   ).bind(ids));
   steps.push(env.DB.prepare(
     `UPDATE games SET source = 'rated', verified = NULL, notes = NULL, profile_file = NULL, profile_text = NULL, presets = '[]'
-     WHERE id NOT IN (SELECT value FROM json_each(?1))`,
+     WHERE id NOT IN (SELECT value FROM json_each(?1))
+       AND (source <> 'rated' OR verified IS NOT NULL OR notes IS NOT NULL OR profile_file IS NOT NULL
+            OR profile_text IS NOT NULL OR presets <> '[]')`,
   ).bind(ids));
   steps.push(env.DB.prepare('DELETE FROM game_keys WHERE game_id NOT IN (SELECT id FROM games)'));
-  steps.push(env.DB.prepare('DELETE FROM anticheat WHERE run <> ?').bind(now));
+  steps.push(env.DB.prepare('DELETE FROM anticheat WHERE game_id NOT IN (SELECT value FROM json_each(?1))').bind(guarded));
   for (let start = 0; start < steps.length; start += SYNC_BATCH) await env.DB.batch(steps.slice(start, start + SYNC_BATCH));
   const { results: gone } = await env.DB.prepare(`SELECT game_id, file FROM game_art WHERE game_id NOT IN (SELECT id FROM games) AND game_id NOT LIKE '%:%'`).all();
   for (const entry of gone) {
     if (entry.file) await env.PICTURES.delete(`covers/${entry.file}`);
     await env.DB.prepare('DELETE FROM game_art WHERE game_id = ?').bind(entry.game_id).run();
   }
-  return json({ games: games.length });
+  return json({ games: games.length, written });
 }
 
 // Accounts

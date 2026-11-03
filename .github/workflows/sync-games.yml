@@ -13,7 +13,14 @@ on:
   # The report relay starts this every half hour as well (its wrangler.toml): GitHub skips most scheduled runs.
   schedule:
     - cron: '7,37 * * * *'
+  # The relay's runs come this way too, so like scheduled runs they send the list only when something in it changed;
+  # `gh workflow run sync-games.yml -f force=true` sends it anyway (after a worker change that needs fresh fields).
   workflow_dispatch:
+    inputs:
+      force:
+        description: Send the games list even if nothing changed
+        type: boolean
+        default: false
 
 # One at a time, so two runs can't sign or push over each other.
 concurrency: sync-games
@@ -40,9 +47,9 @@ jobs:
           SITE: https://overpass.arctim.no
           SYNC_TOKEN: ${{ secrets.GAMES_SYNC_TOKEN }}
           PROFILES_SIGNING_KEY: ${{ secrets.PROFILES_SIGNING_KEY }}
-      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
+      - if: github.event_name == 'push' || inputs.force || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
         run: node .github/scripts/games-index.js > games.json
-      - if: github.event_name != 'schedule' || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
+      - if: github.event_name == 'push' || inputs.force || steps.publish.outputs.changed == 'true' || steps.anticheat.outputs.changed == 'true'
         run: |
           curl --fail-with-body -sS -X POST https://overpass.arctim.no/api/sync \
             -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @games.json

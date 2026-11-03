@@ -129,6 +129,7 @@ enum CompatRules {
                 if let e = value.firstIndex(of: "="), e != value.startIndex {
                     rule.environment.append((String(value[..<e]), String(value[value.index(after: e)...])))
                 }
+            case "tweak": if let tweak = tweakVariable(value) { rule.environment.append(tweak) }
             case "dll": rule.dllOverrides.append(value)
             case "graphics": rule.graphics = GraphicsBackend(rawValue: value.lowercased())
             case "prefer-graphics": rule.preferGraphics = GraphicsBackend(rawValue: value.lowercased())
@@ -150,6 +151,15 @@ enum CompatRules {
             rule.stores = stores
             return rule
         }
+    }
+
+    /// The variable a `tweak = <name> [value]` line sets, as OverPass Wine sets it: OVERPASS_TWEAK_<NAME> (letters
+    /// and digits upper case, anything else `_`) to the value, or 1. OverPass Runtime and OverPass Wine read them.
+    static func tweakVariable(_ line: String) -> (key: String, value: String)? {
+        let parts = line.split(separator: " ", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let name = parts.first, !name.isEmpty else { return nil }
+        let key = "OVERPASS_TWEAK_" + String(name.uppercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+        return (key, parts.count > 1 && !parts[1].isEmpty ? parts[1] : "1")
     }
 
     /// The Winetricks verbs the rules ask for a library title: by its Steam app or program, as every rule

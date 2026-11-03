@@ -736,7 +736,11 @@ struct ProfileEditor: View {
         graphics = mine.last { $0.key == "graphics" }.flatMap { GraphicsBackend(rawValue: $0.value) }
         direct3D9 = mine.last { $0.key == "d3d9" }.flatMap { Direct3D9Backend(rawValue: $0.value) }
         // The shader choice lives in DXMT_CONFIG; the rest of it stays in the environment text.
-        var envLines = mine.filter { $0.key == "env" }.map(\.value)
+        // Tweak lines show as the variables they set, and are saved that way.
+        var envLines = mine.compactMap { line -> String? in
+            if line.key == "env" { return line.value }
+            return line.key == "tweak" ? CompatRules.tweakVariable(line.value).map { "\($0.key)=\($0.value)" } : nil
+        }
         shaders = .background
         if let i = envLines.lastIndex(where: { $0.hasPrefix("DXMT_CONFIG=") }) {
             let options = envLines[i].dropFirst("DXMT_CONFIG=".count).split(separator: ";").map(String.init)

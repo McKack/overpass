@@ -292,6 +292,7 @@ struct GameProfile: Codable, Identifiable, Hashable {
         p.dependencies = (all(app, "winetricks") + all(app, "dependency")).flatMap { $0.split(separator: " ").map(String.init) }
         p.components = all(app, "component").compactMap(ComponentID.init(catalogID:))
         for e in all(app, "env") { if let (k, v) = pair(e, "=") { p.environment[k] = v } }
+        for t in all(app, "tweak") { if let (k, v) = CompatRules.tweakVariable(t) { p.environment[k] = v } }
         for d in all(app, "dll") { if let (k, v) = pair(d, "=") { p.dllOverrides[k] = v } }
         p.graphics = first(app, "graphics").flatMap(GraphicsBackend.init(rawValue:)) ?? .auto
         p.playStationControllers = first(app, "controllers")?.lowercased() == "playstation"

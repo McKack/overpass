@@ -1,6 +1,6 @@
 {
  "format": 1,
- "revision": 4,
+ "revision": 5,
  "about": "Settings OverPass can set per title, for the Simple views of the profile editor, containers and profile files: what each value means, its type and limits. Facts from the open-source code and public documentation each entry's source names.",
  "settings": [
   {
@@ -74,6 +74,20 @@
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c vsync_apply"
   },
   {
+   "id": "OVERPASS_TWEAK_ADD_16_9_MODES",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (the display's own modes)",
+   "title": "Offer 16:9 resolutions",
+   "summary": "For a game that only accepts widescreen 16:9 resolutions and fails on a Mac display that has none, such as Tormented Souls 2 on a MacBook.",
+   "technical": "tweak = add-16-9-modes. When no mode in the DXGI mode list is 16:9, OverPass Runtime adds 1280x720 to 3840x2160, up to the largest mode, at its refresh rate. Direct3D 10 to 12 only. Needs the OverPass Runtime release after 0.5.0.",
+   "group": "Display",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/overpass/patches/0023 (src/dxgi/dxgi_output.cpp GetDisplayModeList1)"
+  },
+  {
    "id": "OVERPASS_NO_MAC_FRAME",
    "kind": "env",
    "type": "bool",
@@ -142,6 +156,20 @@
    "group": "Compatibility",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/ntdll/unix/process.c:95-107; overpass/PATCHES.md #12"
+  },
+  {
+   "id": "OVERPASS_TWEAK_HIDE_WINE",
+   "kind": "env",
+   "type": "bool",
+   "on": "1",
+   "off": null,
+   "default": "unset (Wine's own exports are found)",
+   "title": "Hide Wine from the game",
+   "summary": "For a game that turns a feature off when it finds Wine, such as The Witcher 3's DLSS.",
+   "technical": "tweak = hide-wine. On when set, non-empty and not \"0\". ntdll's LdrGetProcedureAddress, and so GetProcAddress, answers not found for wine_* and __wine_* names in ntdll, kernel32 and kernelbase. Import tables are untouched. Same idea as Wine Staging's HideWineExports and umu-protonfixes' hidewineexports. Needs OverPass Wine 11.0-14.",
+   "group": "Compatibility",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/ntdll/loader.c hide_wine_export; overpass/PATCHES.md #35"
   },
   {
    "id": "WINE_LARGE_ADDRESS_AWARE",
@@ -1220,6 +1248,28 @@
    "source": "https://github.com/KhronosGroup/MoltenVK/blob/v1.4.2/Docs/MoltenVK_Configuration_Parameters.md#L251"
   },
   {
+   "id": "OVERPASS_TWEAK_DEPTH_EQUAL",
+   "kind": "env",
+   "type": "enum",
+   "values": [
+    {
+     "value": "1",
+     "title": "As greater or equal"
+    },
+    {
+     "value": "less-equal",
+     "title": "As less or equal"
+    }
+   ],
+   "default": "unset (as the game asks)",
+   "title": "Depth test \"equal\"",
+   "summary": "For white specks on characters, as in God of War: a game that draws the same geometry twice and keeps only pixels at exactly the same depth.",
+   "technical": "tweak = depth-equal [less-equal]. A depth test of EQUAL runs as GREATER_EQUAL (1, greater-equal) or LESS_EQUAL (less-equal), on Direct3D 11 depth-stencil states and Direct3D 12 pipelines. Metal need not compute a prepass and the later pass to the same last bit. Something drawn after the prepass in front of it can show through. Needs the OverPass Runtime release after 0.5.0.",
+   "group": "Direct3D",
+   "applies": "overpass-runtime",
+   "source": "OverPass-runtime/repo/overpass/patches/0023 (src/util/util_tweaks.hpp)"
+  },
+  {
    "id": "program",
    "kind": "rule-key",
    "type": "string",
@@ -1403,6 +1453,18 @@
    "group": "Direct3D",
    "applies": "overpass-wine",
    "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c:36-37,447-475"
+  },
+  {
+   "id": "tweak",
+   "kind": "rule-key",
+   "type": "string",
+   "repeatable": true,
+   "title": "Tweak",
+   "summary": "A named fix for a known kind of problem, such as hide-wine or depth-equal, that any game can use.",
+   "technical": "tweak = <name> [value] sets OVERPASS_TWEAK_<NAME> (letters and digits upper case, anything else _) to the value, or 1, for the program, in OverPass and in OverPass Wine's rules alike. Also read in [app]. The tweaks are the OVERPASS_TWEAK_* settings.",
+   "group": "Launch",
+   "applies": "overpass-wine",
+   "source": "OverPass-wine/main/dlls/kernelbase/overpass_compat.c rule_apply; src/Sources/OverPass/CompatRules.swift tweakVariable"
   },
   {
    "id": "replace-path",

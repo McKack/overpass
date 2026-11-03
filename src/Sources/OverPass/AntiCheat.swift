@@ -93,7 +93,12 @@ enum AntiCheat {
                 + "won't be banned for playing under Wine."
         case "Running":
             return "\n\nHowever, it's listed as running on Linux through Wine or Proton, without the developer's word on it. "
-                + "That can make it less risky, but not risk free."
+                + "That can make it less risky, but not risk free, and how it does on a Mac is unknown."
+        case "Planned":
+            return "\n\nThe developer plans Linux support, but it isn't listed as working yet, so how it does on a Mac is unknown."
+        case "Broken":
+            return "\n\nIt's also listed as not working on Linux through Wine or Proton, so expect the same on a Mac. "
+                + "That's about the anti-cheat: the game itself may still run."
         default:
             return ""
         }

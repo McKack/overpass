@@ -158,6 +158,7 @@ aside pre { overflow-x: auto; }
 .capsule-mark { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 2px; border-radius: 50%; color: var(--secondary); box-shadow: inset 0 0 0 1px currentColor; }
 .capsule-mark svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .capsule-mark.bad { color: var(--bad); }
+.capsule-mark.warn { color: var(--warn); }
 .capsule:hover { text-decoration: none; box-shadow: var(--glass-rim), inset 0 0 0 1px var(--accent); }
 .capsule-icon { position: relative; flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; overflow: hidden; color: var(--secondary); background: var(--separator); }
 .capsule-icon i { width: 14px; height: 14px; background: var(--text); -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
@@ -223,8 +224,8 @@ footer a { color: inherit; }
 }
 .account input:focus { outline: 2px solid var(--accent); }
 .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
-:root { --bad: #d70015; }
-@media (prefers-color-scheme: dark) { :root { --bad: #ff6961; } }
+:root { --bad: #d70015; --warn: #c77700; }
+@media (prefers-color-scheme: dark) { :root { --bad: #ff6961; --warn: #ffb340; } }
 .problem { color: var(--bad); }
 .write { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
 .write label { font-size: 15px; color: var(--secondary); }
@@ -438,6 +439,7 @@ a.tile:hover { text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent);
 .ac-card header .capsule-icon { width: 32px; height: 32px; }
 .ac-card header .state { padding: 1px 8px; border-radius: 980px; }
 .state.bad { color: var(--bad); }
+.state.warn { color: var(--warn); }
 .close { display: grid; place-items: center; width: 32px; height: 32px; margin-left: auto; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: var(--text); background: var(--glass-fill); box-shadow: var(--glass-rim); }
 .close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 .panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }

@@ -1784,7 +1784,9 @@ const ANTI_CHEAT_BLOCKED = 'This anti-cheat doesn\'t run on a Mac at all, so the
 const ANTI_CHEAT_RISK = 'Anti-cheats often refuse to run under Wine on a Mac; online play may not work, and some games ban accounts for it. Offline play usually works.';
 const ANTI_CHEAT_HOWEVER = {
   Supported: 'However, it\'s listed as working on Linux with the developer\'s approval, and Linux runs it through Wine or Proton too. That can make it less risky, but not risk free: only the developer can promise you won\'t be banned for playing under Wine.',
-  Running: 'However, it\'s listed as running on Linux through Wine or Proton, without the developer\'s word on it. That can make it less risky, but not risk free.',
+  Running: 'However, it\'s listed as running on Linux through Wine or Proton, without the developer\'s word on it. That can make it less risky, but not risk free, and how it does on a Mac is unknown.',
+  Planned: 'The developer plans Linux support, but it isn\'t listed as working yet, so how it does on a Mac is unknown.',
+  Broken: 'It\'s also listed as not working on Linux through Wine or Proton, so expect the same on a Mac. That\'s about the anti-cheat: the game itself may still run.',
 };
 
 const LINUX_STATES = {
@@ -1810,24 +1812,27 @@ function antiCheatIcon(name) {
   return `<span class="capsule-icon">${shield}${file ? `<img src="${WATCHDOG}/anticheats/${file}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</span>`;
 }
 
-/// Whether an anti-cheat stands in the way of this game. Words on it match AntiCheat.swift.
+/// How an anti-cheat stands: 'bad' is known not to work or to ban, 'fine' has the developer's approval, 'warn' is
+/// unknown under Wine on a Mac. Words on it match AntiCheat.swift.
 function antiCheatFacts(guard, name) {
   const blocked = guard.status === 'Denied' || KERNEL_ONLY.includes(name.toLowerCase());
-  return { blocked, fine: !blocked && Boolean(ANTI_CHEAT_HOWEVER[guard.status]) };
+  return { blocked, mark: blocked || guard.status === 'Broken' ? 'bad' : guard.status === 'Supported' ? 'fine' : 'warn' };
 }
 
 const MARKS = {
   fine: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.500 6.300 2.500 2.500 4.500-5.300"/></svg>',
+  warn: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.200 10.300 9.800H1.700ZM6 5.200v2M6 8.400v.1"/></svg>',
   bad: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3l-6 6"/></svg>',
 };
+const MARK_WORDS = { fine: 'allowed by the developer', warn: 'unknown on a Mac', bad: 'known not to work' };
 
-/// A chip for each anti-cheat, ending in a tick when it's known to work and a cross when it isn't; each opens a card.
+/// A chip for each anti-cheat, ending in a tick, a warning or a cross; each opens a card that explains it.
 function antiCheatChips(game) {
   const guard = game.anticheat;
   if (!guard) return '';
   return guard.names.map((name, i) => {
-    const { fine } = antiCheatFacts(guard, name);
-    return `<button type="button" class="capsule" popovertarget="anticheat-${i}" aria-label="${escape(name)}, ${fine ? 'works on Linux' : 'not supported'}">${antiCheatIcon(name)}${escape(name)}<span class="capsule-mark ${fine ? 'fine' : 'bad'}">${MARKS[fine ? 'fine' : 'bad']}</span></button>`;
+    const { mark } = antiCheatFacts(guard, name);
+    return `<button type="button" class="capsule" popovertarget="anticheat-${i}" aria-label="${escape(name)}, ${MARK_WORDS[mark]}">${antiCheatIcon(name)}${escape(name)}<span class="capsule-mark ${mark}">${MARKS[mark]}</span></button>`;
   }).join('');
 }
 
@@ -1837,12 +1842,13 @@ function antiCheatCards(game) {
   const notes = guard.notes.length ? `<section class="pane wide-pane"><h4>Notes</h4><ul class="ac-notes">${guard.notes.map(([text, url]) => `<li>${url ? `<a href="${escape(url)}" target="_blank" rel="noopener">${escape(text)}</a>` : escape(text)}</li>`).join('')}</ul></section>` : '';
   return guard.names.map((name, i) => {
     const known = ANTI_CHEATS[name.toLowerCase()];
-    const { blocked, fine } = antiCheatFacts(guard, name);
+    const { blocked, mark } = antiCheatFacts(guard, name);
+    const however = !blocked && ANTI_CHEAT_HOWEVER[guard.status];
     return `<div class="ac-card" id="anticheat-${i}" popover>
-  <header>${antiCheatIcon(name)}<h3>${escape(name)}</h3><span class="state ${fine ? '' : 'bad'}">${escape(guard.status || 'Unknown')}</span>
+  <header>${antiCheatIcon(name)}<h3>${escape(name)}</h3><span class="state ${mark}">${escape(guard.status || 'Unknown')}</span>
     <button type="button" class="close" popovertarget="anticheat-${i}" popovertargetaction="hide" aria-label="Close"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3l-6 6"/></svg></button></header>
   <div class="panes">
-    <section class="pane${blocked ? ' danger' : ''}"><h4>On a Mac</h4><p>${blocked ? ANTI_CHEAT_BLOCKED : ANTI_CHEAT_RISK}</p>${fine ? `<p>${ANTI_CHEAT_HOWEVER[guard.status]}</p>` : ''}</section>
+    <section class="pane${mark === 'bad' ? ' danger' : ''}"><h4>On a Mac</h4><p>${blocked ? ANTI_CHEAT_BLOCKED : ANTI_CHEAT_RISK}</p>${however ? `<p>${however}</p>` : ''}</section>
     <section class="pane"><h4>On Linux</h4><p>${escape(LINUX_STATES[guard.status] ?? 'Nothing is known yet.')}</p>${known ? `<h4>What it is</h4><p>${escape(known[1])}</p>` : ''}</section>
     ${notes}
   </div>

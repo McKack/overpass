@@ -506,10 +506,12 @@ extension LibraryItem {
 }
 
 extension BottleManager {
-    /// "Witcher 3 — GOG": the title and its client, and its container when other titles share it.
+    /// "Witcher 3 — GOG": the title and its client, and its container when other titles share it and it isn't
+    /// named after the client (the GOG container holds the GOG games).
     func tooltip(for item: LibraryItem) -> String {
         let shared = library.contains { $0.bottle.path == item.bottle.path && $0.id != item.id }
-        return ([item.app.name, item.app.launcher, shared ? item.bottle.name : nil] as [String?])
+        let container = shared && item.bottle.name.caseInsensitiveCompare(item.app.launcher ?? "") != .orderedSame
+        return ([item.app.name, item.app.launcher, container ? item.bottle.name : nil] as [String?])
             .compactMap { $0 }.joined(separator: " — ")
     }
 }

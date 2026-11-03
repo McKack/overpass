@@ -48,7 +48,7 @@ You shouldn't need to know how a game was built to play it.
 
 | Type | What |
 |---|---|
-| Feature | VSync and Max FPS settings for each game |
+| Feature | VSync and Max FPS settings for each game (done, VSync arrives with the next OverPass Wine) |
 | Fix | Smoother windowed games above 60 FPS |
 | Feature | Reusable game fixes that work across similar games |
 | Fix | Less shader stutter in Direct3D 12 games |
